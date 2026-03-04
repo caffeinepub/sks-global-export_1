@@ -2,10 +2,21 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { exportAllData } from "../utils/storage";
 
 // Google Drive backup using GIS token client
-const CLIENT_ID =
-  (window as unknown as Record<string, unknown>).SKS_GOOGLE_CLIENT_ID ||
-  "YOUR_GOOGLE_CLIENT_ID";
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
+const GDRIVE_CLIENT_ID_KEY = "sks_gdrive_client_id";
+
+export function getStoredClientId(): string {
+  return (
+    localStorage.getItem(GDRIVE_CLIENT_ID_KEY) ||
+    ((window as unknown as Record<string, unknown>)
+      .SKS_GOOGLE_CLIENT_ID as string) ||
+    ""
+  );
+}
+
+export function saveClientId(id: string) {
+  localStorage.setItem(GDRIVE_CLIENT_ID_KEY, id.trim());
+}
 const BACKUP_FILE_NAME = "sks_global_export_backup.json";
 const GDRIVE_CONNECTED_KEY = "sks_gdrive_connected";
 const LAST_BACKUP_GDRIVE_KEY = "sks_gdrive_last_backup";
@@ -164,6 +175,13 @@ export function useGoogleDriveBackup() {
 
   const connect = useCallback(async () => {
     setError(null);
+    const clientId = getStoredClientId();
+    if (!clientId) {
+      setError(
+        "Please enter your Google OAuth Client ID above and save it before connecting.",
+      );
+      return;
+    }
     try {
       await loadGisScript();
 
@@ -174,26 +192,25 @@ export function useGoogleDriveBackup() {
         return;
       }
 
-      if (!tokenClientRef.current) {
-        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-          client_id: CLIENT_ID as string,
-          scope: SCOPE,
-          callback: (response) => {
-            if (response.error) {
-              setError(`OAuth error: ${response.error}`);
-              return;
-            }
-            if (response.access_token) {
-              accessTokenRef.current = response.access_token;
-              setIsConnected(true);
-              localStorage.setItem(GDRIVE_CONNECTED_KEY, "true");
-              startAutoBackup();
-              // Do an immediate backup on connect
-              backupNow();
-            }
-          },
-        });
-      }
+      // Always reinitialise so we pick up the latest saved Client ID
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: SCOPE,
+        callback: (response) => {
+          if (response.error) {
+            setError(`OAuth error: ${response.error}`);
+            return;
+          }
+          if (response.access_token) {
+            accessTokenRef.current = response.access_token;
+            setIsConnected(true);
+            localStorage.setItem(GDRIVE_CONNECTED_KEY, "true");
+            startAutoBackup();
+            // Do an immediate backup on connect
+            backupNow();
+          }
+        },
+      });
 
       tokenClientRef.current.requestAccessToken({ prompt: "" });
     } catch (e) {

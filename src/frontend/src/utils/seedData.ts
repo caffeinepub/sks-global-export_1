@@ -5,9 +5,11 @@ import type {
   Company,
   CourierBrand,
   CourierPickup,
+  CourierTariff,
   Customer,
   GeneralProduct,
   ServiceProduct,
+  TariffWeightSlab,
   Vendor,
   XeroxProduct,
 } from "../types";
@@ -18,6 +20,7 @@ import {
   getPickups,
   getProducts,
   getSettings,
+  getTariffs,
   getUsers,
   getVendors,
   setAWBSerials,
@@ -27,11 +30,149 @@ import {
   setPickups,
   setProducts,
   setSettings,
+  setTariffs,
   setUsers,
   setVendors,
 } from "./storage";
 
 const hashPassword = (pwd: string): string => btoa(pwd);
+
+function _seedDTDCTariffs(
+  companyId: string,
+  dtdcBrandId: string,
+  dtdcBrandName: string,
+): void {
+  type ExpressZone = {
+    zone: string;
+    slabs: TariffWeightSlab[];
+    maxWeightKg: number;
+  };
+  type CargoZone = { zone: string; minKg: number; ratePerKg: number };
+
+  const expressZones: ExpressZone[] = [
+    {
+      zone: "Within City",
+      slabs: [
+        { maxGrams: 100, price: 69 },
+        { maxGrams: 250, price: 75 },
+        { maxGrams: 500, price: 91 },
+        { maxGrams: null, price: 43 },
+      ],
+      maxWeightKg: 3,
+    },
+    {
+      zone: "Within State",
+      slabs: [
+        { maxGrams: 100, price: 96 },
+        { maxGrams: 250, price: 101 },
+        { maxGrams: 500, price: 112 },
+        { maxGrams: null, price: 59 },
+      ],
+      maxWeightKg: 3,
+    },
+    {
+      zone: "Within Zone",
+      slabs: [
+        { maxGrams: 100, price: 117 },
+        { maxGrams: 250, price: 122 },
+        { maxGrams: 500, price: 133 },
+        { maxGrams: null, price: 69 },
+      ],
+      maxWeightKg: 3,
+    },
+    {
+      zone: "Metros",
+      slabs: [
+        { maxGrams: 100, price: 133 },
+        { maxGrams: 250, price: 138 },
+        { maxGrams: 500, price: 191 },
+        { maxGrams: null, price: 128 },
+      ],
+      maxWeightKg: 5,
+    },
+    {
+      zone: "Rest of India",
+      slabs: [
+        { maxGrams: 100, price: 154 },
+        { maxGrams: 250, price: 159 },
+        { maxGrams: 500, price: 212 },
+        { maxGrams: null, price: 149 },
+      ],
+      maxWeightKg: 5,
+    },
+    {
+      zone: "Special Destinations",
+      slabs: [
+        { maxGrams: 100, price: 64 },
+        { maxGrams: 250, price: 69 },
+        { maxGrams: 500, price: 69 },
+        { maxGrams: null, price: 48 },
+      ],
+      maxWeightKg: 5,
+    },
+  ];
+
+  const cargoAirZones: CargoZone[] = [
+    { zone: "Within State", minKg: 3, ratePerKg: 112 },
+    { zone: "Within Zone", minKg: 3, ratePerKg: 149 },
+    { zone: "Metros", minKg: 3, ratePerKg: 191 },
+    { zone: "Rest of India", minKg: 3, ratePerKg: 223 },
+    { zone: "Special Destinations", minKg: 3, ratePerKg: 69 },
+  ];
+
+  const cargoSurfaceZones: CargoZone[] = [
+    { zone: "Within City", minKg: 3, ratePerKg: 69 },
+    { zone: "Within State", minKg: 3, ratePerKg: 75 },
+    { zone: "Within Zone", minKg: 3, ratePerKg: 91 },
+    { zone: "Metros", minKg: 5, ratePerKg: 112 },
+    { zone: "Rest of India", minKg: 5, ratePerKg: 138 },
+    { zone: "Special Destinations", minKg: 5, ratePerKg: 53 },
+  ];
+
+  const tariffs: CourierTariff[] = [
+    ...expressZones.map((z, i) => ({
+      id: `tariff_dtdc_express_${i + 1}`,
+      companyId,
+      brandId: dtdcBrandId,
+      brandName: dtdcBrandName,
+      productType: "Express",
+      zone: z.zone,
+      pricingMode: "slab" as const,
+      slabs: z.slabs,
+      maxWeightKg: z.maxWeightKg,
+      isGSTInclusive: true,
+      isActive: true,
+    })),
+    ...cargoAirZones.map((z, i) => ({
+      id: `tariff_dtdc_cargo_air_${i + 1}`,
+      companyId,
+      brandId: dtdcBrandId,
+      brandName: dtdcBrandName,
+      productType: "Cargo Air",
+      zone: z.zone,
+      pricingMode: "per_kg" as const,
+      minKg: z.minKg,
+      ratePerKg: z.ratePerKg,
+      isGSTInclusive: true,
+      isActive: true,
+    })),
+    ...cargoSurfaceZones.map((z, i) => ({
+      id: `tariff_dtdc_cargo_surface_${i + 1}`,
+      companyId,
+      brandId: dtdcBrandId,
+      brandName: dtdcBrandName,
+      productType: "Cargo Surface",
+      zone: z.zone,
+      pricingMode: "per_kg" as const,
+      minKg: z.minKg,
+      ratePerKg: z.ratePerKg,
+      isGSTInclusive: true,
+      isActive: true,
+    })),
+  ];
+
+  setTariffs(companyId, tariffs);
+}
 
 export const seedInitialData = (): void => {
   const companyId = "company_01";
@@ -71,7 +212,16 @@ export const seedInitialData = (): void => {
 
   // Only seed companies and related data if no companies exist
   const companies = getCompanies();
-  if (companies.length > 0) return;
+
+  // Always seed DTDC tariffs if tariffs are empty (even when company data already exists)
+  if (companies.length > 0) {
+    const activeCid = companies[0].id;
+    const existingTariffs = getTariffs(activeCid);
+    if (existingTariffs.length === 0) {
+      _seedDTDCTariffs(activeCid, "brand_dtdc_01", "DTDC");
+    }
+    return;
+  }
 
   // Create company
   const company: Company = {
@@ -483,6 +633,12 @@ export const seedInitialData = (): void => {
     // Update settings bill sequence
     const settings = getSettings(companyId);
     setSettings(companyId, { ...settings, billSeq: 4 });
+  }
+
+  // Seed DTDC default tariffs
+  const existingTariffs = getTariffs(companyId);
+  if (existingTariffs.length === 0) {
+    _seedDTDCTariffs(companyId, "brand_dtdc_01", "DTDC");
   }
 
   // Sample pickups

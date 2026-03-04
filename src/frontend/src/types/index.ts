@@ -111,6 +111,14 @@ export type AnyProduct =
   | XeroxProduct
   | ServiceProduct;
 
+export interface CustomerTariffAssignment {
+  tariffId: string; // references CourierTariff.id
+  brandName: string;
+  productType: string;
+  zone: string;
+  customPrice: number; // customer-specific override price
+}
+
 export interface Customer {
   id: string;
   companyId: string;
@@ -122,6 +130,7 @@ export interface Customer {
   gstin?: string;
   totalPurchases: number;
   isActive: boolean;
+  tariffAssignments?: CustomerTariffAssignment[];
 }
 
 export interface Vendor {
@@ -248,4 +257,25 @@ export interface CompanySettings {
   autoBackup: boolean;
   backupFrequency: "daily" | "weekly";
   lastBackupTime?: string;
+}
+
+export interface TariffWeightSlab {
+  maxGrams: number | null; // null = "additional per 500g" slab
+  price: number;
+}
+
+export interface CourierTariff {
+  id: string;
+  companyId: string;
+  brandId: string;
+  brandName: string;
+  productType: string; // e.g. "Express", "Cargo Air", "Cargo Surface", "D Express", "Lite", "Priority", etc.
+  zone: string; // e.g. "Within City", "Within State", etc.
+  pricingMode: "slab" | "per_kg"; // slab = weight slabs, per_kg = minKg + ratePerKg
+  slabs?: TariffWeightSlab[]; // used when pricingMode === "slab"
+  minKg?: number; // used when pricingMode === "per_kg"
+  ratePerKg?: number; // used when pricingMode === "per_kg"
+  maxWeightKg?: number; // optional weight cap for warnings
+  isGSTInclusive: boolean;
+  isActive: boolean;
 }

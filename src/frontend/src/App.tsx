@@ -8,6 +8,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { useAppStore } from "./hooks/useAppStore";
 import { AdminPage } from "./pages/AdminPage";
 import { BillsPage } from "./pages/BillsPage";
+import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { InventoryPage } from "./pages/InventoryPage";
@@ -19,6 +20,7 @@ import { ProductsPage } from "./pages/ProductsPage";
 import { PurchaseInvoicesPage } from "./pages/PurchaseInvoicesPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { TariffManagementPage } from "./pages/TariffManagementPage";
 import { VendorsPage } from "./pages/VendorsPage";
 import { seedInitialData } from "./utils/seedData";
 import { getLastBackupTime } from "./utils/storage";
@@ -100,6 +102,10 @@ function AppLayout() {
         return <SettingsPage />;
       case "admin":
         return <AdminPage />;
+      case "tariffs":
+        return <TariffManagementPage />;
+      case "customer-tariffs":
+        return <CustomerTariffsPage />;
       default:
         return <DashboardPage onNavigate={navigate} />;
     }

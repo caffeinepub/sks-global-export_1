@@ -14,6 +14,8 @@ import {
   Settings,
   ShieldCheck,
   ShoppingCart,
+  Tag,
+  Tags,
   Truck,
   UserCheck,
   Users,
@@ -53,6 +55,8 @@ const navItems: NavItem[] = [
   { label: "Customers", icon: Users, path: "customers" },
   { label: "Vendors", icon: UserCheck, path: "vendors" },
   { label: "Courier Pickups", icon: Truck, path: "pickups" },
+  { label: "Tariff Rates", icon: Tag, path: "tariffs" },
+  { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
   { label: "Reports", icon: BarChart2, path: "reports" },
   { label: "Settings", icon: Settings, path: "settings" },
 ];

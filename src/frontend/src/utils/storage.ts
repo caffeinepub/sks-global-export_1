@@ -7,7 +7,9 @@ import type {
   CompanySettings,
   CourierBrand,
   CourierPickup,
+  CourierTariff,
   Customer,
+  CustomerTariffAssignment,
   Invoice,
   PurchaseInvoice,
   Vendor,
@@ -31,6 +33,8 @@ export const KEYS = {
   pickups: (cid: string) => `sks_pickups_${cid}`,
   purchaseInvoices: (cid: string) => `sks_purchase_invoices_${cid}`,
   settings: (cid: string) => `sks_settings_${cid}`,
+  tariffs: (cid: string) => `sks_tariffs_${cid}`,
+  customerTariffs: (cid: string) => `sks_customer_tariffs_${cid}`,
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -131,6 +135,23 @@ export const getSettings = (cid: string): CompanySettings =>
 export const setSettings = (cid: string, d: CompanySettings): void =>
   set(KEYS.settings(cid), d);
 
+export const getTariffs = (cid: string): CourierTariff[] =>
+  get<CourierTariff[]>(KEYS.tariffs(cid), []);
+export const setTariffs = (cid: string, d: CourierTariff[]): void =>
+  set(KEYS.tariffs(cid), d);
+
+export const getCustomerTariffMap = (
+  cid: string,
+): Record<string, CustomerTariffAssignment[]> =>
+  get<Record<string, CustomerTariffAssignment[]>>(
+    KEYS.customerTariffs(cid),
+    {},
+  );
+export const setCustomerTariffMap = (
+  cid: string,
+  d: Record<string, CustomerTariffAssignment[]>,
+): void => set(KEYS.customerTariffs(cid), d);
+
 // Last backup
 export const getLastBackupTime = (): string | null =>
   localStorage.getItem(KEYS.LAST_BACKUP);
@@ -155,6 +176,8 @@ export const exportAllData = (): string => {
     allData[`pickups_${cid}`] = getPickups(cid);
     allData[`purchaseInvoices_${cid}`] = getPurchaseInvoices(cid);
     allData[`settings_${cid}`] = getSettings(cid);
+    allData[`tariffs_${cid}`] = getTariffs(cid);
+    allData[`customerTariffs_${cid}`] = getCustomerTariffMap(cid);
   }
 
   return JSON.stringify(allData, null, 2);
@@ -192,5 +215,15 @@ export const importAllData = (jsonString: string): void => {
       );
     if (data[`settings_${cid}`])
       setSettings(cid, data[`settings_${cid}`] as CompanySettings);
+    if (data[`tariffs_${cid}`])
+      setTariffs(cid, data[`tariffs_${cid}`] as CourierTariff[]);
+    if (data[`customerTariffs_${cid}`])
+      setCustomerTariffMap(
+        cid,
+        data[`customerTariffs_${cid}`] as Record<
+          string,
+          CustomerTariffAssignment[]
+        >,
+      );
   }
 };

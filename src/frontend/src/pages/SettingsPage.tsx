@@ -58,7 +58,11 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
-import { useGoogleDriveBackup } from "../hooks/useGoogleDriveBackup";
+import {
+  getStoredClientId,
+  saveClientId,
+  useGoogleDriveBackup,
+} from "../hooks/useGoogleDriveBackup";
 import type { AppUser, Company } from "../types";
 import { generateId, hashPassword } from "../utils/helpers";
 import {
@@ -87,6 +91,8 @@ export function SettingsPage() {
 
   // Google Drive backup
   const gdrive = useGoogleDriveBackup();
+  const [googleClientId, setGoogleClientId] = useState(getStoredClientId);
+  const [clientIdSaved, setClientIdSaved] = useState(false);
 
   // Company form
   const [showCompanyForm, setShowCompanyForm] = useState(false);
@@ -774,16 +780,59 @@ export function SettingsPage() {
                 )}
               </div>
 
-              {/* Setup note */}
-              <div className="flex items-start gap-2 p-3 bg-amber-50 rounded-lg">
-                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800">
-                  To enable real Google Drive sync, set{" "}
-                  <code className="font-mono bg-amber-100 px-1 rounded">
-                    window.SKS_GOOGLE_CLIENT_ID
-                  </code>{" "}
-                  to your OAuth 2.0 Client ID in the browser console before
-                  connecting.
+              {/* Client ID input */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="google-client-id"
+                  className="text-xs font-medium text-muted-foreground"
+                >
+                  Google OAuth Client ID
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    id="google-client-id"
+                    type="text"
+                    value={googleClientId}
+                    onChange={(e) => {
+                      setGoogleClientId(e.target.value);
+                      setClientIdSaved(false);
+                    }}
+                    placeholder="Paste your Client ID here (e.g. 123456-abc.apps.googleusercontent.com)"
+                    className="flex-1 text-xs border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      if (!googleClientId.trim()) {
+                        toast.error("Please enter a Client ID");
+                        return;
+                      }
+                      saveClientId(googleClientId);
+                      setClientIdSaved(true);
+                      toast.success("Client ID saved");
+                    }}
+                  >
+                    Save
+                  </Button>
+                </div>
+                {clientIdSaved && (
+                  <p className="text-xs text-green-600 flex items-center gap-1">
+                    <CheckCircle className="w-3 h-3" /> Client ID saved — click
+                    Connect Google Drive above
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  Get this from{" "}
+                  <a
+                    href="https://console.cloud.google.com/apis/credentials"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 underline"
+                  >
+                    Google Cloud Console &rarr; APIs &amp; Services &rarr;
+                    Credentials
+                  </a>
                 </p>
               </div>
             </div>

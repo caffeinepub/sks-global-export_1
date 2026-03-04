@@ -10,10 +10,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
+  AlertCircle,
   ArrowRight,
   Package,
   Plus,
@@ -33,6 +35,7 @@ import type {
   Bill,
   BillItem,
   CourierBrand,
+  CourierTariff,
   Customer,
   GeneralProduct,
   ServiceProduct,
@@ -44,7 +47,96 @@ import {
   generateId,
   getTodayStr,
 } from "../utils/helpers";
-import { setSettings } from "../utils/storage";
+import {
+  getCustomerTariffMap,
+  getTariffs,
+  setSettings,
+} from "../utils/storage";
+
+// ─── Generic Tariff Price Calculator ─────────────────────────────────────────
+
+function calcTariffPrice(
+  tariffs: CourierTariff[],
+  brandName: string,
+  productType: string,
+  zone: string,
+  weightKg: number,
+): { price: number; breakdown: string; warning?: string } {
+  const match = tariffs.find(
+    (t) =>
+      t.brandName.toLowerCase() === brandName.toLowerCase() &&
+      t.productType.toLowerCase() === productType.toLowerCase() &&
+      t.zone === zone &&
+      t.isActive,
+  );
+
+  if (!match) {
+    return {
+      price: 0,
+      breakdown: `No tariff found for ${brandName} – ${productType} (${zone})`,
+    };
+  }
+
+  if (match.pricingMode === "slab") {
+    const slabs = match.slabs ?? [];
+    const grams = weightKg * 1000;
+
+    // Find the first slab whose maxGrams >= grams (null = additional slab)
+    const fixedSlabs = slabs.filter((s) => s.maxGrams !== null);
+    const addlSlab = slabs.find((s) => s.maxGrams === null);
+
+    let price = 0;
+    let slabDesc = "";
+
+    const matchedSlab = fixedSlabs.find(
+      (s) => s.maxGrams !== null && grams <= s.maxGrams!,
+    );
+
+    if (matchedSlab) {
+      price = matchedSlab.price;
+      slabDesc = `0–${matchedSlab.maxGrams}g`;
+    } else if (addlSlab) {
+      // Use last fixed slab as base price, add addl per 500g
+      const lastFixed = fixedSlabs[fixedSlabs.length - 1];
+      const lastMaxG = lastFixed?.maxGrams ?? 500;
+      const lastPrice = lastFixed?.price ?? 0;
+      const addlUnits = Math.ceil((grams - lastMaxG) / 500);
+      price = lastPrice + addlUnits * addlSlab.price;
+      slabDesc = `${lastMaxG}g + ${addlUnits}×500g extra`;
+    } else if (fixedSlabs.length > 0) {
+      // Weight exceeds all fixed slabs and no addl slab — use last fixed
+      const lastFixed = fixedSlabs[fixedSlabs.length - 1];
+      price = lastFixed.price;
+      slabDesc = `>${fixedSlabs[fixedSlabs.length - 2]?.maxGrams ?? 0}g`;
+    }
+
+    const warning =
+      match.maxWeightKg && weightKg > match.maxWeightKg
+        ? `Max weight for ${productType} to ${zone} is ${match.maxWeightKg}kg`
+        : undefined;
+
+    return {
+      price,
+      breakdown: `${productType} | ${zone} | ${slabDesc}`,
+      warning,
+    };
+  }
+
+  if (match.pricingMode === "per_kg") {
+    const minKg = match.minKg ?? 1;
+    const ratePerKg = match.ratePerKg ?? 0;
+    const chargeableKg = Math.max(weightKg, minKg);
+    const price = chargeableKg * ratePerKg;
+    return {
+      price,
+      breakdown: `${productType} | ${zone} | ${chargeableKg.toFixed(2)}kg × ₹${ratePerKg}/kg`,
+    };
+  }
+
+  return { price: 0, breakdown: "" };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Brand color configuration
 const BRAND_COLORS: Record<
@@ -123,6 +215,9 @@ interface CourierFormState {
   height: string;
   productType: string;
   serviceMode: string;
+  tariffZone: string;
+  tariffProductType: string;
+  useTariff: boolean;
 }
 
 interface POSBillingPageProps {
@@ -158,6 +253,35 @@ export function POSBillingPage({
   const [date, setDate] = useState(getTodayStr());
   const [productSearch, setProductSearch] = useState("");
 
+  // Load tariffs for dynamic pricing
+  const tariffs = getTariffs(activeCompanyId);
+
+  // Brands with at least one active tariff entry
+  const brandsWithTariffs = new Set(
+    tariffs.filter((t) => t.isActive).map((t) => t.brandName.toLowerCase()),
+  );
+
+  // Load customer-specific tariff overrides
+  const customerTariffMap = getCustomerTariffMap(activeCompanyId);
+  const customerTariffAssignments = selectedCustomer
+    ? (customerTariffMap[selectedCustomer.id] ?? [])
+    : [];
+
+  // Helper: get customer override for a tariff (brand + productType + zone)
+  const getCustomerTariffOverride = (
+    brandName: string,
+    productType: string,
+    zone: string,
+  ): number | null => {
+    const assignment = customerTariffAssignments.find(
+      (a) =>
+        a.brandName.toLowerCase() === brandName.toLowerCase() &&
+        a.productType.toLowerCase() === productType.toLowerCase() &&
+        a.zone === zone,
+    );
+    return assignment ? assignment.customPrice : null;
+  };
+
   // Courier brand selection and detail form
   const [selectedBrand, setSelectedBrand] = useState<CourierBrand | null>(null);
   const [courierForm, setCourierForm] = useState<CourierFormState>({
@@ -174,6 +298,9 @@ export function POSBillingPage({
     height: "",
     productType: "Parcel",
     serviceMode: "",
+    tariffZone: "Within City",
+    tariffProductType: "Express",
+    useTariff: false,
   });
 
   // Filter customers
@@ -265,12 +392,84 @@ export function POSBillingPage({
       courierForm.height,
     );
 
+    // Determine price — use tariff if enabled, otherwise brand's selling price
+    // Check customer-specific override first, then standard tariff, then brand price
+    // Tariff rates may be GST-inclusive, so extract base price from the tariff amount
+    let unitPrice = selectedBrand.sellingPrice;
+    let totalPrice = selectedBrand.sellingPrice;
+
+    // Check for customer-specific tariff override (when tariff mode is active)
+    const customerOverride =
+      courierForm.useTariff && courierForm.weight
+        ? getCustomerTariffOverride(
+            selectedBrand.brandName,
+            courierForm.tariffProductType,
+            courierForm.tariffZone,
+          )
+        : null;
+
+    if (customerOverride !== null) {
+      // Use customer-specific price (treat same as tariff for GST extraction)
+      const matchedTariff = tariffs.find(
+        (t) =>
+          t.brandName.toLowerCase() === selectedBrand.brandName.toLowerCase() &&
+          t.productType.toLowerCase() ===
+            courierForm.tariffProductType.toLowerCase() &&
+          t.zone === courierForm.tariffZone &&
+          t.isActive,
+      );
+      const gstRate = selectedBrand.gstRate || 0;
+      if (matchedTariff?.isGSTInclusive && gstRate > 0) {
+        const basePrice =
+          Math.round((customerOverride / (1 + gstRate / 100)) * 100) / 100;
+        unitPrice = basePrice;
+        totalPrice = basePrice;
+      } else {
+        unitPrice = customerOverride;
+        totalPrice = customerOverride;
+      }
+    } else if (courierForm.useTariff && courierForm.weight) {
+      const tariffResult = calcTariffPrice(
+        tariffs,
+        selectedBrand.brandName,
+        courierForm.tariffProductType,
+        courierForm.tariffZone,
+        Number(courierForm.weight),
+      );
+      if (tariffResult.price > 0) {
+        // Find the matching tariff to check GST-inclusive flag
+        const matchedTariff = tariffs.find(
+          (t) =>
+            t.brandName.toLowerCase() ===
+              selectedBrand.brandName.toLowerCase() &&
+            t.productType.toLowerCase() ===
+              courierForm.tariffProductType.toLowerCase() &&
+            t.zone === courierForm.tariffZone &&
+            t.isActive,
+        );
+        const gstRate = selectedBrand.gstRate || 0;
+        if (matchedTariff?.isGSTInclusive && gstRate > 0) {
+          // Tariff is GST-inclusive — extract base price so billing system can re-add GST correctly
+          const basePrice =
+            Math.round((tariffResult.price / (1 + gstRate / 100)) * 100) / 100;
+          unitPrice = basePrice;
+          totalPrice = basePrice;
+        } else {
+          unitPrice = tariffResult.price;
+          totalPrice = tariffResult.price;
+        }
+      }
+    }
+
     const description = [
       `Sender: ${courierForm.senderName}${courierForm.senderPhone ? ` (${courierForm.senderPhone})` : ""}`,
       `Receiver: ${courierForm.receiverName}${courierForm.receiverPincode ? `, ${courierForm.receiverPincode}` : ""}`,
       courierForm.weight ? `${courierForm.weight}kg` : "",
       courierForm.productType,
       mode,
+      courierForm.useTariff
+        ? `${courierForm.tariffProductType} | ${courierForm.tariffZone}`
+        : "",
     ]
       .filter(Boolean)
       .join(" | ");
@@ -286,8 +485,8 @@ export function POSBillingPage({
       awbSerial,
       serviceMode: mode,
       brandName: selectedBrand.brandName,
-      unitPrice: selectedBrand.sellingPrice,
-      totalPrice: selectedBrand.sellingPrice,
+      unitPrice,
+      totalPrice,
       gstRate: selectedBrand.gstRate,
     };
 
@@ -311,9 +510,12 @@ export function POSBillingPage({
       height: "",
       productType: "Parcel",
       serviceMode: "",
+      tariffZone: "Within City",
+      tariffProductType: "Express",
+      useTariff: false,
     });
 
-    void chargeableWt; // used in display, not price calc (price is fixed per brand)
+    void chargeableWt; // used in display, not price calc (unless DTDC tariff overrides)
   };
 
   const getNextAWBSerial = useCallback(
@@ -768,10 +970,6 @@ export function POSBillingPage({
                       courierForm.width,
                       courierForm.height,
                     );
-                    const gstAmount =
-                      (selectedBrand.sellingPrice * selectedBrand.gstRate) /
-                      100;
-                    const totalWithGst = selectedBrand.sellingPrice + gstAmount;
                     const style = getBrandStyle(selectedBrand.brandName);
                     return (
                       <div className="border border-primary/30 rounded-xl p-4 bg-primary/2 space-y-4">
@@ -1052,51 +1250,334 @@ export function POSBillingPage({
                           </div>
                         </div>
 
+                        {/* Tariff Toggle — for any brand with tariff entries */}
+                        {brandsWithTariffs.has(
+                          selectedBrand.brandName.toLowerCase(),
+                        ) &&
+                          (() => {
+                            // Dynamic zones and product types from stored tariffs for this brand
+                            const brandTariffs = tariffs.filter(
+                              (t) =>
+                                t.brandName.toLowerCase() ===
+                                  selectedBrand.brandName.toLowerCase() &&
+                                t.isActive,
+                            );
+                            const availableProductTypes = [
+                              ...new Set(
+                                brandTariffs.map((t) => t.productType),
+                              ),
+                            ];
+                            const availableZones = [
+                              ...new Set(
+                                brandTariffs
+                                  .filter(
+                                    (t) =>
+                                      t.productType ===
+                                      courierForm.tariffProductType,
+                                  )
+                                  .map((t) => t.zone),
+                              ),
+                            ];
+
+                            return (
+                              <div className="space-y-3">
+                                <div className="flex items-center justify-between bg-orange-50 border border-orange-200 rounded-lg px-3 py-2">
+                                  <div>
+                                    <p className="text-xs font-semibold text-orange-800">
+                                      {selectedBrand.brandName} Tariff
+                                      Calculator
+                                    </p>
+                                    <p className="text-xs text-orange-600">
+                                      Auto-calculate from stored tariff rates
+                                    </p>
+                                  </div>
+                                  <Switch
+                                    checked={courierForm.useTariff}
+                                    onCheckedChange={(checked) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        useTariff: checked,
+                                      }))
+                                    }
+                                    data-ocid="courier.tariff.toggle"
+                                  />
+                                </div>
+
+                                {courierForm.useTariff && (
+                                  <div className="grid grid-cols-2 gap-3">
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs">
+                                        Service / Product Type
+                                      </Label>
+                                      <Select
+                                        value={courierForm.tariffProductType}
+                                        onValueChange={(v) =>
+                                          setCourierForm((p) => ({
+                                            ...p,
+                                            tariffProductType: v,
+                                            // reset zone when product type changes
+                                            tariffZone:
+                                              brandTariffs.find(
+                                                (t) => t.productType === v,
+                                              )?.zone ?? p.tariffZone,
+                                          }))
+                                        }
+                                      >
+                                        <SelectTrigger
+                                          className="h-8 text-xs"
+                                          data-ocid="courier.service_type.select"
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {availableProductTypes.map((pt) => (
+                                            <SelectItem key={pt} value={pt}>
+                                              {pt}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                      <Label className="text-xs">
+                                        Destination Zone
+                                      </Label>
+                                      <Select
+                                        value={courierForm.tariffZone}
+                                        onValueChange={(v) =>
+                                          setCourierForm((p) => ({
+                                            ...p,
+                                            tariffZone: v,
+                                          }))
+                                        }
+                                      >
+                                        <SelectTrigger
+                                          className="h-8 text-xs"
+                                          data-ocid="courier.zone.select"
+                                        >
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {availableZones.map((zone) => (
+                                            <SelectItem key={zone} value={zone}>
+                                              {zone}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
+
                         {/* Price Calculation */}
-                        <div className="bg-white border border-border rounded-lg p-3 space-y-1.5">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                            Price Calculation
-                          </p>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">
-                              Base Price
-                            </span>
-                            <span>
-                              {formatCurrency(selectedBrand.sellingPrice)}
-                            </span>
-                          </div>
-                          {selectedBrand.gstRate > 0 && (
-                            <div className="flex justify-between text-xs">
-                              <span className="text-muted-foreground">
-                                GST ({selectedBrand.gstRate}%)
-                              </span>
-                              <span>{formatCurrency(gstAmount)}</span>
+                        {(() => {
+                          const hasTariff =
+                            courierForm.useTariff &&
+                            brandsWithTariffs.has(
+                              selectedBrand.brandName.toLowerCase(),
+                            );
+                          const weightKg = Number(courierForm.weight) || 0;
+                          const tariffResult =
+                            hasTariff && weightKg > 0
+                              ? calcTariffPrice(
+                                  tariffs,
+                                  selectedBrand.brandName,
+                                  courierForm.tariffProductType,
+                                  courierForm.tariffZone,
+                                  weightKg,
+                                )
+                              : null;
+
+                          const gstRate = selectedBrand.gstRate || 0;
+
+                          // Find the matching tariff to check GST-inclusive flag
+                          const matchedTariff = hasTariff
+                            ? tariffs.find(
+                                (t) =>
+                                  t.brandName.toLowerCase() ===
+                                    selectedBrand.brandName.toLowerCase() &&
+                                  t.productType.toLowerCase() ===
+                                    courierForm.tariffProductType.toLowerCase() &&
+                                  t.zone === courierForm.tariffZone &&
+                                  t.isActive,
+                              )
+                            : null;
+
+                          const isGSTInclusive =
+                            matchedTariff?.isGSTInclusive ?? false;
+
+                          // Check for customer-specific override
+                          const custOverride = hasTariff
+                            ? getCustomerTariffOverride(
+                                selectedBrand.brandName,
+                                courierForm.tariffProductType,
+                                courierForm.tariffZone,
+                              )
+                            : null;
+
+                          // Determine effective tariff total (customer override takes precedence)
+                          const effectiveTariffTotal =
+                            custOverride !== null
+                              ? custOverride
+                              : tariffResult && tariffResult.price > 0
+                                ? tariffResult.price
+                                : null;
+
+                          // Tariff total and breakdown
+                          const tariffTotal = effectiveTariffTotal;
+                          const tariffBase =
+                            tariffTotal && gstRate > 0 && isGSTInclusive
+                              ? Math.round(
+                                  (tariffTotal / (1 + gstRate / 100)) * 100,
+                                ) / 100
+                              : tariffTotal;
+                          const tariffGST =
+                            tariffTotal && tariffBase && isGSTInclusive
+                              ? tariffTotal - tariffBase
+                              : 0;
+
+                          // Non-tariff: base price + GST added on top
+                          const basePrice = selectedBrand.sellingPrice;
+                          const gstOnBase = (basePrice * gstRate) / 100;
+                          const totalNonTariff = basePrice + gstOnBase;
+
+                          return (
+                            <div className="bg-white border border-border rounded-lg p-3 space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Price Calculation
+                                </p>
+                                {custOverride !== null && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-2 py-0.5">
+                                    ★ Custom Rate
+                                  </span>
+                                )}
+                              </div>
+
+                              {/* Breakdown line when tariff is active */}
+                              {tariffResult && custOverride === null && (
+                                <p className="text-xs italic text-muted-foreground">
+                                  {tariffResult.breakdown}
+                                </p>
+                              )}
+                              {custOverride !== null && (
+                                <p className="text-xs italic text-amber-700">
+                                  Customer-specific rate applied for{" "}
+                                  {selectedCustomer?.name}
+                                </p>
+                              )}
+
+                              {/* Warning if weight exceeds max for zone */}
+                              {tariffResult?.warning && (
+                                <div className="flex items-center gap-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
+                                  <p className="text-xs text-amber-600">
+                                    {tariffResult.warning}
+                                  </p>
+                                </div>
+                              )}
+
+                              {hasTariff && tariffTotal ? (
+                                // Tariff active: show tariff breakdown
+                                <>
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-muted-foreground">
+                                      {custOverride !== null
+                                        ? "Custom Rate"
+                                        : "Tariff"}
+                                      {isGSTInclusive ? " (Incl. GST)" : ""}
+                                    </span>
+                                    <span
+                                      className={`font-medium ${custOverride !== null ? "text-amber-700" : ""}`}
+                                    >
+                                      {formatCurrency(tariffTotal)}
+                                    </span>
+                                  </div>
+                                  {gstRate > 0 &&
+                                    tariffBase &&
+                                    isGSTInclusive && (
+                                      <>
+                                        <div className="flex justify-between text-xs">
+                                          <span className="text-muted-foreground">
+                                            Base (ex-GST)
+                                          </span>
+                                          <span>
+                                            {formatCurrency(tariffBase)}
+                                          </span>
+                                        </div>
+                                        <div className="flex justify-between text-xs">
+                                          <span className="text-muted-foreground">
+                                            GST ({gstRate}%) included
+                                          </span>
+                                          <span>
+                                            {formatCurrency(tariffGST)}
+                                          </span>
+                                        </div>
+                                      </>
+                                    )}
+                                  <div className="flex justify-between text-sm font-bold pt-1 border-t border-border">
+                                    <span>Total (You Collect)</span>
+                                    <span className="text-primary">
+                                      {formatCurrency(tariffTotal)}
+                                    </span>
+                                  </div>
+                                  {gstRate > 0 && isGSTInclusive && (
+                                    <p className="text-xs text-muted-foreground italic">
+                                      Tariff rates are GST-inclusive
+                                    </p>
+                                  )}
+                                </>
+                              ) : (
+                                // No tariff: base + GST added on top
+                                <>
+                                  <div className="flex justify-between text-xs">
+                                    <span className="text-muted-foreground">
+                                      Base Price
+                                    </span>
+                                    <span>{formatCurrency(basePrice)}</span>
+                                  </div>
+                                  {gstRate > 0 && (
+                                    <div className="flex justify-between text-xs">
+                                      <span className="text-muted-foreground">
+                                        GST ({gstRate}%)
+                                      </span>
+                                      <span>{formatCurrency(gstOnBase)}</span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between text-sm font-bold pt-1 border-t border-border">
+                                    <span>Total</span>
+                                    <span className="text-primary">
+                                      {formatCurrency(
+                                        gstRate > 0
+                                          ? totalNonTariff
+                                          : basePrice,
+                                      )}
+                                    </span>
+                                  </div>
+                                </>
+                              )}
+
+                              <div className="flex justify-between text-xs">
+                                <span className="text-muted-foreground">
+                                  AWB Serial
+                                </span>
+                                <span
+                                  className={cn(
+                                    "font-mono",
+                                    nextSerial
+                                      ? "text-green-700"
+                                      : "text-red-600",
+                                  )}
+                                >
+                                  {nextSerial || "No serials available"}
+                                </span>
+                              </div>
                             </div>
-                          )}
-                          <div className="flex justify-between text-sm font-bold pt-1 border-t border-border">
-                            <span>Total</span>
-                            <span className="text-primary">
-                              {formatCurrency(
-                                selectedBrand.gstRate > 0
-                                  ? totalWithGst
-                                  : selectedBrand.sellingPrice,
-                              )}
-                            </span>
-                          </div>
-                          <div className="flex justify-between text-xs">
-                            <span className="text-muted-foreground">
-                              AWB Serial
-                            </span>
-                            <span
-                              className={cn(
-                                "font-mono",
-                                nextSerial ? "text-green-700" : "text-red-600",
-                              )}
-                            >
-                              {nextSerial || "No serials available"}
-                            </span>
-                          </div>
-                        </div>
+                          );
+                        })()}
 
                         {/* Add to Bill Button */}
                         <Button
