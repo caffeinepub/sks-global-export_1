@@ -8,6 +8,7 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { useAppStore } from "./hooks/useAppStore";
 import { AdminPage } from "./pages/AdminPage";
 import { BillsPage } from "./pages/BillsPage";
+import { CostPricePage } from "./pages/CostPricePage";
 import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -104,6 +105,8 @@ function AppLayout() {
         return <AdminPage />;
       case "tariffs":
         return <TariffManagementPage />;
+      case "cost-price":
+        return <CostPricePage />;
       case "customer-tariffs":
         return <CustomerTariffsPage />;
       default:

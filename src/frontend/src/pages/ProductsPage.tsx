@@ -80,6 +80,8 @@ export function ProductsPage() {
   const [brandName, setBrandName] = useState("");
   const [productType, setProductType] = useState("Courier");
   const [serviceModes, setServiceModes] = useState("Air,Surface,GEC");
+  const [transportModes, setTransportModes] =
+    useState<CourierBrand["transportModes"]>("Both");
   const [serialLogic, setSerialLogic] =
     useState<CourierBrand["serialLogic"]>("sequential");
   const [serialGap, setSerialGap] = useState("11");
@@ -108,6 +110,7 @@ export function ProductsPage() {
     setBrandName("");
     setProductType("Courier");
     setServiceModes("Air,Surface,GEC");
+    setTransportModes("Both");
     setSerialLogic("sequential");
     setSerialGap("11");
     setSerialPrefix("");
@@ -147,6 +150,7 @@ export function ProductsPage() {
       setBrandName(p.brandName);
       setProductType(p.productType);
       setServiceModes(p.serviceModes.join(","));
+      setTransportModes(p.transportModes ?? "Both");
       setSerialLogic(p.serialLogic);
       setSerialGap(String(p.serialGap || 11));
       setSerialPrefix(p.serialPrefix || "");
@@ -210,6 +214,7 @@ export function ProductsPage() {
         brandName,
         productType,
         serviceModes: serviceModes.split(",").map((s) => s.trim()),
+        transportModes,
         serialLogic,
         serialGap: Number(serialGap),
         serialPrefix,
@@ -431,6 +436,7 @@ export function ProductsPage() {
                 <TableRow className="bg-muted/30">
                   <TableHead className="text-xs">Brand Name</TableHead>
                   <TableHead className="text-xs">Type</TableHead>
+                  <TableHead className="text-xs">Transport</TableHead>
                   <TableHead className="text-xs">Service Modes</TableHead>
                   <TableHead className="text-xs">Serial Logic</TableHead>
                   <TableHead className="text-xs">Price</TableHead>
@@ -446,6 +452,14 @@ export function ProductsPage() {
                       {p.brandName}
                     </TableCell>
                     <TableCell className="text-xs">{p.productType}</TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={`text-xs ${(p.transportModes ?? "Both") === "Air" ? "text-blue-600 border-blue-300" : (p.transportModes ?? "Both") === "Surface" ? "text-green-600 border-green-300" : "text-orange-600 border-orange-300"}`}
+                      >
+                        {p.transportModes ?? "Both"}
+                      </Badge>
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1 flex-wrap">
                         {p.serviceModes.map((m) => (
@@ -817,7 +831,27 @@ export function ProductsPage() {
                       className="mt-1 text-sm"
                     />
                   </div>
-                  <div className="col-span-2">
+                  <div>
+                    <Label className="text-xs">Transport Mode</Label>
+                    <Select
+                      value={transportModes}
+                      onValueChange={(v) =>
+                        setTransportModes(v as CourierBrand["transportModes"])
+                      }
+                    >
+                      <SelectTrigger className="mt-1 text-sm">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Air">Air Only</SelectItem>
+                        <SelectItem value="Surface">Surface Only</SelectItem>
+                        <SelectItem value="Both">
+                          Both (Air &amp; Surface)
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
                     <Label className="text-xs">
                       Service Modes (comma-separated)
                     </Label>

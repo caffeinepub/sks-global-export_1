@@ -34,6 +34,7 @@ export const KEYS = {
   purchaseInvoices: (cid: string) => `sks_purchase_invoices_${cid}`,
   settings: (cid: string) => `sks_settings_${cid}`,
   tariffs: (cid: string) => `sks_tariffs_${cid}`,
+  costTariffs: (cid: string) => `sks_cost_tariffs_${cid}`,
   customerTariffs: (cid: string) => `sks_customer_tariffs_${cid}`,
 };
 
@@ -140,6 +141,11 @@ export const getTariffs = (cid: string): CourierTariff[] =>
 export const setTariffs = (cid: string, d: CourierTariff[]): void =>
   set(KEYS.tariffs(cid), d);
 
+export const getCostTariffs = (cid: string): CourierTariff[] =>
+  get<CourierTariff[]>(KEYS.costTariffs(cid), []);
+export const setCostTariffs = (cid: string, d: CourierTariff[]): void =>
+  set(KEYS.costTariffs(cid), d);
+
 export const getCustomerTariffMap = (
   cid: string,
 ): Record<string, CustomerTariffAssignment[]> =>
@@ -177,6 +183,7 @@ export const exportAllData = (): string => {
     allData[`purchaseInvoices_${cid}`] = getPurchaseInvoices(cid);
     allData[`settings_${cid}`] = getSettings(cid);
     allData[`tariffs_${cid}`] = getTariffs(cid);
+    allData[`costTariffs_${cid}`] = getCostTariffs(cid);
     allData[`customerTariffs_${cid}`] = getCustomerTariffMap(cid);
   }
 
@@ -217,6 +224,8 @@ export const importAllData = (jsonString: string): void => {
       setSettings(cid, data[`settings_${cid}`] as CompanySettings);
     if (data[`tariffs_${cid}`])
       setTariffs(cid, data[`tariffs_${cid}`] as CourierTariff[]);
+    if (data[`costTariffs_${cid}`])
+      setCostTariffs(cid, data[`costTariffs_${cid}`] as CourierTariff[]);
     if (data[`customerTariffs_${cid}`])
       setCustomerTariffMap(
         cid,

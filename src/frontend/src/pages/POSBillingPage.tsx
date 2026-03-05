@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
+import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { useAppStore } from "../hooks/useAppStore";
 import type {
   Bill,
@@ -236,6 +237,7 @@ export function POSBillingPage({
     settings,
     updateSettings,
     activeCompanyId,
+    activeCompany,
   } = useAppStore();
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
@@ -252,6 +254,7 @@ export function POSBillingPage({
   const [amountPaid, setAmountPaid] = useState("");
   const [date, setDate] = useState(getTodayStr());
   const [productSearch, setProductSearch] = useState("");
+  const [slipItem, setSlipItem] = useState<BillItem | null>(null);
 
   // Load tariffs for dynamic pricing
   const tariffs = getTariffs(activeCompanyId);
@@ -384,7 +387,17 @@ export function POSBillingPage({
       return;
     }
 
-    const mode = courierForm.serviceMode || selectedBrand.serviceModes[0];
+    const brandTransportMode =
+      (selectedBrand as CourierBrand & { transportModes?: string })
+        .transportModes ?? "Both";
+    const autoMode =
+      brandTransportMode === "Air"
+        ? "Air"
+        : brandTransportMode === "Surface"
+          ? "Surface"
+          : null;
+    const mode =
+      autoMode ?? (courierForm.serviceMode || selectedBrand.serviceModes[0]);
     const chargeableWt = calcChargeableWeight(
       courierForm.weight,
       courierForm.length,
@@ -461,24 +474,45 @@ export function POSBillingPage({
       }
     }
 
+    // Determine which weight is higher — actual or volumetric
+    const actualWtKg = Number.parseFloat(courierForm.weight) || 0;
+    const volWtKg = calcVolumetricWeight(
+      courierForm.length,
+      courierForm.width,
+      courierForm.height,
+    );
+    const displayWeightKg = Math.max(actualWtKg, volWtKg);
+    const weightLabel =
+      displayWeightKg > 0 ? `${displayWeightKg.toFixed(3)} kg` : "";
+
+    // Format booking date
+    const bookingDateFormatted = (() => {
+      try {
+        return new Date(date).toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+        });
+      } catch {
+        return date;
+      }
+    })();
+
+    // Description: Receiver Name - Destination Pincode - Weight - Booking Date
     const description = [
-      `Sender: ${courierForm.senderName}${courierForm.senderPhone ? ` (${courierForm.senderPhone})` : ""}`,
-      `Receiver: ${courierForm.receiverName}${courierForm.receiverPincode ? `, ${courierForm.receiverPincode}` : ""}`,
-      courierForm.weight ? `${courierForm.weight}kg` : "",
-      courierForm.productType,
-      mode,
-      courierForm.useTariff
-        ? `${courierForm.tariffProductType} | ${courierForm.tariffZone}`
-        : "",
+      courierForm.receiverName,
+      courierForm.receiverPincode || "",
+      weightLabel,
+      bookingDateFormatted,
     ]
       .filter(Boolean)
-      .join(" | ");
+      .join(" - ");
 
     const item: BillItem = {
       id: generateId(),
       productId: selectedBrand.id,
       productType: "courier_awb",
-      productName: `${selectedBrand.brandName} Courier`,
+      productName: awbSerial, // Item name = AWB No
       description,
       quantity: 1,
       unit: "Piece",
@@ -488,6 +522,16 @@ export function POSBillingPage({
       unitPrice,
       totalPrice,
       gstRate: selectedBrand.gstRate,
+      senderName: courierForm.senderName,
+      senderPhone: courierForm.senderPhone,
+      senderAddress: courierForm.senderAddress,
+      receiverName: courierForm.receiverName,
+      receiverPhone: courierForm.receiverPhone,
+      receiverAddress: courierForm.receiverAddress,
+      receiverPincode: courierForm.receiverPincode,
+      actualWeightKg: actualWtKg,
+      volumetricWeightKg: volWtKg,
+      chargeableWeightKg: chargeableWt,
     };
 
     consumeAWBSerial(selectedBrand.id, awbSerial);
@@ -514,8 +558,6 @@ export function POSBillingPage({
       tariffProductType: "Express",
       useTariff: false,
     });
-
-    void chargeableWt; // used in display, not price calc (unless DTDC tariff overrides)
   };
 
   const getNextAWBSerial = useCallback(
@@ -898,9 +940,21 @@ export function POSBillingPage({
                             setSelectedBrand(null);
                           } else {
                             setSelectedBrand(brand);
+                            const tm =
+                              (
+                                brand as CourierBrand & {
+                                  transportModes?: string;
+                                }
+                              ).transportModes ?? "Both";
+                            const autoServiceMode =
+                              tm === "Air"
+                                ? "Air"
+                                : tm === "Surface"
+                                  ? "Surface"
+                                  : brand.serviceModes[0] || "";
                             setCourierForm((prev) => ({
                               ...prev,
-                              serviceMode: brand.serviceModes[0] || "",
+                              serviceMode: autoServiceMode,
                             }));
                           }
                         }}
@@ -1224,29 +1278,67 @@ export function POSBillingPage({
                           </div>
                           <div className="space-y-1.5">
                             <Label className="text-xs">Mode of Transport</Label>
-                            <Select
-                              value={
-                                courierForm.serviceMode ||
-                                selectedBrand.serviceModes[0]
+                            {/* If brand has fixed single transport mode, show read-only badge; if Both, show selector */}
+                            {(() => {
+                              const tm =
+                                (
+                                  selectedBrand as CourierBrand & {
+                                    transportModes?: string;
+                                  }
+                                ).transportModes ?? "Both";
+                              if (tm === "Air") {
+                                return (
+                                  <div className="h-8 px-3 rounded-md border border-border bg-blue-50 flex items-center">
+                                    <span className="text-xs font-semibold text-blue-700">
+                                      ✈ Air Mode
+                                    </span>
+                                  </div>
+                                );
                               }
-                              onValueChange={(v) =>
-                                setCourierForm((p) => ({
-                                  ...p,
-                                  serviceMode: v,
-                                }))
+                              if (tm === "Surface") {
+                                return (
+                                  <div className="h-8 px-3 rounded-md border border-border bg-green-50 flex items-center">
+                                    <span className="text-xs font-semibold text-green-700">
+                                      🚛 Surface Mode
+                                    </span>
+                                  </div>
+                                );
                               }
-                            >
-                              <SelectTrigger className="h-8 text-xs">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {selectedBrand.serviceModes.map((mode) => (
-                                  <SelectItem key={mode} value={mode}>
-                                    {mode}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                              // Both — show selector
+                              return (
+                                <Select
+                                  value={courierForm.serviceMode || "Air"}
+                                  onValueChange={(v) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      serviceMode: v,
+                                    }))
+                                  }
+                                >
+                                  <SelectTrigger
+                                    className="h-8 text-xs"
+                                    data-ocid="courier.service_mode.select"
+                                  >
+                                    <SelectValue placeholder="Select mode" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="Air">✈ Air</SelectItem>
+                                    <SelectItem value="Surface">
+                                      🚛 Surface
+                                    </SelectItem>
+                                    {selectedBrand.serviceModes
+                                      .filter(
+                                        (m) => m !== "Air" && m !== "Surface",
+                                      )
+                                      .map((mode) => (
+                                        <SelectItem key={mode} value={mode}>
+                                          {mode}
+                                        </SelectItem>
+                                      ))}
+                                  </SelectContent>
+                                </Select>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -1667,14 +1759,24 @@ export function POSBillingPage({
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-sm font-semibold truncate">
+                        {item.productType === "courier_awb" &&
+                          item.brandName && (
+                            <span className="text-[10px] text-primary font-bold uppercase tracking-wide">
+                              {item.brandName}
+                            </span>
+                          )}
+                        <p
+                          className={`text-sm font-semibold truncate${item.productType === "courier_awb" ? " font-mono" : ""}`}
+                        >
                           {item.productName}
                         </p>
-                        {item.awbSerial && (
-                          <Badge variant="outline" className="text-xs">
-                            AWB: {item.awbSerial}
-                          </Badge>
-                        )}
+                        {/* Only show AWB badge if productName is NOT already the AWB serial */}
+                        {item.awbSerial &&
+                          item.productName !== item.awbSerial && (
+                            <Badge variant="outline" className="text-xs">
+                              AWB: {item.awbSerial}
+                            </Badge>
+                          )}
                         {item.serviceMode && (
                           <Badge variant="secondary" className="text-xs">
                             {item.serviceMode}
@@ -1735,13 +1837,26 @@ export function POSBillingPage({
                       <p className="text-sm font-bold text-foreground">
                         {formatCurrency(item.totalPrice)}
                       </p>
-                      <button
-                        type="button"
-                        className="mt-1 text-destructive hover:text-destructive/80"
-                        onClick={() => removeItem(item.id)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center gap-1 mt-1 justify-end">
+                        {item.productType === "courier_awb" && (
+                          <button
+                            type="button"
+                            className="text-primary hover:text-primary/80"
+                            title="Print Courier Slip"
+                            onClick={() => setSlipItem(item)}
+                            data-ocid="pos.courier_slip.button"
+                          >
+                            <Printer className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className="text-destructive hover:text-destructive/80"
+                          onClick={() => removeItem(item.id)}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1890,6 +2005,21 @@ export function POSBillingPage({
           </Button>
         </div>
       </div>
+
+      {/* Courier Slip Print Dialog */}
+      {slipItem && (
+        <CourierSlipPrintDialog
+          open={!!slipItem}
+          onClose={() => setSlipItem(null)}
+          item={slipItem}
+          billNo="(Draft Bill)"
+          billDate={date}
+          companyName={activeCompany?.name || "SKS Global Export"}
+          companyAddress={activeCompany?.address}
+          companyPhone={activeCompany?.phone}
+          companyLogoUrl={activeCompany?.logoUrl}
+        />
+      )}
     </div>
   );
 }

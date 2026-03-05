@@ -42,8 +42,8 @@ import {
   Edit2,
   Layers,
   Plus,
-  Tag,
   Trash2,
+  TrendingDown,
   TrendingUp,
   Wind,
   XCircle,
@@ -53,7 +53,7 @@ import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import type { CourierBrand, CourierTariff, TariffWeightSlab } from "../types";
 import { generateId } from "../utils/helpers";
-import { getTariffs, setTariffs } from "../utils/storage";
+import { getCostTariffs, setCostTariffs } from "../utils/storage";
 
 const ZONE_OPTIONS = [
   "Within City",
@@ -91,10 +91,10 @@ interface TariffFormState {
   transportMode: "Air" | "Surface" | "Both";
   pricingMode: "slab" | "per_kg";
   // Slab mode fields
-  slabs: SlabWithKey[]; // fixed weight slabs (maxGrams != null)
-  addlSlabPrice: string; // price for the additional per-unit slab
-  addlUnitGrams: string; // unit size for the additional slab (default 500)
-  aboveSlabRatePerKg: string; // per-kg rate above all fixed slabs (optional)
+  slabs: SlabWithKey[];
+  addlSlabPrice: string;
+  addlUnitGrams: string;
+  aboveSlabRatePerKg: string;
   maxWeightKg: string;
   // Per KG mode fields
   minKg: string;
@@ -123,7 +123,7 @@ const emptyForm = (): TariffFormState => ({
   maxWeightKg: "",
   minKg: "1",
   ratePerKg: "0",
-  isGSTInclusive: true,
+  isGSTInclusive: false,
   isActive: true,
 });
 
@@ -170,9 +170,9 @@ function transportModeBadge(mode: "Air" | "Surface" | "Both" | undefined) {
   );
 }
 
-// ── Tariff Management Page ─────────────────────────────────────────────────────
+// ── Cost Price Page ────────────────────────────────────────────────────────────
 
-export function TariffManagementPage() {
+export function CostPricePage() {
   const { activeCompanyId, products } = useAppStore();
 
   const courierBrands = products.filter(
@@ -180,7 +180,7 @@ export function TariffManagementPage() {
   ) as CourierBrand[];
 
   const [tariffs, setLocalTariffs] = useState<CourierTariff[]>(() =>
-    getTariffs(activeCompanyId),
+    getCostTariffs(activeCompanyId),
   );
 
   const [filterBrand, setFilterBrand] = useState("all");
@@ -195,12 +195,12 @@ export function TariffManagementPage() {
   const [deleteTarget, setDeleteTarget] = useState<CourierTariff | null>(null);
 
   useEffect(() => {
-    setLocalTariffs(getTariffs(activeCompanyId));
+    setLocalTariffs(getCostTariffs(activeCompanyId));
   }, [activeCompanyId]);
 
   const saveTariffs = (updated: CourierTariff[]) => {
     setLocalTariffs(updated);
-    setTariffs(activeCompanyId, updated);
+    setCostTariffs(activeCompanyId, updated);
   };
 
   // ── Filters ────────────────────────────────────────────────────────────────
@@ -228,7 +228,7 @@ export function TariffManagementPage() {
 
   const uniqueBrands = [...new Set(tariffs.map((t) => t.brandName))];
   const totalCount = tariffs.length;
-  const brandsWithTariffs = uniqueBrands.length;
+  const brandsCount = uniqueBrands.length;
 
   // ── Dialog helpers ─────────────────────────────────────────────────────────
 
@@ -250,7 +250,6 @@ export function TariffManagementPage() {
     setEditingTariff(tariff);
     const isCustomZone = !ZONE_OPTIONS.includes(tariff.zone);
 
-    // Separate fixed slabs from additional slab
     const allSlabs = tariff.slabs ?? [];
     const fixedSlabs = allSlabs.filter((s) => s.maxGrams !== null);
     const addlSlab = allSlabs.find((s) => s.maxGrams === null);
@@ -299,7 +298,6 @@ export function TariffManagementPage() {
       return;
     }
 
-    // Build slabs array: fixed slabs + optional additional slab
     let slabs: TariffWeightSlab[] | undefined;
     if (form.pricingMode === "slab") {
       slabs = form.slabs.map(({ _key: _k, ...rest }) => rest);
@@ -321,7 +319,7 @@ export function TariffManagementPage() {
       productType: form.productType.trim(),
       zone: effectiveZone.trim(),
       transportMode: form.transportMode,
-      tariffKind: "selling",
+      tariffKind: "cost",
       pricingMode: form.pricingMode,
       slabs,
       aboveSlabRatePerKg: form.aboveSlabRatePerKg
@@ -337,10 +335,10 @@ export function TariffManagementPage() {
 
     if (editingTariff) {
       saveTariffs(tariffs.map((t) => (t.id === tariff.id ? tariff : t)));
-      toast.success("Tariff updated");
+      toast.success("Cost price rate updated");
     } else {
       saveTariffs([...tariffs, tariff]);
-      toast.success("Tariff added");
+      toast.success("Cost price rate added");
     }
     setDialogOpen(false);
   };
@@ -348,7 +346,7 @@ export function TariffManagementPage() {
   const handleDelete = () => {
     if (!deleteTarget) return;
     saveTariffs(tariffs.filter((t) => t.id !== deleteTarget.id));
-    toast.success("Tariff deleted");
+    toast.success("Cost price rate deleted");
     setDeleteTarget(null);
   };
 
@@ -381,7 +379,6 @@ export function TariffManagementPage() {
     }));
   };
 
-  // When brand is selected in form, auto-set transport mode from brand
   const handleBrandChange = (brandId: string) => {
     const brand = courierBrands.find((b) => b.id === brandId);
     setForm((prev) => ({
@@ -401,20 +398,20 @@ export function TariffManagementPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Tag className="w-6 h-6 text-primary" />
-            Tariff Rates
+            <TrendingDown className="w-6 h-6 text-primary" />
+            Cost Price Rates
           </h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            Manage selling tariff rates for all courier brands
+            Manage cost/purchase price rates for all courier brands
           </p>
         </div>
         <Button
           onClick={openAdd}
-          data-ocid="tariff.add_button"
+          data-ocid="cost-price.add_button"
           className="gap-2"
         >
           <Plus className="w-4 h-4" />
-          Add Tariff
+          Add Cost Rate
         </Button>
       </div>
 
@@ -436,9 +433,7 @@ export function TariffManagementPage() {
               Brands
             </span>
           </div>
-          <p className="text-2xl font-bold text-foreground">
-            {brandsWithTariffs}
-          </p>
+          <p className="text-2xl font-bold text-foreground">{brandsCount}</p>
         </div>
         <div className="bg-white rounded-xl border border-border p-4 shadow-xs">
           <div className="flex items-center gap-2 mb-1">
@@ -472,7 +467,7 @@ export function TariffManagementPage() {
               Filter by Brand
             </Label>
             <Select value={filterBrand} onValueChange={setFilterBrand}>
-              <SelectTrigger data-ocid="tariff.brand_filter.select">
+              <SelectTrigger data-ocid="cost-price.brand_filter.select">
                 <SelectValue placeholder="All Brands" />
               </SelectTrigger>
               <SelectContent>
@@ -493,7 +488,7 @@ export function TariffManagementPage() {
               value={filterTransportMode}
               onValueChange={setFilterTransportMode}
             >
-              <SelectTrigger data-ocid="tariff.transport_filter.select">
+              <SelectTrigger data-ocid="cost-price.transport_filter.select">
                 <SelectValue placeholder="All Modes" />
               </SelectTrigger>
               <SelectContent>
@@ -512,33 +507,33 @@ export function TariffManagementPage() {
               value={filterProductType}
               onChange={(e) => setFilterProductType(e.target.value)}
               placeholder="Search product type (e.g. Express, Cargo Air…)"
-              data-ocid="tariff.product_type.search_input"
+              data-ocid="cost-price.product_type.search_input"
             />
           </div>
         </div>
       </div>
 
-      {/* Tariff Table */}
+      {/* Table */}
       {Object.keys(grouped).length === 0 ? (
         <div
           className="bg-white rounded-xl border border-border p-12 text-center"
-          data-ocid="tariff.empty_state"
+          data-ocid="cost-price.empty_state"
         >
-          <Tag className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" />
+          <TrendingDown className="w-12 h-12 mx-auto mb-3 text-muted-foreground/30" />
           <p className="text-muted-foreground font-medium">
-            No tariff entries found
+            No cost price rates found
           </p>
           <p className="text-sm text-muted-foreground mt-1">
-            Click &quot;Add Tariff&quot; to create your first tariff entry
-            manually
+            Click &quot;Add Cost Rate&quot; to enter your courier purchase/cost
+            prices
           </p>
           <Button
             onClick={openAdd}
             className="mt-4"
-            data-ocid="tariff.add_first_button"
+            data-ocid="cost-price.add_first_button"
           >
             <Plus className="w-4 h-4 mr-2" />
-            Add First Tariff
+            Add First Cost Rate
           </Button>
         </div>
       ) : (
@@ -548,30 +543,32 @@ export function TariffManagementPage() {
               key={brandName}
               className="bg-white rounded-xl border border-border shadow-xs overflow-hidden"
             >
-              {/* Brand header */}
-              <div className="px-4 py-3 bg-primary/5 border-b border-border flex items-center justify-between">
+              <div className="px-4 py-3 bg-orange-50 border-b border-border flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-white text-xs font-bold">
+                  <div className="w-7 h-7 rounded-full bg-orange-500 flex items-center justify-center text-white text-xs font-bold">
                     {brandName.slice(0, 2).toUpperCase()}
                   </div>
                   <span className="font-semibold text-foreground">
                     {brandName}
                   </span>
-                  <Badge variant="secondary" className="text-xs">
-                    {brandTariffs.length} entries
+                  <Badge
+                    variant="secondary"
+                    className="text-xs bg-orange-100 text-orange-700"
+                  >
+                    {brandTariffs.length} cost entries
                   </Badge>
                 </div>
               </div>
 
               <div className="overflow-x-auto">
-                <Table data-ocid="tariff.table">
+                <Table data-ocid="cost-price.table">
                   <TableHeader>
                     <TableRow>
                       <TableHead>Product Type</TableHead>
                       <TableHead>Transport</TableHead>
                       <TableHead>Zone</TableHead>
                       <TableHead>Pricing</TableHead>
-                      <TableHead>Price Structure</TableHead>
+                      <TableHead>Cost Structure</TableHead>
                       <TableHead className="text-center">GST Incl.</TableHead>
                       <TableHead className="text-center">Status</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
@@ -581,13 +578,13 @@ export function TariffManagementPage() {
                     {brandTariffs.map((tariff, idx) => (
                       <TableRow
                         key={tariff.id}
-                        data-ocid={`tariff.item.${idx + 1}`}
+                        data-ocid={`cost-price.item.${idx + 1}`}
                         className={cn(!tariff.isActive && "opacity-60")}
                       >
                         <TableCell>
                           <Badge
                             variant="outline"
-                            className="text-xs font-medium text-primary border-primary/30"
+                            className="text-xs font-medium text-orange-600 border-orange-300"
                           >
                             {tariff.productType}
                           </Badge>
@@ -653,7 +650,7 @@ export function TariffManagementPage() {
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-primary"
                               onClick={() => openEdit(tariff)}
-                              data-ocid={`tariff.edit_button.${idx + 1}`}
+                              data-ocid={`cost-price.edit_button.${idx + 1}`}
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </Button>
@@ -662,7 +659,7 @@ export function TariffManagementPage() {
                               size="icon"
                               className="h-7 w-7 text-muted-foreground hover:text-destructive"
                               onClick={() => setDeleteTarget(tariff)}
-                              data-ocid={`tariff.delete_button.${idx + 1}`}
+                              data-ocid={`cost-price.delete_button.${idx + 1}`}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
@@ -682,11 +679,11 @@ export function TariffManagementPage() {
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent
           className="max-w-2xl max-h-[90vh] overflow-y-auto"
-          data-ocid="tariff.dialog"
+          data-ocid="cost-price.dialog"
         >
           <DialogHeader>
             <DialogTitle>
-              {editingTariff ? "Edit Tariff" : "Add New Tariff"}
+              {editingTariff ? "Edit Cost Rate" : "Add Cost Price Rate"}
             </DialogTitle>
           </DialogHeader>
 
@@ -696,7 +693,7 @@ export function TariffManagementPage() {
               <div className="space-y-1.5">
                 <Label>Courier Brand</Label>
                 <Select value={form.brandId} onValueChange={handleBrandChange}>
-                  <SelectTrigger data-ocid="tariff.brand.select">
+                  <SelectTrigger data-ocid="cost-price.brand.select">
                     <SelectValue placeholder="Select brand" />
                   </SelectTrigger>
                   <SelectContent>
@@ -720,10 +717,10 @@ export function TariffManagementPage() {
                     }))
                   }
                   placeholder="e.g. Express"
-                  list="product-type-suggestions"
-                  data-ocid="tariff.product_type.input"
+                  list="cp-product-type-suggestions"
+                  data-ocid="cost-price.product_type.input"
                 />
-                <datalist id="product-type-suggestions">
+                <datalist id="cp-product-type-suggestions">
                   {PRODUCT_TYPE_SUGGESTIONS.map((s) => (
                     <option key={s} value={s} />
                   ))}
@@ -747,7 +744,7 @@ export function TariffManagementPage() {
                     }))
                   }
                 >
-                  <SelectTrigger data-ocid="tariff.transport_mode.select">
+                  <SelectTrigger data-ocid="cost-price.transport_mode.select">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -768,7 +765,7 @@ export function TariffManagementPage() {
                     setForm((prev) => ({ ...prev, zone: v }))
                   }
                 >
-                  <SelectTrigger data-ocid="tariff.zone.select">
+                  <SelectTrigger data-ocid="cost-price.zone.select">
                     <SelectValue placeholder="Select zone" />
                   </SelectTrigger>
                   <SelectContent>
@@ -803,7 +800,7 @@ export function TariffManagementPage() {
               <Label>Pricing Mode</Label>
               <div
                 className="flex gap-3"
-                data-ocid="tariff.pricing_mode.toggle"
+                data-ocid="cost-price.pricing_mode.toggle"
               >
                 <button
                   type="button"
@@ -853,7 +850,7 @@ export function TariffManagementPage() {
                       variant="outline"
                       size="sm"
                       onClick={addSlab}
-                      data-ocid="tariff.slab_add_button"
+                      data-ocid="cost-price.slab_add_button"
                       className="h-7 text-xs gap-1"
                     >
                       <Plus className="w-3 h-3" /> Add Slab
@@ -867,7 +864,7 @@ export function TariffManagementPage() {
                             Up to (grams)
                           </th>
                           <th className="text-left px-3 py-2 text-xs font-medium text-muted-foreground">
-                            Price (₹)
+                            Cost Price (₹)
                           </th>
                           <th className="w-10" />
                         </tr>
@@ -972,7 +969,7 @@ export function TariffManagementPage() {
                           className="h-7 text-xs"
                           placeholder="500"
                           min="1"
-                          data-ocid="tariff.addl_unit_grams.input"
+                          data-ocid="cost-price.addl_unit_grams.input"
                         />
                         <span className="text-xs text-muted-foreground whitespace-nowrap">
                           g
@@ -981,7 +978,7 @@ export function TariffManagementPage() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">
-                        Price per unit (₹) — 0 = no addl slab
+                        Cost per unit (₹) — 0 = no addl slab
                       </Label>
                       <div className="flex items-center gap-1">
                         <span className="text-xs text-muted-foreground">₹</span>
@@ -997,7 +994,7 @@ export function TariffManagementPage() {
                           className="h-7 text-xs"
                           placeholder="0"
                           min="0"
-                          data-ocid="tariff.addl_slab_price.input"
+                          data-ocid="cost-price.addl_slab_price.input"
                         />
                       </div>
                     </div>
@@ -1029,7 +1026,7 @@ export function TariffManagementPage() {
                         }
                         placeholder="e.g. 25"
                         className="text-sm"
-                        data-ocid="tariff.above_slab_rate.input"
+                        data-ocid="cost-price.above_slab_rate.input"
                       />
                       <span className="text-xs text-muted-foreground">/kg</span>
                     </div>
@@ -1049,7 +1046,7 @@ export function TariffManagementPage() {
                       }
                       placeholder="e.g. 3 or 5"
                       className="text-sm"
-                      data-ocid="tariff.max_weight.input"
+                      data-ocid="cost-price.max_weight.input"
                     />
                   </div>
                 </div>
@@ -1070,11 +1067,11 @@ export function TariffManagementPage() {
                     placeholder="e.g. 3"
                     className="text-sm"
                     step="0.5"
-                    data-ocid="tariff.min_kg.input"
+                    data-ocid="cost-price.min_kg.input"
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Rate per KG (₹)</Label>
+                  <Label>Cost Rate per KG (₹)</Label>
                   <Input
                     type="number"
                     value={form.ratePerKg}
@@ -1084,9 +1081,9 @@ export function TariffManagementPage() {
                         ratePerKg: e.target.value,
                       }))
                     }
-                    placeholder="e.g. 112"
+                    placeholder="e.g. 80"
                     className="text-sm"
-                    data-ocid="tariff.rate_per_kg.input"
+                    data-ocid="cost-price.rate_per_kg.input"
                   />
                 </div>
               </div>
@@ -1100,7 +1097,7 @@ export function TariffManagementPage() {
                   onCheckedChange={(v) =>
                     setForm((prev) => ({ ...prev, isGSTInclusive: v }))
                   }
-                  data-ocid="tariff.gst_inclusive.switch"
+                  data-ocid="cost-price.gst_inclusive.switch"
                 />
                 <div>
                   <Label className="text-sm cursor-pointer">
@@ -1117,12 +1114,12 @@ export function TariffManagementPage() {
                   onCheckedChange={(v) =>
                     setForm((prev) => ({ ...prev, isActive: v }))
                   }
-                  data-ocid="tariff.active.switch"
+                  data-ocid="cost-price.active.switch"
                 />
                 <div>
                   <Label className="text-sm cursor-pointer">Active</Label>
                   <p className="text-xs text-muted-foreground">
-                    Available in POS
+                    Visible in reports
                   </p>
                 </div>
               </div>
@@ -1132,9 +1129,8 @@ export function TariffManagementPage() {
               <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg p-3">
                 <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-700">
-                  GST-inclusive tariffs: the system will extract the GST
-                  component from the tariff price so the customer pays exactly
-                  the tariff amount.
+                  GST-inclusive cost prices: the GST component will be extracted
+                  when calculating net cost for profit analysis.
                 </p>
               </div>
             )}
@@ -1144,12 +1140,12 @@ export function TariffManagementPage() {
             <Button
               variant="outline"
               onClick={() => setDialogOpen(false)}
-              data-ocid="tariff.cancel_button"
+              data-ocid="cost-price.cancel_button"
             >
               Cancel
             </Button>
-            <Button onClick={handleSave} data-ocid="tariff.save_button">
-              {editingTariff ? "Update Tariff" : "Add Tariff"}
+            <Button onClick={handleSave} data-ocid="cost-price.save_button">
+              {editingTariff ? "Update Cost Rate" : "Add Cost Rate"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1162,26 +1158,26 @@ export function TariffManagementPage() {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Tariff Entry?</AlertDialogTitle>
+            <AlertDialogTitle>Delete Cost Rate Entry?</AlertDialogTitle>
             <AlertDialogDescription>
               This will remove the{" "}
               <strong>
                 {deleteTarget?.brandName} — {deleteTarget?.productType} (
                 {deleteTarget?.zone})
               </strong>{" "}
-              tariff. This action cannot be undone.
+              cost rate. This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel
               onClick={() => setDeleteTarget(null)}
-              data-ocid="tariff.cancel_button"
+              data-ocid="cost-price.cancel_button"
             >
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              data-ocid="tariff.confirm_button"
+              data-ocid="cost-price.confirm_button"
               className="bg-destructive hover:bg-destructive/90"
             >
               Delete

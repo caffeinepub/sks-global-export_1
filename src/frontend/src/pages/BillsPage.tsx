@@ -47,8 +47,9 @@ import {
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { useAppStore } from "../hooks/useAppStore";
-import type { Bill, Invoice } from "../types";
+import type { Bill, BillItem, Invoice } from "../types";
 import {
   formatCurrency,
   formatDate,
@@ -80,6 +81,10 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
   const [viewBill, setViewBill] = useState<Bill | null>(null);
   const [editBill, setEditBill] = useState<Bill | null>(null);
   const [deleteBillId, setDeleteBillId] = useState<string | null>(null);
+  const [slipItem, setSlipItem] = useState<{
+    item: BillItem;
+    bill: Bill;
+  } | null>(null);
   const [invoiceType, setInvoiceType] = useState<"gst" | "non_gst">("gst");
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
 
@@ -465,6 +470,27 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
           </DialogHeader>
           {viewBill && (
             <div className="space-y-4">
+              {/* Company header with logo */}
+              <div
+                className="text-center border-b border-border pb-3"
+                id="bill-print"
+              >
+                {activeCompany?.logoUrl && (
+                  <div className="flex justify-center mb-2">
+                    <img
+                      src={activeCompany.logoUrl}
+                      alt="Company Logo"
+                      className="h-14 object-contain"
+                    />
+                  </div>
+                )}
+                <p className="font-bold text-sm">{activeCompany?.name}</p>
+                {activeCompany?.address && (
+                  <p className="text-xs text-muted-foreground">
+                    {activeCompany.address}
+                  </p>
+                )}
+              </div>
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <p className="text-muted-foreground">Customer</p>
@@ -492,28 +518,35 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                     <TableHead className="text-xs">Qty</TableHead>
                     <TableHead className="text-xs">Rate</TableHead>
                     <TableHead className="text-xs">Amount</TableHead>
+                    <TableHead className="text-xs">Slip</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {viewBill.items.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="text-xs">
-                        <p className="font-medium">{item.productName}</p>
+                      <TableCell className="text-xs max-w-[220px]">
+                        {item.productType === "courier_awb" &&
+                          item.brandName && (
+                            <p className="text-[10px] text-primary font-semibold uppercase tracking-wide">
+                              {item.brandName}
+                              {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                            </p>
+                          )}
+                        <p className="font-medium break-words whitespace-normal font-mono">
+                          {item.productName}
+                        </p>
                         {item.description && (
-                          <p className="text-muted-foreground">
+                          <p className="text-muted-foreground break-words whitespace-normal">
                             {item.description}
                           </p>
                         )}
-                        {item.awbSerial && (
-                          <p className="text-muted-foreground">
-                            AWB: {item.awbSerial}
-                          </p>
-                        )}
-                        {item.serviceMode && (
-                          <p className="text-muted-foreground">
-                            Mode: {item.serviceMode}
-                          </p>
-                        )}
+                        {/* Legacy: show AWB separately only if productName differs from awbSerial */}
+                        {item.awbSerial &&
+                          item.productName !== item.awbSerial && (
+                            <p className="text-muted-foreground break-words whitespace-normal">
+                              AWB: {item.awbSerial}
+                            </p>
+                          )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.quantity} {item.unit}
@@ -523,6 +556,22 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                       </TableCell>
                       <TableCell className="text-xs font-semibold">
                         {formatCurrency(item.totalPrice)}
+                      </TableCell>
+                      <TableCell>
+                        {item.productType === "courier_awb" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-primary hover:text-primary"
+                            title="Print Courier Slip"
+                            data-ocid="bill.courier_slip.button"
+                            onClick={() =>
+                              setSlipItem({ item, bill: viewBill })
+                            }
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -683,6 +732,21 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Courier Slip Print Dialog */}
+      {slipItem && (
+        <CourierSlipPrintDialog
+          open={!!slipItem}
+          onClose={() => setSlipItem(null)}
+          item={slipItem.item}
+          billNo={slipItem.bill.billNo}
+          billDate={slipItem.bill.date}
+          companyName={activeCompany?.name || "SKS Global Export"}
+          companyAddress={activeCompany?.address}
+          companyPhone={activeCompany?.phone}
+          companyLogoUrl={activeCompany?.logoUrl}
+        />
+      )}
 
       {/* Invoice Generation Confirmation */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>

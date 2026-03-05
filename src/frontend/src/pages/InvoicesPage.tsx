@@ -142,9 +142,18 @@ function InvoiceViewDialog({
         {invoice && (
           <div className="print-invoice space-y-4" id="invoice-print">
             <div className="text-center border-b border-border pb-4">
-              <h2 className="text-xl font-bold text-foreground">
-                {activeCompany?.name}
-              </h2>
+              <div className="flex flex-col items-center gap-1 mb-2">
+                {activeCompany?.logoUrl && (
+                  <img
+                    src={activeCompany.logoUrl}
+                    alt="Company Logo"
+                    className="h-16 object-contain mb-2"
+                  />
+                )}
+                <h2 className="text-xl font-bold text-foreground">
+                  {activeCompany?.name}
+                </h2>
+              </div>
               <p className="text-sm text-muted-foreground">
                 {activeCompany?.address}
               </p>
@@ -194,34 +203,38 @@ function InvoiceViewDialog({
                   <TableHead className="text-xs">Qty</TableHead>
                   <TableHead className="text-xs">Rate</TableHead>
                   {invoice.invoiceType === "gst" && (
-                    <>
-                      <TableHead className="text-xs">GST%</TableHead>
-                      <TableHead className="text-xs">CGST</TableHead>
-                      <TableHead className="text-xs">SGST</TableHead>
-                    </>
+                    <TableHead className="text-xs">GST</TableHead>
                   )}
                   <TableHead className="text-xs text-right">Amount</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {invoice.items.map((item) => {
-                  const taxableAmt =
-                    (item.totalPrice * 100) / (100 + item.gstRate);
-                  const cgst = (item.totalPrice - taxableAmt) / 2;
+                  const halfRate = item.gstRate / 2;
                   return (
                     <TableRow key={item.id}>
-                      <TableCell className="text-xs">
-                        <p className="font-medium">{item.productName}</p>
+                      <TableCell className="text-xs max-w-[220px]">
+                        {item.productType === "courier_awb" &&
+                          item.brandName && (
+                            <p className="text-[10px] text-primary font-semibold uppercase tracking-wide">
+                              {item.brandName}
+                              {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                            </p>
+                          )}
+                        <p className="font-medium break-words whitespace-normal font-mono">
+                          {item.productName}
+                        </p>
                         {item.description && (
-                          <p className="text-muted-foreground">
+                          <p className="text-muted-foreground break-words whitespace-normal">
                             {item.description}
                           </p>
                         )}
-                        {item.awbSerial && (
-                          <p className="text-muted-foreground">
-                            AWB: {item.awbSerial}
-                          </p>
-                        )}
+                        {item.awbSerial &&
+                          item.productName !== item.awbSerial && (
+                            <p className="text-muted-foreground break-words whitespace-normal">
+                              AWB: {item.awbSerial}
+                            </p>
+                          )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.quantity} {item.unit}
@@ -230,17 +243,9 @@ function InvoiceViewDialog({
                         {formatCurrency(item.unitPrice)}
                       </TableCell>
                       {invoice.invoiceType === "gst" && (
-                        <>
-                          <TableCell className="text-xs">
-                            {item.gstRate}%
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {formatCurrency(cgst)}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {formatCurrency(cgst)}
-                          </TableCell>
-                        </>
+                        <TableCell className="text-xs whitespace-nowrap">
+                          CGST {halfRate}% + SGST {halfRate}%
+                        </TableCell>
                       )}
                       <TableCell className="text-xs font-semibold text-right">
                         {formatCurrency(item.totalPrice)}
@@ -254,19 +259,37 @@ function InvoiceViewDialog({
             <Separator />
 
             <div className="flex justify-end">
-              <div className="w-64 space-y-2 text-sm">
-                {invoice.invoiceType === "gst" && (
-                  <>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">CGST</span>
-                      <span>{formatCurrency(invoice.cgst)}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">SGST</span>
-                      <span>{formatCurrency(invoice.sgst)}</span>
-                    </div>
-                  </>
-                )}
+              <div className="w-72 space-y-2 text-sm">
+                {invoice.invoiceType === "gst" &&
+                  (() => {
+                    // Group items by GST rate and show CGST/SGST breakdown per rate
+                    const rateGroups: Record<number, number> = {};
+                    for (const item of invoice.items) {
+                      if (!rateGroups[item.gstRate])
+                        rateGroups[item.gstRate] = 0;
+                      const taxAmt =
+                        (item.totalPrice * item.gstRate) / (100 + item.gstRate);
+                      rateGroups[item.gstRate] += taxAmt;
+                    }
+                    return Object.entries(rateGroups).map(
+                      ([rate, totalTax]) => {
+                        const halfTax = totalTax / 2;
+                        const halfRate = Number(rate) / 2;
+                        return (
+                          <div key={rate} className="space-y-1">
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>CGST @ {halfRate}%</span>
+                              <span>{formatCurrency(halfTax)}</span>
+                            </div>
+                            <div className="flex justify-between text-xs text-muted-foreground">
+                              <span>SGST @ {halfRate}%</span>
+                              <span>{formatCurrency(halfTax)}</span>
+                            </div>
+                          </div>
+                        );
+                      },
+                    );
+                  })()}
                 <Separator />
                 <div className="flex justify-between font-bold text-base">
                   <span>Total</span>
@@ -633,18 +656,28 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                       <TableCell className="text-xs font-medium">
                         {item.customerName}
                       </TableCell>
-                      <TableCell className="text-xs">
-                        <p className="font-medium">{item.productName}</p>
+                      <TableCell className="text-xs max-w-[220px]">
+                        {item.productType === "courier_awb" &&
+                          item.brandName && (
+                            <p className="text-[10px] text-primary font-semibold uppercase tracking-wide">
+                              {item.brandName}
+                              {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                            </p>
+                          )}
+                        <p className="font-medium break-words whitespace-normal font-mono">
+                          {item.productName}
+                        </p>
                         {item.description && (
-                          <p className="text-muted-foreground text-xs">
+                          <p className="text-muted-foreground text-xs break-words whitespace-normal">
                             {item.description}
                           </p>
                         )}
-                        {item.awbSerial && (
-                          <p className="text-muted-foreground text-xs">
-                            AWB: {item.awbSerial}
-                          </p>
-                        )}
+                        {item.awbSerial &&
+                          item.productName !== item.awbSerial && (
+                            <p className="text-muted-foreground text-xs break-words whitespace-normal">
+                              AWB: {item.awbSerial}
+                            </p>
+                          )}
                       </TableCell>
                       <TableCell>
                         <Badge variant="secondary" className="text-xs">

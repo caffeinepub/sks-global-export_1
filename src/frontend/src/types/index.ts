@@ -53,6 +53,7 @@ export interface CourierBrand {
   brandName: string;
   productType: string;
   serviceModes: string[];
+  transportModes: "Air" | "Surface" | "Both"; // fixed transport mode for this brand
   serialLogic:
     | "sequential_prefix_first"
     | "sequential_prefix_second"
@@ -159,6 +160,17 @@ export interface BillItem {
   unitPrice: number;
   totalPrice: number;
   gstRate: number;
+  // Courier slip fields
+  senderName?: string;
+  senderPhone?: string;
+  senderAddress?: string;
+  receiverName?: string;
+  receiverPhone?: string;
+  receiverAddress?: string;
+  receiverPincode?: string;
+  actualWeightKg?: number;
+  volumetricWeightKg?: number;
+  chargeableWeightKg?: number;
 }
 
 export interface Bill {
@@ -260,8 +272,9 @@ export interface CompanySettings {
 }
 
 export interface TariffWeightSlab {
-  maxGrams: number | null; // null = "additional per 500g" slab
+  maxGrams: number | null; // null = "additional per unit" slab
   price: number;
+  unitGrams?: number; // for additional slab: the unit size in grams (default 500)
 }
 
 export interface CourierTariff {
@@ -271,8 +284,11 @@ export interface CourierTariff {
   brandName: string;
   productType: string; // e.g. "Express", "Cargo Air", "Cargo Surface", "D Express", "Lite", "Priority", etc.
   zone: string; // e.g. "Within City", "Within State", etc.
+  transportMode: "Air" | "Surface" | "Both"; // transport mode for this tariff entry
+  tariffKind: "selling" | "cost"; // distinguish selling vs cost price tariffs
   pricingMode: "slab" | "per_kg"; // slab = weight slabs, per_kg = minKg + ratePerKg
   slabs?: TariffWeightSlab[]; // used when pricingMode === "slab"
+  aboveSlabRatePerKg?: number; // per-kg rate for weights above all fixed slabs
   minKg?: number; // used when pricingMode === "per_kg"
   ratePerKg?: number; // used when pricingMode === "per_kg"
   maxWeightKg?: number; // optional weight cap for warnings

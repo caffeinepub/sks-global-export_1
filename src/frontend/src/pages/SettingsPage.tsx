@@ -47,6 +47,7 @@ import {
   Edit,
   FileText,
   HardDrive,
+  Image,
   KeyRound,
   Loader2,
   Plus,
@@ -54,6 +55,7 @@ import {
   Trash2,
   Upload,
   Users,
+  X,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -104,6 +106,7 @@ export function SettingsPage() {
   const [compEmail, setCompEmail] = useState("");
   const [compState, setCompState] = useState("");
   const [compPincode, setCompPincode] = useState("");
+  const [compLogoUrl, setCompLogoUrl] = useState<string | undefined>(undefined);
 
   // User form
   const [showUserForm, setShowUserForm] = useState(false);
@@ -168,6 +171,7 @@ export function SettingsPage() {
     setCompEmail(company.email);
     setCompState(company.state);
     setCompPincode(company.pincode);
+    setCompLogoUrl(company.logoUrl);
     setShowCompanyForm(true);
   };
 
@@ -180,7 +184,22 @@ export function SettingsPage() {
     setCompEmail("");
     setCompState("");
     setCompPincode("");
+    setCompLogoUrl(undefined);
     setShowCompanyForm(true);
+  };
+
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setCompLogoUrl(ev.target?.result as string);
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleSaveCompany = () => {
@@ -197,6 +216,7 @@ export function SettingsPage() {
       email: compEmail,
       state: compState,
       pincode: compPincode,
+      logoUrl: compLogoUrl,
       invoicePrefix: editingCompany?.invoicePrefix || "GST/",
       invoiceSeq: editingCompany?.invoiceSeq || 1,
       nonGstInvoicePrefix: editingCompany?.nonGstInvoicePrefix || "INV/",
@@ -847,6 +867,53 @@ export function SettingsPage() {
             <DialogTitle>{editingCompany ? "Edit" : "Add"} Company</DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
+            {/* Logo upload */}
+            <div className="col-span-2">
+              <Label className="text-xs">Company Logo</Label>
+              <div className="mt-1 flex items-center gap-3">
+                {compLogoUrl ? (
+                  <div className="relative flex-shrink-0">
+                    <img
+                      src={compLogoUrl}
+                      alt="Company logo preview"
+                      className="h-20 w-auto object-contain border border-border rounded-lg p-1 bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setCompLogoUrl(undefined)}
+                      className="absolute -top-2 -right-2 w-5 h-5 rounded-full bg-destructive text-white flex items-center justify-center hover:bg-destructive/90"
+                      title="Remove logo"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="h-20 w-20 rounded-lg border-2 border-dashed border-border flex items-center justify-center bg-muted/30 flex-shrink-0">
+                    <Image className="w-6 h-6 text-muted-foreground" />
+                  </div>
+                )}
+                <div className="flex-1">
+                  <label
+                    htmlFor="logo-upload"
+                    className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-medium px-3 py-1.5 rounded-md border border-border bg-white hover:bg-muted/30 transition-colors"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    {compLogoUrl ? "Change Logo" : "Upload Logo"}
+                  </label>
+                  <input
+                    id="logo-upload"
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleLogoUpload}
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    PNG, JPG, SVG. Logo will appear on invoices &amp; bills.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             <div className="col-span-2">
               <Label className="text-xs">Company Name*</Label>
               <Input

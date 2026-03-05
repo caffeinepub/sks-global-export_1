@@ -73,6 +73,7 @@ interface FlatAssignment {
   brandName: string;
   productType: string;
   zone: string;
+  transportMode: string;
   customPrice: number;
   isGSTInclusive: boolean;
   standardRateSummary: string;
@@ -217,7 +218,8 @@ function AddAssignmentDialog({
                 ) : (
                   activeTariffs.map((t) => (
                     <SelectItem key={t.id} value={t.id}>
-                      {t.brandName} — {t.productType} — {t.zone}
+                      {t.brandName} — {t.productType} —{" "}
+                      {(t.transportMode as string) ?? "Both"} — {t.zone}
                     </SelectItem>
                   ))
                 )}
@@ -436,6 +438,7 @@ export function CustomerTariffsPage() {
           brandName: a.brandName,
           productType: a.productType,
           zone: a.zone,
+          transportMode: (tariff?.transportMode as string) ?? "Both",
           customPrice: a.customPrice,
           isGSTInclusive: tariff?.isGSTInclusive ?? false,
           standardRateSummary: tariff ? getTariffSummary(tariff) : "—",
@@ -727,6 +730,7 @@ export function CustomerTariffsPage() {
                       <TableRow className="bg-muted/20">
                         <TableHead className="text-xs">Brand</TableHead>
                         <TableHead className="text-xs">Product Type</TableHead>
+                        <TableHead className="text-xs">Transport</TableHead>
                         <TableHead className="text-xs">Zone</TableHead>
                         <TableHead className="text-xs">Standard Rate</TableHead>
                         <TableHead className="text-xs">Custom Price</TableHead>
@@ -757,6 +761,14 @@ export function CustomerTariffsPage() {
                             </TableCell>
                             <TableCell className="text-sm">
                               {a.productType}
+                            </TableCell>
+                            <TableCell>
+                              <Badge
+                                variant="outline"
+                                className={`text-xs ${a.transportMode === "Air" ? "text-blue-600 border-blue-300" : a.transportMode === "Surface" ? "text-green-600 border-green-300" : "text-orange-600 border-orange-300"}`}
+                              >
+                                {a.transportMode}
+                              </Badge>
                             </TableCell>
                             <TableCell className="text-sm text-muted-foreground">
                               {a.zone}
