@@ -20,6 +20,7 @@ import {
   Truck,
   UserCheck,
   Users,
+  Wallet,
 } from "lucide-react";
 import { useState } from "react";
 import { useAppStore } from "../../hooks/useAppStore";
@@ -59,6 +60,7 @@ const navItems: NavItem[] = [
   { label: "Tariff Rates", icon: Tag, path: "tariffs" },
   { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
   { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
+  { label: "Expenses", icon: Wallet, path: "expenses" },
   { label: "Reports", icon: BarChart2, path: "reports" },
   { label: "Settings", icon: Settings, path: "settings" },
 ];

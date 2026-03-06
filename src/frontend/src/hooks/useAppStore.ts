@@ -9,6 +9,7 @@ import type {
   CourierBrand,
   CourierPickup,
   Customer,
+  Expense,
   Invoice,
   PurchaseInvoice,
   Vendor,
@@ -20,6 +21,7 @@ import {
   getBills,
   getCompanies,
   getCustomers,
+  getExpenses,
   getInvoices,
   getPickups,
   getProducts,
@@ -33,6 +35,7 @@ import {
   setBills,
   setCompanies,
   setCustomers,
+  setExpenses,
   setInvoices,
   setPickups,
   setProducts,
@@ -124,6 +127,13 @@ interface AppState {
   loadSettings: () => void;
   updateSettings: (settings: CompanySettings) => void;
 
+  // Expenses
+  expenses: Expense[];
+  loadExpenses: () => void;
+  addExpense: (expense: Expense) => void;
+  updateExpense: (expense: Expense) => void;
+  deleteExpense: (expenseId: string) => void;
+
   // Load all company data
   loadCompanyData: (companyId: string) => void;
 }
@@ -143,6 +153,7 @@ export const useAppStore = create<AppState>((set, get) => {
       purchaseInvoices: getPurchaseInvoices(companyId),
       awbSerials: getAWBSerials(companyId),
       settings: getSettings(companyId),
+      expenses: getExpenses(companyId),
     });
   };
 
@@ -489,6 +500,36 @@ export const useAppStore = create<AppState>((set, get) => {
       const cid = get().activeCompanyId;
       setSettings(cid, settings);
       set({ settings });
+    },
+
+    // Expenses
+    expenses: savedCompanyId ? getExpenses(savedCompanyId) : [],
+    loadExpenses: () => {
+      const cid = get().activeCompanyId;
+      set({ expenses: getExpenses(cid) });
+    },
+
+    addExpense: (expense: Expense) => {
+      const cid = get().activeCompanyId;
+      const expenses = [...getExpenses(cid), expense];
+      setExpenses(cid, expenses);
+      set({ expenses });
+    },
+
+    updateExpense: (expense: Expense) => {
+      const cid = get().activeCompanyId;
+      const expenses = getExpenses(cid).map((e) =>
+        e.id === expense.id ? expense : e,
+      );
+      setExpenses(cid, expenses);
+      set({ expenses });
+    },
+
+    deleteExpense: (expenseId: string) => {
+      const cid = get().activeCompanyId;
+      const expenses = getExpenses(cid).filter((e) => e.id !== expenseId);
+      setExpenses(cid, expenses);
+      set({ expenses });
     },
 
     // Load all company data

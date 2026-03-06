@@ -1387,6 +1387,470 @@ function ProfitLossTab() {
 }
 
 // ──────────────────────────────────────────────
+// Courier Report Tab
+// ──────────────────────────────────────────────
+
+function CourierReportTab() {
+  const { bills } = useAppStore();
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [filterBrand, setFilterBrand] = useState("all");
+  const [filterMode, setFilterMode] = useState("all");
+
+  // Extract all courier items from bills
+  const courierRows = useMemo(() => {
+    const rows: {
+      awbNo: string;
+      senderName: string;
+      receiverName: string;
+      receiverPincode: string;
+      weightKg: number;
+      mode: string;
+      brand: string;
+      price: number;
+      date: string;
+      billNo: string;
+    }[] = [];
+    for (const bill of bills) {
+      for (const item of bill.items) {
+        if (item.productType !== "courier_awb") continue;
+        rows.push({
+          awbNo: item.awbSerial || item.productName,
+          senderName: item.senderName || bill.customerName,
+          receiverName: item.receiverName || "",
+          receiverPincode: item.receiverPincode || "",
+          weightKg: item.chargeableWeightKg || item.actualWeightKg || 0,
+          mode: item.serviceMode || "",
+          brand: item.brandName || "",
+          price: item.totalPrice,
+          date: bill.date,
+          billNo: bill.billNo,
+        });
+      }
+    }
+    return rows;
+  }, [bills]);
+
+  const brands = useMemo(() => {
+    const set = new Set(courierRows.map((r) => r.brand).filter(Boolean));
+    return [...set];
+  }, [courierRows]);
+
+  const modes = useMemo(() => {
+    const set = new Set(courierRows.map((r) => r.mode).filter(Boolean));
+    return [...set];
+  }, [courierRows]);
+
+  const filtered = useMemo(() => {
+    return courierRows.filter((r) => {
+      const matchBrand = filterBrand === "all" || r.brand === filterBrand;
+      const matchMode = filterMode === "all" || r.mode === filterMode;
+      const matchFrom = !dateFrom || r.date >= dateFrom;
+      const matchTo = !dateTo || r.date <= dateTo;
+      return matchBrand && matchMode && matchFrom && matchTo;
+    });
+  }, [courierRows, filterBrand, filterMode, dateFrom, dateTo]);
+
+  const totalRevenue = filtered.reduce((s, r) => s + r.price, 0);
+  const totalWeight = filtered.reduce((s, r) => s + r.weightKg, 0);
+  const avgPerBooking =
+    filtered.length > 0 ? totalRevenue / filtered.length : 0;
+
+  const handleExport = () => {
+    exportToExcel(
+      [
+        {
+          name: "Courier Report",
+          data: filtered.map((r) => ({
+            "Bill No": r.billNo,
+            Date: formatDate(r.date),
+            "AWB No": r.awbNo,
+            Brand: r.brand,
+            "Sender Name": r.senderName,
+            "Receiver Name": r.receiverName,
+            "Receiver Pincode": r.receiverPincode,
+            "Weight (kg)": r.weightKg,
+            Mode: r.mode,
+            "Price (₹)": r.price,
+          })),
+        },
+      ],
+      `courier_report_${new Date().toISOString().split("T")[0]}.csv`,
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 bg-white p-4 rounded-xl border border-border shadow-xs">
+        <Select value={filterBrand} onValueChange={setFilterBrand}>
+          <SelectTrigger className="text-xs w-40">
+            <SelectValue placeholder="All Brands" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Brands</SelectItem>
+            {brands.map((b) => (
+              <SelectItem key={b} value={b}>
+                {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Select value={filterMode} onValueChange={setFilterMode}>
+          <SelectTrigger className="text-xs w-40">
+            <SelectValue placeholder="All Modes" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Modes</SelectItem>
+            {modes.map((m) => (
+              <SelectItem key={m} value={m}>
+                {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">From</Label>
+          <Input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="text-xs w-36"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Label className="text-xs">To</Label>
+          <Input
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="text-xs w-36"
+          />
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleExport}
+          className="ml-auto"
+        >
+          <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+          Export
+        </Button>
+      </div>
+
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <SummaryCard label="Total Bookings" value={String(filtered.length)} />
+        <SummaryCard
+          label="Total Weight"
+          value={`${totalWeight.toFixed(2)} kg`}
+        />
+        <SummaryCard
+          label="Total Revenue"
+          value={formatCurrency(totalRevenue)}
+        />
+        <SummaryCard
+          label="Avg per Booking"
+          value={formatCurrency(avgPerBooking)}
+        />
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-border shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="text-xs">Date</TableHead>
+                <TableHead className="text-xs">AWB No</TableHead>
+                <TableHead className="text-xs">Brand</TableHead>
+                <TableHead className="text-xs">Sender</TableHead>
+                <TableHead className="text-xs">Receiver</TableHead>
+                <TableHead className="text-xs">Pincode</TableHead>
+                <TableHead className="text-xs">Weight</TableHead>
+                <TableHead className="text-xs">Mode</TableHead>
+                <TableHead className="text-xs text-right">Price</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtered.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={9}
+                    className="text-center py-10 text-muted-foreground"
+                    data-ocid="courier_report.empty_state"
+                  >
+                    No courier bookings found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filtered.map((row, idx) => (
+                  <TableRow
+                    key={`${row.awbNo}-${idx}`}
+                    className="hover:bg-muted/20"
+                  >
+                    <TableCell className="text-xs">
+                      {formatDate(row.date)}
+                    </TableCell>
+                    <TableCell className="text-xs font-mono">
+                      {row.awbNo}
+                    </TableCell>
+                    <TableCell className="text-xs">{row.brand}</TableCell>
+                    <TableCell className="text-xs">{row.senderName}</TableCell>
+                    <TableCell className="text-xs">
+                      {row.receiverName}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {row.receiverPincode}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {row.weightKg > 0 ? `${row.weightKg} kg` : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs">{row.mode || "-"}</TableCell>
+                    <TableCell className="text-xs text-right font-semibold">
+                      {formatCurrency(row.price)}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Outstanding Dues Tab
+// ──────────────────────────────────────────────
+
+function OutstandingDuesTab() {
+  const { bills, customers } = useAppStore();
+
+  const outstandingData = useMemo(() => {
+    const today = new Date();
+    const map = new Map<
+      string,
+      {
+        customerId: string;
+        customerName: string;
+        phone: string;
+        totalBills: number;
+        totalAmount: number;
+        amountPaid: number;
+        balanceDue: number;
+        lastBillDate: string;
+        aging0_30: number;
+        aging31_60: number;
+        aging61_90: number;
+        aging90plus: number;
+      }
+    >();
+
+    for (const bill of bills) {
+      if (bill.balanceDue <= 0) continue;
+      const existing = map.get(bill.customerId);
+      const billDate = new Date(bill.date);
+      const daysDiff = Math.floor(
+        (today.getTime() - billDate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+
+      const agingBucket =
+        daysDiff <= 30
+          ? "0_30"
+          : daysDiff <= 60
+            ? "31_60"
+            : daysDiff <= 90
+              ? "61_90"
+              : "90plus";
+
+      const cust = customers.find((c) => c.id === bill.customerId);
+      if (existing) {
+        existing.totalBills += 1;
+        existing.totalAmount += bill.total;
+        existing.amountPaid += bill.amountPaid;
+        existing.balanceDue += bill.balanceDue;
+        if (bill.date > existing.lastBillDate)
+          existing.lastBillDate = bill.date;
+        if (agingBucket === "0_30") existing.aging0_30 += bill.balanceDue;
+        else if (agingBucket === "31_60")
+          existing.aging31_60 += bill.balanceDue;
+        else if (agingBucket === "61_90")
+          existing.aging61_90 += bill.balanceDue;
+        else existing.aging90plus += bill.balanceDue;
+      } else {
+        map.set(bill.customerId, {
+          customerId: bill.customerId,
+          customerName: bill.customerName,
+          phone: cust?.phone || "",
+          totalBills: 1,
+          totalAmount: bill.total,
+          amountPaid: bill.amountPaid,
+          balanceDue: bill.balanceDue,
+          lastBillDate: bill.date,
+          aging0_30: agingBucket === "0_30" ? bill.balanceDue : 0,
+          aging31_60: agingBucket === "31_60" ? bill.balanceDue : 0,
+          aging61_90: agingBucket === "61_90" ? bill.balanceDue : 0,
+          aging90plus: agingBucket === "90plus" ? bill.balanceDue : 0,
+        });
+      }
+    }
+    return [...map.values()].sort((a, b) => b.balanceDue - a.balanceDue);
+  }, [bills, customers]);
+
+  const totalOutstanding = outstandingData.reduce(
+    (s, r) => s + r.balanceDue,
+    0,
+  );
+  const total0_30 = outstandingData.reduce((s, r) => s + r.aging0_30, 0);
+  const total31_60 = outstandingData.reduce((s, r) => s + r.aging31_60, 0);
+  const total60plus = outstandingData.reduce(
+    (s, r) => s + r.aging61_90 + r.aging90plus,
+    0,
+  );
+
+  const handleExport = () => {
+    exportToExcel(
+      [
+        {
+          name: "Outstanding Dues",
+          data: outstandingData.map((r) => ({
+            "Customer Name": r.customerName,
+            Phone: r.phone,
+            "Total Bills": r.totalBills,
+            "Total Amount": r.totalAmount,
+            "Amount Paid": r.amountPaid,
+            "Balance Due": r.balanceDue,
+            "Last Bill Date": formatDate(r.lastBillDate),
+            "0-30 Days": r.aging0_30,
+            "31-60 Days": r.aging31_60,
+            "61-90 Days": r.aging61_90,
+            "90+ Days": r.aging90plus,
+          })),
+        },
+      ],
+      `outstanding_dues_${new Date().toISOString().split("T")[0]}.csv`,
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end">
+        <Button size="sm" variant="outline" onClick={handleExport}>
+          <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+          Export Excel
+        </Button>
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <SummaryCard
+          label="Total Outstanding"
+          value={formatCurrency(totalOutstanding)}
+          color="bg-red-50"
+        />
+        <SummaryCard
+          label="0-30 Days"
+          value={formatCurrency(total0_30)}
+          color="bg-amber-50"
+        />
+        <SummaryCard
+          label="31-60 Days"
+          value={formatCurrency(total31_60)}
+          color="bg-orange-50"
+        />
+        <SummaryCard
+          label="60+ Days"
+          value={formatCurrency(total60plus)}
+          color="bg-red-100"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-xl border border-border shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="text-xs">Customer</TableHead>
+                <TableHead className="text-xs">Phone</TableHead>
+                <TableHead className="text-xs text-right">Bills</TableHead>
+                <TableHead className="text-xs text-right">Total Amt</TableHead>
+                <TableHead className="text-xs text-right">Paid</TableHead>
+                <TableHead className="text-xs text-right">
+                  Balance Due
+                </TableHead>
+                <TableHead className="text-xs">Last Bill</TableHead>
+                <TableHead className="text-xs text-right">0-30d</TableHead>
+                <TableHead className="text-xs text-right">31-60d</TableHead>
+                <TableHead className="text-xs text-right">60+d</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {outstandingData.length === 0 ? (
+                <TableRow>
+                  <TableCell
+                    colSpan={10}
+                    className="text-center py-10 text-muted-foreground"
+                    data-ocid="outstanding.empty_state"
+                  >
+                    No outstanding dues — all customers are up to date!
+                  </TableCell>
+                </TableRow>
+              ) : (
+                outstandingData.map((row, idx) => (
+                  <TableRow
+                    key={row.customerId}
+                    className="hover:bg-muted/20"
+                    data-ocid={`outstanding.item.${idx + 1}`}
+                  >
+                    <TableCell className="text-xs font-medium">
+                      {row.customerName}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {row.phone}
+                    </TableCell>
+                    <TableCell className="text-xs text-right">
+                      {row.totalBills}
+                    </TableCell>
+                    <TableCell className="text-xs text-right">
+                      {formatCurrency(row.totalAmount)}
+                    </TableCell>
+                    <TableCell className="text-xs text-right text-green-700">
+                      {formatCurrency(row.amountPaid)}
+                    </TableCell>
+                    <TableCell className="text-xs text-right font-bold text-destructive">
+                      {formatCurrency(row.balanceDue)}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      {formatDate(row.lastBillDate)}
+                    </TableCell>
+                    <TableCell className="text-xs text-right text-amber-700">
+                      {row.aging0_30 > 0 ? formatCurrency(row.aging0_30) : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-right text-orange-700">
+                      {row.aging31_60 > 0
+                        ? formatCurrency(row.aging31_60)
+                        : "-"}
+                    </TableCell>
+                    <TableCell className="text-xs text-right text-red-700">
+                      {row.aging61_90 + row.aging90plus > 0
+                        ? formatCurrency(row.aging61_90 + row.aging90plus)
+                        : "-"}
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Main Reports Page
 // ──────────────────────────────────────────────
 
@@ -1405,20 +1869,54 @@ export function ReportsPage() {
 
       <Tabs defaultValue="account-statement">
         <TabsList className="flex-wrap h-auto gap-1 mb-4">
-          <TabsTrigger value="account-statement" className="text-xs">
+          <TabsTrigger
+            value="account-statement"
+            className="text-xs"
+            data-ocid="reports.account_statement.tab"
+          >
             Account Statement
           </TabsTrigger>
-          <TabsTrigger value="gst-report" className="text-xs">
+          <TabsTrigger
+            value="gst-report"
+            className="text-xs"
+            data-ocid="reports.gst_report.tab"
+          >
             GST Report
           </TabsTrigger>
-          <TabsTrigger value="sales-report" className="text-xs">
+          <TabsTrigger
+            value="sales-report"
+            className="text-xs"
+            data-ocid="reports.sales_report.tab"
+          >
             Sales Report
           </TabsTrigger>
-          <TabsTrigger value="purchase-report" className="text-xs">
+          <TabsTrigger
+            value="purchase-report"
+            className="text-xs"
+            data-ocid="reports.purchase_report.tab"
+          >
             Purchase Report
           </TabsTrigger>
-          <TabsTrigger value="profit-loss" className="text-xs">
+          <TabsTrigger
+            value="profit-loss"
+            className="text-xs"
+            data-ocid="reports.profit_loss.tab"
+          >
             Profit &amp; Loss
+          </TabsTrigger>
+          <TabsTrigger
+            value="courier-report"
+            className="text-xs"
+            data-ocid="reports.courier_report.tab"
+          >
+            Courier Report
+          </TabsTrigger>
+          <TabsTrigger
+            value="outstanding-dues"
+            className="text-xs"
+            data-ocid="reports.outstanding_dues.tab"
+          >
+            Outstanding Dues
           </TabsTrigger>
         </TabsList>
 
@@ -1436,6 +1934,12 @@ export function ReportsPage() {
         </TabsContent>
         <TabsContent value="profit-loss">
           <ProfitLossTab />
+        </TabsContent>
+        <TabsContent value="courier-report">
+          <CourierReportTab />
+        </TabsContent>
+        <TabsContent value="outstanding-dues">
+          <OutstandingDuesTab />
         </TabsContent>
       </Tabs>
     </div>

@@ -201,9 +201,106 @@ export const truncate = (text: string, maxLength: number): string => {
 // Get today's date string
 export const getTodayStr = (): string => new Date().toISOString().split("T")[0];
 
+/**
+ * Convert a yyyy-mm-dd date string to ddmmyy format used in SKS AWB numbers.
+ * e.g. "2026-02-17" -> "170226"
+ */
+export const dateToDdMmYy = (dateStr: string): string => {
+  const d = new Date(dateStr);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}${mm}${yy}`;
+};
+
+/**
+ * Generate an SKS Global Express AWB number.
+ * Format: SKS + 3-digit serial + D/W + ddmmyy
+ * e.g. SKS001D170226
+ * @param serial - the daily counter value (1, 2, 3...)
+ * @param dateStr - yyyy-mm-dd date
+ * @param isInternational - true => 'W', false => 'D'
+ */
+export const buildSKSAWB = (
+  serial: number,
+  dateStr: string,
+  isInternational: boolean,
+): string => {
+  const serialPart = String(serial).padStart(3, "0");
+  const typePart = isInternational ? "W" : "D";
+  const datePart = dateToDdMmYy(dateStr);
+  return `SKS${serialPart}${typePart}${datePart}`;
+};
+
 // Check if date is today
 export const isToday = (dateStr: string): boolean => {
   return dateStr === getTodayStr();
+};
+
+/**
+ * Convert a number to Indian currency words.
+ * e.g. 11308 → "Eleven Thousand Three Hundred Eight Only"
+ */
+export const amountToWords = (amount: number): string => {
+  const ones = [
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+  ];
+  const tens = [
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
+  ];
+
+  const numToWords = (n: number): string => {
+    if (n === 0) return "";
+    if (n < 20) return `${ones[n]} `;
+    if (n < 100)
+      return `${tens[Math.floor(n / 10)]} ${n % 10 !== 0 ? `${ones[n % 10]} ` : ""}`;
+    if (n < 1000)
+      return `${ones[Math.floor(n / 100)]} Hundred ${numToWords(n % 100)}`;
+    if (n < 100000)
+      return `${numToWords(Math.floor(n / 1000))}Thousand ${numToWords(n % 1000)}`;
+    if (n < 10000000)
+      return `${numToWords(Math.floor(n / 100000))}Lakh ${numToWords(n % 100000)}`;
+    return `${numToWords(Math.floor(n / 10000000))}Crore ${numToWords(n % 10000000)}`;
+  };
+
+  const rupees = Math.floor(amount);
+  const paise = Math.round((amount - rupees) * 100);
+
+  let result = numToWords(rupees).trim();
+  if (!result) result = "Zero";
+  result += " Rupees";
+  if (paise > 0) {
+    result += ` and ${numToWords(paise).trim()} Paise`;
+  }
+  return `${result} Only`;
 };
 
 // Debounce

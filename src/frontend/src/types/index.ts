@@ -14,6 +14,10 @@ export interface Company {
   billSeq: number;
   state: string;
   pincode: string;
+  bankName?: string;
+  bankAccount?: string;
+  bankIfsc?: string;
+  bankBranch?: string;
 }
 
 export interface AppUser {
@@ -51,6 +55,7 @@ export interface CourierBrand {
   companyId: string;
   type: "courier_awb";
   brandName: string;
+  brandSubtitle?: string; // e.g. "Domestic and International"
   productType: string;
   serviceModes: string[];
   transportModes: "Air" | "Surface" | "Both"; // fixed transport mode for this brand
@@ -58,10 +63,12 @@ export interface CourierBrand {
     | "sequential_prefix_first"
     | "sequential_prefix_second"
     | "custom_gap"
-    | "sequential";
+    | "sequential"
+    | "own_brand_auto"; // SKS own-brand: auto-generate AWB on booking
   serialGap?: number;
   serialPrefix?: string;
   prefixPosition?: "first" | "second";
+  isOwnBrand?: boolean; // true for SKS Global Express
   sellingPrice: number;
   gstRate: number;
   isActive: boolean;
@@ -160,6 +167,12 @@ export interface BillItem {
   unitPrice: number;
   totalPrice: number;
   gstRate: number;
+  trackingStatus?:
+    | "booked"
+    | "in_transit"
+    | "out_for_delivery"
+    | "delivered"
+    | "rto";
   // Courier slip fields
   senderName?: string;
   senderPhone?: string;
@@ -191,6 +204,7 @@ export interface Bill {
   notes?: string;
   isInvoiced: boolean;
   invoiceId?: string;
+  paymentLogs?: PaymentLog[];
 }
 
 export interface Invoice {
@@ -257,6 +271,32 @@ export interface CourierPickup {
   notes?: string;
 }
 
+export interface PaymentLog {
+  id: string;
+  date: string;
+  amount: number;
+  method: "cash" | "upi" | "card" | "credit";
+  notes?: string;
+}
+
+export interface Expense {
+  id: string;
+  companyId: string;
+  date: string;
+  category:
+    | "Rent"
+    | "Salary"
+    | "Utilities"
+    | "Stationery"
+    | "Transport"
+    | "Courier"
+    | "Maintenance"
+    | "Misc";
+  description: string;
+  amount: number;
+  notes?: string;
+}
+
 export interface CompanySettings {
   gstInvoicePrefix: string;
   gstInvoiceSeq: number;
@@ -269,6 +309,9 @@ export interface CompanySettings {
   autoBackup: boolean;
   backupFrequency: "daily" | "weekly";
   lastBackupTime?: string;
+  invoiceFooter?: string;
+  defaultGstRate?: number;
+  invoiceTemplate?: "default" | "retail" | "courier";
 }
 
 export interface TariffWeightSlab {

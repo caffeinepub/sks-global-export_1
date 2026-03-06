@@ -12,6 +12,7 @@ import { CostPricePage } from "./pages/CostPricePage";
 import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { ExpensesPage } from "./pages/ExpensesPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
 import { LoginPage } from "./pages/LoginPage";
@@ -109,6 +110,8 @@ function AppLayout() {
         return <CostPricePage />;
       case "customer-tariffs":
         return <CustomerTariffsPage />;
+      case "expenses":
+        return <ExpensesPage />;
       default:
         return <DashboardPage onNavigate={navigate} />;
     }

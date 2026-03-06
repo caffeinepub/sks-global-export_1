@@ -43,6 +43,7 @@ import type {
   XeroxProduct,
 } from "../types";
 import {
+  buildSKSAWB,
   formatCurrency,
   generateBillNo,
   generateId,
@@ -56,6 +57,7 @@ import {
 import {
   getCustomerTariffMap,
   getTariffs,
+  incrementSKSDailyCounter,
   setSettings,
 } from "../utils/storage";
 
@@ -236,6 +238,7 @@ export function POSBillingPage({
   const {
     products,
     customers,
+    bills,
     awbSerials,
     updateAWBSerial,
     addBill,
@@ -260,6 +263,16 @@ export function POSBillingPage({
   const [date, setDate] = useState(getTodayStr());
   const [productSearch, setProductSearch] = useState("");
   const [slipItem, setSlipItem] = useState<BillItem | null>(null);
+
+  // SKS own-brand: Domestic (D) or International (W)
+  const [sksIsInternational, setSksIsInternational] = useState(false);
+
+  // AWB duplicate warning: stores the duplicate bill item if detected
+  const [duplicateAWBWarning, setDuplicateAWBWarning] = useState<{
+    awb: string;
+    senderName: string;
+    date: string;
+  } | null>(null);
 
   // Load tariffs for dynamic pricing
   const tariffs = getTariffs(activeCompanyId);
@@ -403,18 +416,68 @@ export function POSBillingPage({
     return Math.max(actual, volumetric);
   };
 
+  // Helper: find if an AWB serial has already been used in any saved bill
+  const findDuplicateAWBInBills = (
+    awb: string,
+  ): { senderName: string; date: string } | null => {
+    for (const bill of bills) {
+      for (const item of bill.items) {
+        if (item.productType === "courier_awb" && item.awbSerial === awb) {
+          return {
+            senderName: item.senderName || bill.customerName || "Unknown",
+            date: bill.date,
+          };
+        }
+      }
+    }
+    return null;
+  };
+
+  // Helper: find if AWB is already in the current unsaved bill items
+  const findDuplicateAWBInCurrentBill = (awb: string): boolean => {
+    return billItems.some(
+      (i) => i.productType === "courier_awb" && i.awbSerial === awb,
+    );
+  };
+
   const addCourierWithDetails = () => {
     if (!selectedBrand) return;
-    const awbSerial = getNextAWBSerial(selectedBrand.id);
-    if (!awbSerial) {
-      toast.error(
-        `No AWB serials available for ${selectedBrand.brandName}. Please add stock.`,
-      );
-      return;
-    }
 
     if (!courierForm.senderName || !courierForm.receiverName) {
       toast.error("Sender and receiver names are required");
+      return;
+    }
+
+    const isOwnBrand = (selectedBrand as CourierBrand).isOwnBrand === true;
+
+    let awbSerial: string;
+
+    if (isOwnBrand) {
+      // Auto-generate SKS AWB number
+      const serial = incrementSKSDailyCounter(activeCompanyId, date);
+      awbSerial = buildSKSAWB(serial, date, sksIsInternational);
+    } else {
+      const nextSerial = getNextAWBSerial(selectedBrand.id);
+      if (!nextSerial) {
+        toast.error(
+          `No AWB serials available for ${selectedBrand.brandName}. Please add stock in Inventory.`,
+        );
+        return;
+      }
+      awbSerial = nextSerial;
+    }
+
+    // Duplicate AWB check — check saved bills
+    const dupInBills = findDuplicateAWBInBills(awbSerial);
+    if (dupInBills) {
+      setDuplicateAWBWarning({ awb: awbSerial, ...dupInBills });
+      toast.error(`AWB ${awbSerial} already used! Duplicate entry blocked.`);
+      return;
+    }
+
+    // Duplicate check in current unsaved bill
+    if (findDuplicateAWBInCurrentBill(awbSerial)) {
+      toast.error(`AWB ${awbSerial} is already added in the current bill.`);
       return;
     }
 
@@ -427,8 +490,13 @@ export function POSBillingPage({
         : brandTransportMode === "Surface"
           ? "Surface"
           : null;
-    const mode =
-      autoMode ?? (courierForm.serviceMode || selectedBrand.serviceModes[0]);
+    // For SKS own-brand: mode is Domestic or International based on toggle
+    const mode = isOwnBrand
+      ? sksIsInternational
+        ? "International"
+        : "Domestic"
+      : (autoMode ??
+        (courierForm.serviceMode || selectedBrand.serviceModes[0]));
     const chargeableWt = calcChargeableWeight(
       courierForm.weight,
       courierForm.length,
@@ -565,14 +633,20 @@ export function POSBillingPage({
       chargeableWeightKg: chargeableWt,
     };
 
-    consumeAWBSerial(selectedBrand.id, awbSerial);
+    // Only consume inventory serial for partner brands (not own-brand)
+    if (!isOwnBrand) {
+      consumeAWBSerial(selectedBrand.id, awbSerial);
+    }
     setBillItems((prev) => [...prev, item]);
+    setDuplicateAWBWarning(null);
     toast.success(`AWB ${awbSerial} assigned — ${selectedBrand.brandName}`);
 
     // Reset courier form
     setSelectedBrand(null);
     setPincodeData(null);
     setPincodeLoading(false);
+    setSksIsInternational(false);
+    setDuplicateAWBWarning(null);
     setCourierForm({
       senderName: "",
       senderPhone: "",
@@ -699,18 +773,24 @@ export function POSBillingPage({
   const removeItem = (itemId: string) => {
     const item = billItems.find((i) => i.id === itemId);
     if (item?.productType === "courier_awb" && item.awbSerial) {
-      // Return serial to available
-      const range = awbSerials.find(
-        (r) =>
-          r.brandId === item.productId &&
-          r.usedSerials.includes(item.awbSerial!),
-      );
-      if (range) {
-        updateAWBSerial({
-          ...range,
-          usedSerials: range.usedSerials.filter((s) => s !== item.awbSerial),
-          availableSerials: [...range.availableSerials, item.awbSerial!],
-        });
+      // Only return serial to available for partner brands (not own-brand)
+      const brand = products.find((p) => p.id === item.productId) as
+        | CourierBrand
+        | undefined;
+      const isOwn = brand?.isOwnBrand === true;
+      if (!isOwn) {
+        const range = awbSerials.find(
+          (r) =>
+            r.brandId === item.productId &&
+            r.usedSerials.includes(item.awbSerial!),
+        );
+        if (range) {
+          updateAWBSerial({
+            ...range,
+            usedSerials: range.usedSerials.filter((s) => s !== item.awbSerial),
+            availableSerials: [...range.availableSerials, item.awbSerial!],
+          });
+        }
       }
     }
     setBillItems(billItems.filter((i) => i.id !== itemId));
@@ -1030,7 +1110,11 @@ export function POSBillingPage({
                           <span className="text-sm font-bold text-primary">
                             {formatCurrency(brand.sellingPrice)}
                           </span>
-                          {nextSerial ? (
+                          {brand.isOwnBrand ? (
+                            <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
+                              Auto
+                            </span>
+                          ) : nextSerial ? (
                             <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-mono">
                               ✓
                             </span>
@@ -1040,6 +1124,11 @@ export function POSBillingPage({
                             </span>
                           )}
                         </div>
+                        {brand.brandSubtitle && (
+                          <p className="text-[10px] text-muted-foreground mt-1 truncate">
+                            {brand.brandSubtitle}
+                          </p>
+                        )}
                       </button>
                     );
                   })}
@@ -1053,7 +1142,11 @@ export function POSBillingPage({
                 {/* Courier Detail Form — shown when a brand is selected */}
                 {selectedBrand &&
                   (() => {
-                    const nextSerial = getNextAWBSerial(selectedBrand.id);
+                    const isOwnBrand =
+                      (selectedBrand as CourierBrand).isOwnBrand === true;
+                    const nextSerial = isOwnBrand
+                      ? "__own__"
+                      : getNextAWBSerial(selectedBrand.id);
                     const volWt = calcVolumetricWeight(
                       courierForm.length,
                       courierForm.width,
@@ -1066,6 +1159,28 @@ export function POSBillingPage({
                       courierForm.height,
                     );
                     const style = getBrandStyle(selectedBrand.brandName);
+                    // Preview the SKS AWB that will be generated (counter is NOT incremented here — just a preview)
+                    const { dateToDdMmYy } = (() => {
+                      const dd = String(new Date(date).getDate()).padStart(
+                        2,
+                        "0",
+                      );
+                      const mm = String(new Date(date).getMonth() + 1).padStart(
+                        2,
+                        "0",
+                      );
+                      const yy = String(new Date(date).getFullYear()).slice(-2);
+                      return { dateToDdMmYy: `${dd}${mm}${yy}` };
+                    })();
+                    const { getSKSDailyCounter } = (() => {
+                      const key = `sks_awb_daily_${activeCompanyId}_${dateToDdMmYy}`;
+                      const val = localStorage.getItem(key);
+                      const counter = val ? Number.parseInt(val, 10) : 0;
+                      return { getSKSDailyCounter: counter };
+                    })();
+                    const previewAWB = isOwnBrand
+                      ? `SKS${String(getSKSDailyCounter + 1).padStart(3, "0")}${sksIsInternational ? "W" : "D"}${dateToDdMmYy}`
+                      : null;
                     return (
                       <div className="border border-primary/30 rounded-xl p-4 bg-primary/2 space-y-4">
                         {/* Header */}
@@ -1084,19 +1199,100 @@ export function POSBillingPage({
                               <p className="text-sm font-bold">
                                 {selectedBrand.brandName}
                               </p>
-                              <p className="text-xs text-muted-foreground">
-                                Fill shipment details
-                              </p>
+                              {(selectedBrand as CourierBrand).brandSubtitle ? (
+                                <p className="text-xs text-primary font-medium">
+                                  {
+                                    (selectedBrand as CourierBrand)
+                                      .brandSubtitle
+                                  }
+                                </p>
+                              ) : (
+                                <p className="text-xs text-muted-foreground">
+                                  Fill shipment details
+                                </p>
+                              )}
                             </div>
                           </div>
                           <button
                             type="button"
-                            onClick={() => setSelectedBrand(null)}
+                            onClick={() => {
+                              setSelectedBrand(null);
+                              setDuplicateAWBWarning(null);
+                            }}
                             className="text-muted-foreground hover:text-foreground"
                           >
                             <X className="w-4 h-4" />
                           </button>
                         </div>
+
+                        {/* Duplicate AWB Warning */}
+                        {duplicateAWBWarning && (
+                          <div className="flex items-start gap-2 bg-red-50 border border-red-300 rounded-lg px-3 py-2.5">
+                            <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div className="text-xs">
+                              <p className="font-bold text-red-700">
+                                Duplicate AWB — {duplicateAWBWarning.awb}
+                              </p>
+                              <p className="text-red-600 mt-0.5">
+                                Previously used by{" "}
+                                <span className="font-semibold">
+                                  {duplicateAWBWarning.senderName}
+                                </span>{" "}
+                                on{" "}
+                                <span className="font-semibold">
+                                  {new Date(
+                                    duplicateAWBWarning.date,
+                                  ).toLocaleDateString("en-IN")}
+                                </span>
+                              </p>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* SKS Own Brand: Domestic / International Toggle */}
+                        {isOwnBrand && (
+                          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-2">
+                            <p className="text-xs font-semibold text-blue-800 uppercase tracking-wide">
+                              Shipment Type
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setSksIsInternational(false)}
+                                className={cn(
+                                  "flex-1 h-9 rounded-lg border-2 text-xs font-semibold transition-all",
+                                  !sksIsInternational
+                                    ? "border-blue-500 bg-blue-500 text-white"
+                                    : "border-border bg-white text-muted-foreground hover:border-blue-300",
+                                )}
+                              >
+                                🏠 Domestic (D)
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setSksIsInternational(true)}
+                                className={cn(
+                                  "flex-1 h-9 rounded-lg border-2 text-xs font-semibold transition-all",
+                                  sksIsInternational
+                                    ? "border-indigo-500 bg-indigo-500 text-white"
+                                    : "border-border bg-white text-muted-foreground hover:border-indigo-300",
+                                )}
+                              >
+                                ✈ International (W)
+                              </button>
+                            </div>
+                            {previewAWB && (
+                              <div className="flex items-center justify-between text-xs bg-white border border-blue-200 rounded-lg px-3 py-1.5">
+                                <span className="text-muted-foreground">
+                                  AWB Preview
+                                </span>
+                                <span className="font-mono font-bold text-blue-700 text-sm">
+                                  {previewAWB}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         {/* Sender & Receiver */}
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1387,70 +1583,74 @@ export function POSBillingPage({
                               </SelectContent>
                             </Select>
                           </div>
-                          <div className="space-y-1.5">
-                            <Label className="text-xs">Mode of Transport</Label>
-                            {/* If brand has fixed single transport mode, show read-only badge; if Both, show selector */}
-                            {(() => {
-                              const tm =
-                                (
-                                  selectedBrand as CourierBrand & {
-                                    transportModes?: string;
-                                  }
-                                ).transportModes ?? "Both";
-                              if (tm === "Air") {
+                          {!isOwnBrand && (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs">
+                                Mode of Transport
+                              </Label>
+                              {/* If brand has fixed single transport mode, show read-only badge; if Both, show selector */}
+                              {(() => {
+                                const tm =
+                                  (
+                                    selectedBrand as CourierBrand & {
+                                      transportModes?: string;
+                                    }
+                                  ).transportModes ?? "Both";
+                                if (tm === "Air") {
+                                  return (
+                                    <div className="h-8 px-3 rounded-md border border-border bg-blue-50 flex items-center">
+                                      <span className="text-xs font-semibold text-blue-700">
+                                        ✈ Air Mode
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                                if (tm === "Surface") {
+                                  return (
+                                    <div className="h-8 px-3 rounded-md border border-border bg-green-50 flex items-center">
+                                      <span className="text-xs font-semibold text-green-700">
+                                        🚛 Surface Mode
+                                      </span>
+                                    </div>
+                                  );
+                                }
+                                // Both — show selector
                                 return (
-                                  <div className="h-8 px-3 rounded-md border border-border bg-blue-50 flex items-center">
-                                    <span className="text-xs font-semibold text-blue-700">
-                                      ✈ Air Mode
-                                    </span>
-                                  </div>
-                                );
-                              }
-                              if (tm === "Surface") {
-                                return (
-                                  <div className="h-8 px-3 rounded-md border border-border bg-green-50 flex items-center">
-                                    <span className="text-xs font-semibold text-green-700">
-                                      🚛 Surface Mode
-                                    </span>
-                                  </div>
-                                );
-                              }
-                              // Both — show selector
-                              return (
-                                <Select
-                                  value={courierForm.serviceMode || "Air"}
-                                  onValueChange={(v) =>
-                                    setCourierForm((p) => ({
-                                      ...p,
-                                      serviceMode: v,
-                                    }))
-                                  }
-                                >
-                                  <SelectTrigger
-                                    className="h-8 text-xs"
-                                    data-ocid="courier.service_mode.select"
+                                  <Select
+                                    value={courierForm.serviceMode || "Air"}
+                                    onValueChange={(v) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        serviceMode: v,
+                                      }))
+                                    }
                                   >
-                                    <SelectValue placeholder="Select mode" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="Air">✈ Air</SelectItem>
-                                    <SelectItem value="Surface">
-                                      🚛 Surface
-                                    </SelectItem>
-                                    {selectedBrand.serviceModes
-                                      .filter(
-                                        (m) => m !== "Air" && m !== "Surface",
-                                      )
-                                      .map((mode) => (
-                                        <SelectItem key={mode} value={mode}>
-                                          {mode}
-                                        </SelectItem>
-                                      ))}
-                                  </SelectContent>
-                                </Select>
-                              );
-                            })()}
-                          </div>
+                                    <SelectTrigger
+                                      className="h-8 text-xs"
+                                      data-ocid="courier.service_mode.select"
+                                    >
+                                      <SelectValue placeholder="Select mode" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="Air">✈ Air</SelectItem>
+                                      <SelectItem value="Surface">
+                                        🚛 Surface
+                                      </SelectItem>
+                                      {selectedBrand.serviceModes
+                                        .filter(
+                                          (m) => m !== "Air" && m !== "Surface",
+                                        )
+                                        .map((mode) => (
+                                          <SelectItem key={mode} value={mode}>
+                                            {mode}
+                                          </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                  </Select>
+                                );
+                              })()}
+                            </div>
+                          )}
                         </div>
 
                         {/* Tariff Toggle — for any brand with tariff entries */}
@@ -1770,12 +1970,16 @@ export function POSBillingPage({
                                 <span
                                   className={cn(
                                     "font-mono",
-                                    nextSerial
-                                      ? "text-green-700"
-                                      : "text-red-600",
+                                    isOwnBrand
+                                      ? "text-blue-700"
+                                      : nextSerial
+                                        ? "text-green-700"
+                                        : "text-red-600",
                                   )}
                                 >
-                                  {nextSerial || "No serials available"}
+                                  {isOwnBrand
+                                    ? (previewAWB ?? "Auto-generated")
+                                    : nextSerial || "No serials available"}
                                 </span>
                               </div>
                             </div>
@@ -1786,7 +1990,7 @@ export function POSBillingPage({
                         <Button
                           className="w-full"
                           onClick={addCourierWithDetails}
-                          disabled={!nextSerial}
+                          disabled={!isOwnBrand && !nextSerial}
                         >
                           <Plus className="w-4 h-4 mr-2" />
                           Add to Bill

@@ -17,18 +17,29 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  AlertTriangle,
   Bell,
   Building2,
   ChevronDown,
+  Database,
   KeyRound,
   LogOut,
+  Package,
   Settings,
+  Truck,
   User,
 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../../hooks/useAppStore";
-import { hashPassword, verifyPassword } from "../../utils/helpers";
+import { getTodayStr, hashPassword, verifyPassword } from "../../utils/helpers";
+import { getLastBackupTime } from "../../utils/storage";
 
 interface HeaderProps {
   currentPage: string;
@@ -47,6 +58,19 @@ const pageTitles: Record<string, string> = {
   vendors: "Vendors",
   pickups: "Courier Pickups",
   settings: "Settings",
+  reports: "Reports",
+  expenses: "Expenses",
+  tariffs: "Tariff Rates",
+  "cost-price": "Cost Price",
+  "customer-tariffs": "Customer Tariffs",
+  admin: "Admin Panel",
+};
+
+type AlertItem = {
+  id: string;
+  type: "low_stock" | "pending_pickup" | "overdue_payment" | "backup_reminder";
+  message: string;
+  navigateTo: string;
 };
 
 export function Header({ currentPage, onNavigate }: HeaderProps) {
@@ -57,15 +81,127 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
     switchCompany,
     logout,
     pickups,
+    products,
+    bills,
     updateUser,
   } = useAppStore();
 
-  const pendingPickups = pickups.filter((p) => p.status === "pending").length;
+  const today = getTodayStr();
 
   const [showChangePwd, setShowChangePwd] = useState(false);
   const [currentPwd, setCurrentPwd] = useState("");
   const [newPwd, setNewPwd] = useState("");
   const [confirmPwd, setConfirmPwd] = useState("");
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
+  // Compute alerts
+  const allAlerts = useMemo<AlertItem[]>(() => {
+    const alerts: AlertItem[] = [];
+
+    // Low stock
+    const lowStock = products.filter(
+      (p) =>
+        p.type === "general" &&
+        (p as { currentStock: number; minStockAlert: number }).currentStock <=
+          (p as { currentStock: number; minStockAlert: number }).minStockAlert,
+    );
+    for (const p of lowStock.slice(0, 5)) {
+      const gp = p as { id: string; name: string; currentStock: number };
+      alerts.push({
+        id: `low_stock_${gp.id}`,
+        type: "low_stock",
+        message: `${gp.name} — only ${gp.currentStock} left`,
+        navigateTo: "inventory",
+      });
+    }
+    if (lowStock.length > 5) {
+      alerts.push({
+        id: "low_stock_more",
+        type: "low_stock",
+        message: `${lowStock.length - 5} more items below minimum stock`,
+        navigateTo: "inventory",
+      });
+    }
+
+    // Pending pickups today
+    const todayPickups = pickups.filter(
+      (p) => p.status === "pending" && p.scheduledDate === today,
+    );
+    if (todayPickups.length > 0) {
+      alerts.push({
+        id: "pending_pickups",
+        type: "pending_pickup",
+        message: `${todayPickups.length} courier pickup${todayPickups.length > 1 ? "s" : ""} pending today`,
+        navigateTo: "pickups",
+      });
+    }
+
+    // Overdue payments (7+ days)
+    const overdueBills = bills.filter((b) => {
+      if (b.paymentStatus === "paid") return false;
+      const billDate = new Date(b.date);
+      const daysDiff = Math.floor(
+        (Date.now() - billDate.getTime()) / (1000 * 60 * 60 * 24),
+      );
+      return daysDiff >= 7;
+    });
+    if (overdueBills.length > 0) {
+      alerts.push({
+        id: "overdue_payments",
+        type: "overdue_payment",
+        message: `${overdueBills.length} bill${overdueBills.length > 1 ? "s" : ""} overdue (7+ days)`,
+        navigateTo: "bills",
+      });
+    }
+
+    // Backup reminder
+    const lastBackup = getLastBackupTime();
+    const needsBackup =
+      !lastBackup ||
+      (Date.now() - new Date(lastBackup).getTime()) / (1000 * 60 * 60) > 24;
+    if (needsBackup) {
+      alerts.push({
+        id: "backup_reminder",
+        type: "backup_reminder",
+        message: lastBackup
+          ? "Last backup was more than 24 hours ago"
+          : "No backup taken yet — please backup your data",
+        navigateTo: "settings",
+      });
+    }
+
+    return alerts;
+  }, [products, pickups, bills, today]);
+
+  const activeAlerts = allAlerts.filter((a) => !dismissedIds.includes(a.id));
+  const alertCount = activeAlerts.length;
+
+  const getAlertIcon = (type: AlertItem["type"]) => {
+    switch (type) {
+      case "low_stock":
+        return <Package className="w-4 h-4 text-amber-600" />;
+      case "pending_pickup":
+        return <Truck className="w-4 h-4 text-blue-600" />;
+      case "overdue_payment":
+        return <AlertTriangle className="w-4 h-4 text-red-600" />;
+      case "backup_reminder":
+        return <Database className="w-4 h-4 text-purple-600" />;
+    }
+  };
+
+  const getAlertBg = (type: AlertItem["type"]) => {
+    switch (type) {
+      case "low_stock":
+        return "bg-amber-50 hover:bg-amber-100";
+      case "pending_pickup":
+        return "bg-blue-50 hover:bg-blue-100";
+      case "overdue_payment":
+        return "bg-red-50 hover:bg-red-100";
+      case "backup_reminder":
+        return "bg-purple-50 hover:bg-purple-100";
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -155,20 +291,82 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Notifications */}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="relative"
-          onClick={() => onNavigate("pickups")}
-        >
-          <Bell className="w-5 h-5" />
-          {pendingPickups > 0 && (
-            <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-xs flex items-center justify-center bg-destructive text-white">
-              {pendingPickups}
-            </Badge>
-          )}
-        </Button>
+        {/* Notifications Bell */}
+        <Popover open={notifOpen} onOpenChange={setNotifOpen}>
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative"
+              data-ocid="header.notifications.button"
+            >
+              <Bell className="w-5 h-5" />
+              {alertCount > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-xs flex items-center justify-center bg-destructive text-white">
+                  {alertCount > 9 ? "9+" : alertCount}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-80 p-0"
+            data-ocid="header.notifications.popover"
+          >
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <p className="text-sm font-semibold">Notifications</p>
+              {activeAlerts.length > 0 && (
+                <Badge variant="secondary" className="text-xs">
+                  {activeAlerts.length} active
+                </Badge>
+              )}
+            </div>
+            <ScrollArea className="max-h-80">
+              {activeAlerts.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Bell className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">All clear! No alerts.</p>
+                </div>
+              ) : (
+                <div className="p-2 space-y-1.5">
+                  {activeAlerts.map((alert) => (
+                    <button
+                      key={alert.id}
+                      type="button"
+                      className={`w-full flex items-start gap-3 p-2.5 rounded-lg text-left transition-colors cursor-pointer ${getAlertBg(alert.type)}`}
+                      onClick={() => {
+                        onNavigate(alert.navigateTo);
+                        setNotifOpen(false);
+                      }}
+                      data-ocid={`header.notification.${alert.type}.button`}
+                    >
+                      <div className="mt-0.5 flex-shrink-0">
+                        {getAlertIcon(alert.type)}
+                      </div>
+                      <p className="text-xs text-foreground">{alert.message}</p>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </ScrollArea>
+            {activeAlerts.length > 0 && (
+              <div className="px-4 py-2 border-t border-border">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="w-full text-xs text-muted-foreground"
+                  onClick={() => {
+                    setDismissedIds(activeAlerts.map((a) => a.id));
+                    setNotifOpen(false);
+                  }}
+                  data-ocid="header.notifications.dismiss_all.button"
+                >
+                  Dismiss All
+                </Button>
+              </div>
+            )}
+          </PopoverContent>
+        </Popover>
 
         {/* User menu */}
         <DropdownMenu>
@@ -217,7 +415,10 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
 
       {/* Change Password Dialog */}
       <Dialog open={showChangePwd} onOpenChange={setShowChangePwd}>
-        <DialogContent className="max-w-sm">
+        <DialogContent
+          className="max-w-sm"
+          data-ocid="header.change_password.dialog"
+        >
           <DialogHeader>
             <DialogTitle>Change Password</DialogTitle>
           </DialogHeader>
@@ -229,6 +430,7 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
                 value={currentPwd}
                 onChange={(e) => setCurrentPwd(e.target.value)}
                 placeholder="Enter current password"
+                data-ocid="header.current_password.input"
               />
             </div>
             <div className="space-y-1.5">
@@ -238,6 +440,7 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
                 value={newPwd}
                 onChange={(e) => setNewPwd(e.target.value)}
                 placeholder="Enter new password"
+                data-ocid="header.new_password.input"
               />
             </div>
             <div className="space-y-1.5">
@@ -248,14 +451,24 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
                 onChange={(e) => setConfirmPwd(e.target.value)}
                 placeholder="Confirm new password"
                 onKeyDown={(e) => e.key === "Enter" && handleChangePassword()}
+                data-ocid="header.confirm_password.input"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowChangePwd(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setShowChangePwd(false)}
+              data-ocid="header.change_password.cancel_button"
+            >
               Cancel
             </Button>
-            <Button onClick={handleChangePassword}>Update Password</Button>
+            <Button
+              onClick={handleChangePassword}
+              data-ocid="header.change_password.submit_button"
+            >
+              Update Password
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

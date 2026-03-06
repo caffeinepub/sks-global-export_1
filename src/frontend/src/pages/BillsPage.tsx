@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
   SelectContent,
@@ -38,7 +39,10 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   CheckCircle2,
+  DollarSign,
+  ExternalLink,
   FileText,
+  MapPin,
   Pencil,
   Printer,
   Search,
@@ -49,17 +53,42 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { useAppStore } from "../hooks/useAppStore";
-import type { Bill, BillItem, Invoice } from "../types";
+import type { Bill, BillItem, Invoice, PaymentLog } from "../types";
 import {
   formatCurrency,
   formatDate,
+  formatDateTime,
   generateBillNo,
   generateId,
 } from "../utils/helpers";
+import { nextGSTInvoiceSeq, nextNonGSTInvoiceSeq } from "../utils/storage";
 
 interface BillsPageProps {
   onNavigate: (page: string) => void;
 }
+
+const TRACKING_URLS: Record<string, string> = {
+  DTDC: "https://www.dtdc.in/tracking/tracking.asp?Ttype=awb&strCNNo={awb}",
+  BlueDart: "https://www.bluedart.com/tracking?trackFor=0&trackThis={awb}",
+  Delhivery: "https://www.delhivery.com/tracking/?val={awb}",
+  FedEx: "https://www.fedex.com/en-in/tracking.html?tracknumbers={awb}",
+};
+
+const TRACKING_STATUS_LABELS: Record<string, string> = {
+  booked: "Booked",
+  in_transit: "In Transit",
+  out_for_delivery: "Out for Delivery",
+  delivered: "Delivered",
+  rto: "RTO",
+};
+
+const TRACKING_STATUS_COLORS: Record<string, string> = {
+  booked: "bg-blue-100 text-blue-700",
+  in_transit: "bg-amber-100 text-amber-700",
+  out_for_delivery: "bg-orange-100 text-orange-700",
+  delivered: "bg-green-100 text-green-700",
+  rto: "bg-red-100 text-red-700",
+};
 
 export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
   const {
@@ -81,12 +110,32 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
   const [viewBill, setViewBill] = useState<Bill | null>(null);
   const [editBill, setEditBill] = useState<Bill | null>(null);
   const [deleteBillId, setDeleteBillId] = useState<string | null>(null);
+  const [deleteBulkConfirm, setDeleteBulkConfirm] = useState(false);
   const [slipItem, setSlipItem] = useState<{
     item: BillItem;
     bill: Bill;
   } | null>(null);
   const [invoiceType, setInvoiceType] = useState<"gst" | "non_gst">("gst");
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
+
+  // Record Payment
+  const [paymentBill, setPaymentBill] = useState<Bill | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<
+    "cash" | "upi" | "card" | "credit"
+  >("cash");
+  const [paymentDate, setPaymentDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
+  const [paymentNotes, setPaymentNotes] = useState("");
+
+  // AWB Tracking
+  const [trackItem, setTrackItem] = useState<{
+    item: BillItem;
+    bill: Bill;
+  } | null>(null);
+  const [trackStatus, setTrackStatus] =
+    useState<BillItem["trackingStatus"]>("booked");
 
   // Edit form state
   const [editPaymentStatus, setEditPaymentStatus] =
@@ -128,6 +177,94 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     deleteBill(deleteBillId);
     toast.success(`Bill ${bill?.billNo || ""} deleted`);
     setDeleteBillId(null);
+  };
+
+  const handleBulkDelete = () => {
+    for (const id of selectedIds) {
+      deleteBill(id);
+    }
+    toast.success(`${selectedIds.length} bills deleted`);
+    setSelectedIds([]);
+    setDeleteBulkConfirm(false);
+  };
+
+  const handleBulkMarkPaid = () => {
+    for (const id of selectedIds) {
+      const bill = bills.find((b) => b.id === id);
+      if (bill) {
+        updateBill({
+          ...bill,
+          paymentStatus: "paid",
+          amountPaid: bill.total,
+          balanceDue: 0,
+        });
+      }
+    }
+    toast.success(`${selectedIds.length} bills marked as paid`);
+    setSelectedIds([]);
+  };
+
+  // Record Payment Handler
+  const openPaymentDialog = (bill: Bill) => {
+    setPaymentBill(bill);
+    setPaymentAmount(String(bill.balanceDue));
+    setPaymentMethod("cash");
+    setPaymentDate(new Date().toISOString().split("T")[0]);
+    setPaymentNotes("");
+  };
+
+  const handleRecordPayment = () => {
+    if (!paymentBill) return;
+    const amount = Number.parseFloat(paymentAmount) || 0;
+    if (amount <= 0) {
+      toast.error("Amount must be greater than 0");
+      return;
+    }
+    const newAmountPaid = paymentBill.amountPaid + amount;
+    const newBalanceDue = Math.max(0, paymentBill.total - newAmountPaid);
+    const newStatus: Bill["paymentStatus"] =
+      newBalanceDue === 0 ? "paid" : "partial";
+
+    const log: PaymentLog = {
+      id: generateId(),
+      date: paymentDate,
+      amount,
+      method: paymentMethod,
+      notes: paymentNotes || undefined,
+    };
+
+    updateBill({
+      ...paymentBill,
+      amountPaid: newAmountPaid,
+      balanceDue: newBalanceDue,
+      paymentStatus: newStatus,
+      paymentLogs: [...(paymentBill.paymentLogs || []), log],
+    });
+    toast.success(`Payment of ${formatCurrency(amount)} recorded`);
+    setPaymentBill(null);
+  };
+
+  // AWB Tracking handler
+  const openTrackDialog = (item: BillItem, bill: Bill) => {
+    setTrackItem({ item, bill });
+    setTrackStatus(item.trackingStatus || "booked");
+  };
+
+  const handleSaveTrackStatus = () => {
+    if (!trackItem) return;
+    const updatedItems = trackItem.bill.items.map((i) =>
+      i.id === trackItem.item.id ? { ...i, trackingStatus: trackStatus } : i,
+    );
+    updateBill({ ...trackItem.bill, items: updatedItems });
+    toast.success("Tracking status updated");
+    setTrackItem(null);
+  };
+
+  const getTrackingUrl = (brandName: string, awb: string): string => {
+    const urlTemplate =
+      TRACKING_URLS[brandName] ||
+      "https://www.google.com/search?q=track+{awb}+courier";
+    return urlTemplate.replace("{awb}", awb);
   };
 
   const filteredBills = useMemo(() => {
@@ -173,7 +310,6 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     const allItems = selectedBills.flatMap((b) => b.items);
     const subtotal = allItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
-    // Calculate GST breakdown
     const cgst =
       invoiceType === "gst"
         ? allItems.reduce(
@@ -186,13 +322,29 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     const igst = 0;
     const total = subtotal;
 
-    const invoiceNo =
-      invoiceType === "gst"
-        ? generateBillNo(settings.gstInvoicePrefix, settings.gstInvoiceSeq)
-        : generateBillNo(
-            settings.nonGstInvoicePrefix,
-            settings.nonGstInvoiceSeq,
-          );
+    let invoiceNo: string;
+    if (invoiceType === "gst") {
+      // GST invoice: sequence is shared across all companies with the same GSTIN
+      const companyGstin = activeCompany?.gstin?.trim();
+      if (companyGstin) {
+        const seq = nextGSTInvoiceSeq(companyGstin);
+        invoiceNo = generateBillNo(settings.gstInvoicePrefix, seq);
+      } else {
+        // Fallback: no GSTIN set on company, use per-company settings seq
+        invoiceNo = generateBillNo(
+          settings.gstInvoicePrefix,
+          settings.gstInvoiceSeq,
+        );
+        updateSettings({
+          ...settings,
+          gstInvoiceSeq: settings.gstInvoiceSeq + 1,
+        });
+      }
+    } else {
+      // Non-GST invoice: each company has its own independent sequence
+      const seq = nextNonGSTInvoiceSeq(activeCompanyId);
+      invoiceNo = generateBillNo(settings.nonGstInvoicePrefix, seq);
+    }
 
     const invoice: Invoice = {
       id: generateId(),
@@ -219,20 +371,6 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     };
 
     addInvoice(invoice);
-
-    // Update bills as invoiced
-    for (const bill of selectedBills) {
-      updateBill({ ...bill, isInvoiced: true, invoiceId: invoice.id });
-    }
-
-    // Update sequence
-    const newSettings = {
-      ...settings,
-      ...(invoiceType === "gst"
-        ? { gstInvoiceSeq: settings.gstInvoiceSeq + 1 }
-        : { nonGstInvoiceSeq: settings.nonGstInvoiceSeq + 1 }),
-    };
-    updateSettings(newSettings);
 
     toast.success(`Invoice ${invoiceNo} generated successfully!`);
     setSelectedIds([]);
@@ -272,6 +410,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   setShowInvoiceDialog(true);
                 }}
                 className="bg-primary"
+                data-ocid="bills.gst_invoice.button"
               >
                 <FileText className="w-4 h-4 mr-1" />
                 GST Invoice ({selectedIds.length})
@@ -283,6 +422,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   setInvoiceType("non_gst");
                   setShowInvoiceDialog(true);
                 }}
+                data-ocid="bills.non_gst_invoice.button"
               >
                 <FileText className="w-4 h-4 mr-1" />
                 Non-GST Invoice
@@ -297,6 +437,62 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
         </div>
       </div>
 
+      {/* Bulk Action Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center gap-2 bg-primary/5 border border-primary/20 rounded-xl p-3 flex-wrap">
+          <span className="text-sm font-medium text-primary">
+            {selectedIds.length} selected
+          </span>
+          <div className="flex gap-2 flex-wrap ml-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-green-700 border-green-400 hover:bg-green-50 text-xs"
+              onClick={handleBulkMarkPaid}
+              data-ocid="bills.bulk_mark_paid.button"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+              Mark as Paid
+            </Button>
+            {canGenerateInvoice && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs"
+                onClick={() => {
+                  setInvoiceType("gst");
+                  setShowInvoiceDialog(true);
+                }}
+                data-ocid="bills.bulk_generate_invoice.button"
+              >
+                <FileText className="w-3.5 h-3.5 mr-1" />
+                Generate Invoice
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-destructive border-destructive/40 hover:bg-destructive/5 text-xs"
+              onClick={() => setDeleteBulkConfirm(true)}
+              data-ocid="bills.bulk_delete.button"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1" />
+              Delete ({selectedIds.length})
+            </Button>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto text-xs"
+            onClick={() => setSelectedIds([])}
+            data-ocid="bills.deselect_all.button"
+          >
+            <X className="w-3.5 h-3.5 mr-1" />
+            Deselect
+          </Button>
+        </div>
+      )}
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-3 bg-white p-4 rounded-xl border border-border shadow-xs">
         <div className="relative flex-1">
@@ -306,6 +502,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search bills..."
             className="pl-9 text-sm"
+            data-ocid="bills.search_input"
           />
         </div>
         <Input
@@ -313,9 +510,13 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
           value={filterDate}
           onChange={(e) => setFilterDate(e.target.value)}
           className="text-sm w-full sm:w-40"
+          data-ocid="bills.date.input"
         />
         <Select value={filterStatus} onValueChange={setFilterStatus}>
-          <SelectTrigger className="text-sm w-full sm:w-36">
+          <SelectTrigger
+            className="text-sm w-full sm:w-36"
+            data-ocid="bills.status.select"
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -343,7 +544,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
       {/* Table */}
       <div className="bg-white rounded-xl border border-border shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <Table>
+          <Table data-ocid="bills.table">
             <TableHeader>
               <TableRow className="bg-muted/30">
                 <TableHead className="w-10">
@@ -353,6 +554,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                       filteredBills.length > 0
                     }
                     onCheckedChange={toggleAll}
+                    data-ocid="bills.select_all.checkbox"
                   />
                 </TableHead>
                 <TableHead className="text-xs">Bill No</TableHead>
@@ -372,20 +574,23 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   <TableCell
                     colSpan={10}
                     className="text-center py-12 text-muted-foreground"
+                    data-ocid="bills.empty_state"
                   >
                     No bills found
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredBills.map((bill) => (
+                filteredBills.map((bill, idx) => (
                   <TableRow
                     key={bill.id}
                     className="hover:bg-muted/20 transition-colors"
+                    data-ocid={`bills.item.${idx + 1}`}
                   >
                     <TableCell>
                       <Checkbox
                         checked={selectedIds.includes(bill.id)}
                         onCheckedChange={() => toggleSelect(bill.id)}
+                        data-ocid={`bills.checkbox.${idx + 1}`}
                       />
                     </TableCell>
                     <TableCell className="text-xs font-mono font-semibold">
@@ -404,9 +609,21 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
                       {bill.items.length} items
+                      {bill.items.some(
+                        (i) => i.productType === "courier_awb",
+                      ) && (
+                        <span className="ml-1 text-purple-500 text-[10px]">
+                          📦
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-xs font-bold">
                       {formatCurrency(bill.total)}
+                      {bill.balanceDue > 0 && (
+                        <p className="text-[10px] text-destructive">
+                          Due: {formatCurrency(bill.balanceDue)}
+                        </p>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant="secondary" className="text-xs capitalize">
@@ -422,21 +639,55 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                       )}
                     </TableCell>
                     <TableCell>
-                      <div className="flex gap-1">
+                      <div className="flex gap-1 flex-wrap">
                         <Button
                           variant="ghost"
                           size="sm"
                           onClick={() => setViewBill(bill)}
                           className="text-xs h-7"
+                          data-ocid={`bills.view.button.${idx + 1}`}
                         >
                           View
                         </Button>
+                        {(bill.paymentStatus === "pending" ||
+                          bill.paymentStatus === "partial") && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-green-600 hover:text-green-700 hover:bg-green-50"
+                            title="Record Payment"
+                            onClick={() => openPaymentDialog(bill)}
+                            data-ocid={`bills.record_payment.button.${idx + 1}`}
+                          >
+                            <DollarSign className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
+                        {bill.items.some(
+                          (i) => i.productType === "courier_awb",
+                        ) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                            title="Track AWB"
+                            onClick={() => {
+                              const ci = bill.items.find(
+                                (i) => i.productType === "courier_awb",
+                              );
+                              if (ci) openTrackDialog(ci, bill);
+                            }}
+                            data-ocid={`bills.track.button.${idx + 1}`}
+                          >
+                            <MapPin className="w-3.5 h-3.5" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
                           title="Edit"
                           onClick={() => openEditBill(bill)}
+                          data-ocid={`bills.edit_button.${idx + 1}`}
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
@@ -446,6 +697,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                           className="h-7 w-7 text-destructive hover:text-destructive"
                           title="Delete"
                           onClick={() => setDeleteBillId(bill.id)}
+                          data-ocid={`bills.delete_button.${idx + 1}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -464,13 +716,15 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
         open={!!viewBill}
         onOpenChange={(open) => !open && setViewBill(null)}
       >
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent
+          className="max-w-2xl max-h-[90vh] overflow-y-auto"
+          data-ocid="bills.view.dialog"
+        >
           <DialogHeader>
             <DialogTitle>Bill Details - {viewBill?.billNo}</DialogTitle>
           </DialogHeader>
           {viewBill && (
             <div className="space-y-4">
-              {/* Company header with logo */}
               <div
                 className="text-center border-b border-border pb-3"
                 id="bill-print"
@@ -518,7 +772,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                     <TableHead className="text-xs">Qty</TableHead>
                     <TableHead className="text-xs">Rate</TableHead>
                     <TableHead className="text-xs">Amount</TableHead>
-                    <TableHead className="text-xs">Slip</TableHead>
+                    <TableHead className="text-xs">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -540,13 +794,19 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                             {item.description}
                           </p>
                         )}
-                        {/* Legacy: show AWB separately only if productName differs from awbSerial */}
                         {item.awbSerial &&
                           item.productName !== item.awbSerial && (
                             <p className="text-muted-foreground break-words whitespace-normal">
                               AWB: {item.awbSerial}
                             </p>
                           )}
+                        {item.trackingStatus && (
+                          <span
+                            className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${TRACKING_STATUS_COLORS[item.trackingStatus]}`}
+                          >
+                            {TRACKING_STATUS_LABELS[item.trackingStatus]}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {item.quantity} {item.unit}
@@ -558,20 +818,32 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                         {formatCurrency(item.totalPrice)}
                       </TableCell>
                       <TableCell>
-                        {item.productType === "courier_awb" && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-primary hover:text-primary"
-                            title="Print Courier Slip"
-                            data-ocid="bill.courier_slip.button"
-                            onClick={() =>
-                              setSlipItem({ item, bill: viewBill })
-                            }
-                          >
-                            <Printer className="w-3.5 h-3.5" />
-                          </Button>
-                        )}
+                        <div className="flex gap-1">
+                          {item.productType === "courier_awb" && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-primary hover:text-primary"
+                                title="Print Courier Slip"
+                                onClick={() =>
+                                  setSlipItem({ item, bill: viewBill })
+                                }
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-purple-600"
+                                title="Track AWB"
+                                onClick={() => openTrackDialog(item, viewBill)}
+                              >
+                                <MapPin className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
+                          )}
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -601,6 +873,30 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   </div>
                 )}
               </div>
+
+              {/* Payment Logs */}
+              {viewBill.paymentLogs && viewBill.paymentLogs.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold mb-2">Payment History</p>
+                  <div className="space-y-1.5">
+                    {viewBill.paymentLogs.map((log) => (
+                      <div
+                        key={log.id}
+                        className="flex justify-between text-xs bg-green-50 p-2 rounded"
+                      >
+                        <span className="text-muted-foreground">
+                          {formatDate(log.date)} · {log.method}
+                          {log.notes && ` · ${log.notes}`}
+                        </span>
+                        <span className="font-semibold text-green-700">
+                          +{formatCurrency(log.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {viewBill.notes && (
                 <p className="text-xs text-muted-foreground italic">
                   {viewBill.notes}
@@ -613,7 +909,12 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
               <Printer className="w-4 h-4 mr-2" />
               Print
             </Button>
-            <Button onClick={() => setViewBill(null)}>Close</Button>
+            <Button
+              onClick={() => setViewBill(null)}
+              data-ocid="bills.view.close_button"
+            >
+              Close
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -623,7 +924,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
         open={!!editBill}
         onOpenChange={(open) => !open && setEditBill(null)}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md" data-ocid="bills.edit.dialog">
           <DialogHeader>
             <DialogTitle>Edit Bill — {editBill?.billNo}</DialogTitle>
           </DialogHeader>
@@ -636,7 +937,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   setEditPaymentStatus(v as Bill["paymentStatus"])
                 }
               >
-                <SelectTrigger>
+                <SelectTrigger data-ocid="bills.edit.status.select">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -674,6 +975,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   value={editAmountPaid}
                   onChange={(e) => setEditAmountPaid(e.target.value)}
                   placeholder="0.00"
+                  data-ocid="bills.edit.amount_paid.input"
                 />
               </div>
               <div className="space-y-1.5">
@@ -683,6 +985,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   value={editBalanceDue}
                   onChange={(e) => setEditBalanceDue(e.target.value)}
                   placeholder="0.00"
+                  data-ocid="bills.edit.balance_due.input"
                 />
               </div>
             </div>
@@ -693,14 +996,224 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                 onChange={(e) => setEditNotes(e.target.value)}
                 placeholder="Add notes..."
                 rows={3}
+                data-ocid="bills.edit.notes.textarea"
               />
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditBill(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setEditBill(null)}
+              data-ocid="bills.edit.cancel_button"
+            >
               Cancel
             </Button>
-            <Button onClick={handleSaveEditBill}>Save Changes</Button>
+            <Button
+              onClick={handleSaveEditBill}
+              data-ocid="bills.edit.save_button"
+            >
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Record Payment Dialog */}
+      <Dialog
+        open={!!paymentBill}
+        onOpenChange={(open) => !open && setPaymentBill(null)}
+      >
+        <DialogContent className="max-w-md" data-ocid="bills.payment.dialog">
+          <DialogHeader>
+            <DialogTitle>Record Payment — {paymentBill?.billNo}</DialogTitle>
+          </DialogHeader>
+          {paymentBill && (
+            <div className="space-y-4">
+              <div className="bg-muted/30 p-3 rounded-lg text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total</span>
+                  <span className="font-semibold">
+                    {formatCurrency(paymentBill.total)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Already Paid</span>
+                  <span className="text-green-600 font-semibold">
+                    {formatCurrency(paymentBill.amountPaid)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Balance Due</span>
+                  <span className="text-destructive font-semibold">
+                    {formatCurrency(paymentBill.balanceDue)}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Amount Received (₹)</Label>
+                <Input
+                  type="number"
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  placeholder="0.00"
+                  data-ocid="bills.payment.amount.input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Payment Method</Label>
+                <Select
+                  value={paymentMethod}
+                  onValueChange={(v) =>
+                    setPaymentMethod(v as typeof paymentMethod)
+                  }
+                >
+                  <SelectTrigger data-ocid="bills.payment.method.select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cash">Cash</SelectItem>
+                    <SelectItem value="upi">UPI</SelectItem>
+                    <SelectItem value="card">Card</SelectItem>
+                    <SelectItem value="credit">Credit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Date</Label>
+                <Input
+                  type="date"
+                  value={paymentDate}
+                  onChange={(e) => setPaymentDate(e.target.value)}
+                  data-ocid="bills.payment.date.input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Notes (optional)</Label>
+                <Input
+                  value={paymentNotes}
+                  onChange={(e) => setPaymentNotes(e.target.value)}
+                  placeholder="e.g. Cheque no, UPI ref..."
+                  data-ocid="bills.payment.notes.input"
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setPaymentBill(null)}
+              data-ocid="bills.payment.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRecordPayment}
+              className="bg-green-600 hover:bg-green-700"
+              data-ocid="bills.payment.submit_button"
+            >
+              Record Payment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AWB Tracking Dialog */}
+      <Dialog
+        open={!!trackItem}
+        onOpenChange={(open) => !open && setTrackItem(null)}
+      >
+        <DialogContent className="max-w-md" data-ocid="bills.tracking.dialog">
+          <DialogHeader>
+            <DialogTitle>
+              AWB Tracking — {trackItem?.item.productName}
+            </DialogTitle>
+          </DialogHeader>
+          {trackItem && (
+            <div className="space-y-4">
+              <div className="bg-muted/30 p-3 rounded-lg space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">AWB No</span>
+                  <span className="font-mono font-semibold">
+                    {trackItem.item.awbSerial || trackItem.item.productName}
+                  </span>
+                </div>
+                {trackItem.item.brandName && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Brand</span>
+                    <span className="font-medium">
+                      {trackItem.item.brandName}
+                    </span>
+                  </div>
+                )}
+                {trackItem.item.receiverName && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Receiver</span>
+                    <span>{trackItem.item.receiverName}</span>
+                  </div>
+                )}
+                {trackItem.item.receiverPincode && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Destination</span>
+                    <span>{trackItem.item.receiverPincode}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Track on courier website */}
+              <Button
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  const awb =
+                    trackItem.item.awbSerial || trackItem.item.productName;
+                  const brand = trackItem.item.brandName || "";
+                  window.open(getTrackingUrl(brand, awb), "_blank");
+                }}
+                data-ocid="bills.tracking.track_online.button"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Track on {trackItem.item.brandName || "Courier"} Website
+              </Button>
+
+              {/* Manual status update */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Update Tracking Status</Label>
+                <Select
+                  value={trackStatus || "booked"}
+                  onValueChange={(v) =>
+                    setTrackStatus(v as BillItem["trackingStatus"])
+                  }
+                >
+                  <SelectTrigger data-ocid="bills.tracking.status.select">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="booked">Booked</SelectItem>
+                    <SelectItem value="in_transit">In Transit</SelectItem>
+                    <SelectItem value="out_for_delivery">
+                      Out for Delivery
+                    </SelectItem>
+                    <SelectItem value="delivered">Delivered</SelectItem>
+                    <SelectItem value="rto">RTO (Return)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setTrackItem(null)}
+              data-ocid="bills.tracking.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveTrackStatus}
+              data-ocid="bills.tracking.save_button"
+            >
+              Save Status
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -722,12 +1235,42 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel data-ocid="bills.delete.cancel_button">
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDeleteBill}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-ocid="bills.delete.confirm_button"
             >
               Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bulk Delete Confirmation */}
+      <AlertDialog open={deleteBulkConfirm} onOpenChange={setDeleteBulkConfirm}>
+        <AlertDialogContent data-ocid="bills.bulk_delete.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Delete {selectedIds.length} Bills?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete {selectedIds.length} selected bills.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="bills.bulk_delete.cancel_button">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleBulkDelete}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-ocid="bills.bulk_delete.confirm_button"
+            >
+              Delete All
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -750,7 +1293,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
 
       {/* Invoice Generation Confirmation */}
       <Dialog open={showInvoiceDialog} onOpenChange={setShowInvoiceDialog}>
-        <DialogContent>
+        <DialogContent data-ocid="bills.invoice_gen.dialog">
           <DialogHeader>
             <DialogTitle>
               Generate {invoiceType === "gst" ? "GST" : "Non-GST"} Invoice
@@ -782,15 +1325,37 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                 </strong>
               </p>
             </div>
+            <div className="flex gap-2">
+              <Button
+                variant={invoiceType === "gst" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setInvoiceType("gst")}
+              >
+                GST Invoice
+              </Button>
+              <Button
+                variant={invoiceType === "non_gst" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setInvoiceType("non_gst")}
+              >
+                Non-GST Invoice
+              </Button>
+            </div>
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               onClick={() => setShowInvoiceDialog(false)}
+              data-ocid="bills.invoice_gen.cancel_button"
             >
               Cancel
             </Button>
-            <Button onClick={generateInvoice}>Generate Invoice</Button>
+            <Button
+              onClick={generateInvoice}
+              data-ocid="bills.invoice_gen.confirm_button"
+            >
+              Generate Invoice
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

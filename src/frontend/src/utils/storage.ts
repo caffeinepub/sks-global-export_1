@@ -10,6 +10,7 @@ import type {
   CourierTariff,
   Customer,
   CustomerTariffAssignment,
+  Expense,
   Invoice,
   PurchaseInvoice,
   Vendor,
@@ -36,6 +37,7 @@ export const KEYS = {
   tariffs: (cid: string) => `sks_tariffs_${cid}`,
   costTariffs: (cid: string) => `sks_cost_tariffs_${cid}`,
   customerTariffs: (cid: string) => `sks_customer_tariffs_${cid}`,
+  expenses: (cid: string) => `sks_expenses_${cid}`,
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -158,6 +160,70 @@ export const setCustomerTariffMap = (
   d: Record<string, CustomerTariffAssignment[]>,
 ): void => set(KEYS.customerTariffs(cid), d);
 
+export const getExpenses = (cid: string): Expense[] =>
+  get<Expense[]>(KEYS.expenses(cid), []);
+export const setExpenses = (cid: string, d: Expense[]): void =>
+  set(KEYS.expenses(cid), d);
+
+// SKS Own-Brand Daily AWB Counter
+// Key: sks_awb_daily_{companyId}_{dateStr}  (dateStr = ddmmyy)
+const sksDailyKey = (cid: string, dateStr: string) =>
+  `sks_awb_daily_${cid}_${dateStr}`;
+
+export const getSKSDailyCounter = (cid: string, dateStr: string): number => {
+  const val = localStorage.getItem(sksDailyKey(cid, dateStr));
+  return val ? Number.parseInt(val, 10) : 0;
+};
+
+/** Increments the daily counter and returns the NEW value (1-based). */
+export const incrementSKSDailyCounter = (
+  cid: string,
+  dateStr: string,
+): number => {
+  const current = getSKSDailyCounter(cid, dateStr);
+  const next = current + 1;
+  localStorage.setItem(sksDailyKey(cid, dateStr), String(next));
+  return next;
+};
+
+// ─── GST Invoice Sequence (shared across companies with same GSTIN) ───────────
+// Key: sks_gst_inv_seq_{normalised_gstin}
+// Returns the NEXT seq number to use and increments it atomically.
+const gstInvSeqKey = (gstin: string) =>
+  `sks_gst_inv_seq_${gstin.trim().toUpperCase()}`;
+
+export const getGSTInvoiceSeq = (gstin: string): number => {
+  const val = localStorage.getItem(gstInvSeqKey(gstin));
+  return val ? Number.parseInt(val, 10) : 1;
+};
+
+/** Returns the current seq without incrementing (for preview). */
+export const peekGSTInvoiceSeq = (gstin: string): number =>
+  getGSTInvoiceSeq(gstin);
+
+/** Increments and returns the NEW seq number after increment. */
+export const nextGSTInvoiceSeq = (gstin: string): number => {
+  const current = getGSTInvoiceSeq(gstin);
+  localStorage.setItem(gstInvSeqKey(gstin), String(current + 1));
+  return current;
+};
+
+// ─── Non-GST Invoice Sequence (per company, since no GSTIN ties them) ─────────
+// Key: sks_nongst_inv_seq_{companyId}
+const nonGstInvSeqKey = (companyId: string) =>
+  `sks_nongst_inv_seq_${companyId}`;
+
+export const getNonGSTInvoiceSeq = (companyId: string): number => {
+  const val = localStorage.getItem(nonGstInvSeqKey(companyId));
+  return val ? Number.parseInt(val, 10) : 1;
+};
+
+export const nextNonGSTInvoiceSeq = (companyId: string): number => {
+  const current = getNonGSTInvoiceSeq(companyId);
+  localStorage.setItem(nonGstInvSeqKey(companyId), String(current + 1));
+  return current;
+};
+
 // Last backup
 export const getLastBackupTime = (): string | null =>
   localStorage.getItem(KEYS.LAST_BACKUP);
@@ -185,6 +251,7 @@ export const exportAllData = (): string => {
     allData[`tariffs_${cid}`] = getTariffs(cid);
     allData[`costTariffs_${cid}`] = getCostTariffs(cid);
     allData[`customerTariffs_${cid}`] = getCustomerTariffMap(cid);
+    allData[`expenses_${cid}`] = getExpenses(cid);
   }
 
   return JSON.stringify(allData, null, 2);
@@ -234,5 +301,7 @@ export const importAllData = (jsonString: string): void => {
           CustomerTariffAssignment[]
         >,
       );
+    if (data[`expenses_${cid}`])
+      setExpenses(cid, data[`expenses_${cid}`] as Expense[]);
   }
 };

@@ -69,7 +69,9 @@ import type { AppUser, Company } from "../types";
 import { generateId, hashPassword } from "../utils/helpers";
 import {
   exportAllData,
+  getGSTInvoiceSeq,
   getLastBackupTime,
+  getNonGSTInvoiceSeq,
   importAllData,
   setLastBackupTime,
 } from "../utils/storage";
@@ -107,6 +109,10 @@ export function SettingsPage() {
   const [compState, setCompState] = useState("");
   const [compPincode, setCompPincode] = useState("");
   const [compLogoUrl, setCompLogoUrl] = useState<string | undefined>(undefined);
+  const [compBankName, setCompBankName] = useState("");
+  const [compBankAccount, setCompBankAccount] = useState("");
+  const [compBankIfsc, setCompBankIfsc] = useState("");
+  const [compBankBranch, setCompBankBranch] = useState("");
 
   // User form
   const [showUserForm, setShowUserForm] = useState(false);
@@ -147,17 +153,27 @@ export function SettingsPage() {
   const [gstPrefix, setGstPrefix] = useState(
     settings?.gstInvoicePrefix || "GST/",
   );
-  const [gstSeq, setGstSeq] = useState(String(settings?.gstInvoiceSeq || 1));
   const [nonGstPrefix, setNonGstPrefix] = useState(
     settings?.nonGstInvoicePrefix || "INV/",
-  );
-  const [nonGstSeq, setNonGstSeq] = useState(
-    String(settings?.nonGstInvoiceSeq || 1),
   );
   const [billPrefix, setBillPrefix] = useState(settings?.billPrefix || "BILL/");
   const [billSeq, setBillSeq] = useState(String(settings?.billSeq || 1));
   const [autoBackup, setAutoBackup] = useState<boolean>(
     settings?.autoBackup ?? true,
+  );
+  const [invoiceFooter, setInvoiceFooter] = useState(
+    settings?.invoiceFooter || "",
+  );
+  const [defaultGstRate, setDefaultGstRate] = useState(
+    String(settings?.defaultGstRate ?? 18),
+  );
+  const [defaultInvoiceTemplate, setDefaultInvoiceTemplate] = useState<
+    "default" | "retail" | "courier"
+  >(
+    (settings?.invoiceTemplate ?? "default") as
+      | "default"
+      | "retail"
+      | "courier",
   );
 
   const lastBackup = getLastBackupTime();
@@ -172,6 +188,10 @@ export function SettingsPage() {
     setCompState(company.state);
     setCompPincode(company.pincode);
     setCompLogoUrl(company.logoUrl);
+    setCompBankName(company.bankName || "");
+    setCompBankAccount(company.bankAccount || "");
+    setCompBankIfsc(company.bankIfsc || "");
+    setCompBankBranch(company.bankBranch || "");
     setShowCompanyForm(true);
   };
 
@@ -185,6 +205,10 @@ export function SettingsPage() {
     setCompState("");
     setCompPincode("");
     setCompLogoUrl(undefined);
+    setCompBankName("");
+    setCompBankAccount("");
+    setCompBankIfsc("");
+    setCompBankBranch("");
     setShowCompanyForm(true);
   };
 
@@ -217,6 +241,10 @@ export function SettingsPage() {
       state: compState,
       pincode: compPincode,
       logoUrl: compLogoUrl,
+      bankName: compBankName || undefined,
+      bankAccount: compBankAccount || undefined,
+      bankIfsc: compBankIfsc || undefined,
+      bankBranch: compBankBranch || undefined,
       invoicePrefix: editingCompany?.invoicePrefix || "GST/",
       invoiceSeq: editingCompany?.invoiceSeq || 1,
       nonGstInvoicePrefix: editingCompany?.nonGstInvoicePrefix || "INV/",
@@ -281,12 +309,15 @@ export function SettingsPage() {
     updateSettings({
       ...settings,
       gstInvoicePrefix: gstPrefix,
-      gstInvoiceSeq: Number(gstSeq),
+      // gstInvoiceSeq is no longer used — sequence is now managed per-GSTIN via storage keys
       nonGstInvoicePrefix: nonGstPrefix,
-      nonGstInvoiceSeq: Number(nonGstSeq),
+      // nonGstInvoiceSeq is no longer used — sequence is now managed per-company via storage keys
       billPrefix: billPrefix,
       billSeq: Number(billSeq),
       autoBackup,
+      invoiceFooter,
+      defaultGstRate: Number(defaultGstRate),
+      invoiceTemplate: defaultInvoiceTemplate,
     });
     toast.success("Settings saved");
   };
@@ -436,45 +467,121 @@ export function SettingsPage() {
         {/* Invoice Settings */}
         <TabsContent value="invoice" className="mt-4">
           <div className="bg-white rounded-xl border border-border p-6 shadow-xs space-y-6 max-w-xl">
-            <h3 className="text-sm font-semibold">Invoice Sequence Settings</h3>
+            <div>
+              <h3 className="text-sm font-semibold">
+                Invoice Sequence Settings
+              </h3>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                <strong>GST Invoice:</strong> Sequence is shared across all
+                companies with the same GSTIN. If Company A and Company D have
+                the same GST number, their invoice numbers continue in one
+                series.
+                <br />
+                <strong>Non-GST Invoice:</strong> Each company without a GST
+                number gets its own independent series. Switching to another
+                company starts a fresh sequence.
+              </p>
+            </div>
             <div className="space-y-4">
+              {/* GST Invoice settings */}
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200 space-y-3">
+                <p className="text-xs font-semibold text-green-800">
+                  GST Invoice Series (shared by GSTIN)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">GST Invoice Prefix</Label>
+                    <Input
+                      value={gstPrefix}
+                      onChange={(e) => setGstPrefix(e.target.value)}
+                      className="mt-1 text-sm font-mono"
+                      placeholder="GST/"
+                      data-ocid="settings.gst_prefix.input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">
+                      Current Next No (for this GSTIN)
+                    </Label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-sm font-mono font-bold text-green-700 px-2 py-1 rounded bg-white border border-green-300">
+                        {activeCompany?.gstin?.trim()
+                          ? String(
+                              getGSTInvoiceSeq(activeCompany.gstin.trim()),
+                            ).padStart(4, "0")
+                          : "—"}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {activeCompany?.gstin
+                          ? `(GSTIN: ${activeCompany.gstin})`
+                          : "No GSTIN set on this company"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-green-700">
+                  Preview:{" "}
+                  <span className="font-mono font-bold">
+                    {gstPrefix}
+                    {activeCompany?.gstin?.trim()
+                      ? String(
+                          getGSTInvoiceSeq(activeCompany.gstin.trim()),
+                        ).padStart(4, "0")
+                      : "0001"}
+                  </span>
+                </p>
+              </div>
+
+              {/* Non-GST Invoice settings */}
+              <div className="p-3 rounded-lg bg-purple-50 border border-purple-200 space-y-3">
+                <p className="text-xs font-semibold text-purple-800">
+                  Non-GST Invoice Series (per company)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Non-GST Invoice Prefix</Label>
+                    <Input
+                      value={nonGstPrefix}
+                      onChange={(e) => setNonGstPrefix(e.target.value)}
+                      className="mt-1 text-sm font-mono"
+                      placeholder="INV/"
+                      data-ocid="settings.nongst_prefix.input"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">
+                      Current Next No (this company)
+                    </Label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <span className="text-sm font-mono font-bold text-purple-700 px-2 py-1 rounded bg-white border border-purple-300">
+                        {activeCompany
+                          ? String(
+                              getNonGSTInvoiceSeq(activeCompany.id),
+                            ).padStart(4, "0")
+                          : "—"}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        ({activeCompany?.name || "No company"})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="text-xs text-purple-700">
+                  Preview:{" "}
+                  <span className="font-mono font-bold">
+                    {nonGstPrefix}
+                    {activeCompany
+                      ? String(getNonGSTInvoiceSeq(activeCompany.id)).padStart(
+                          4,
+                          "0",
+                        )
+                      : "0001"}
+                  </span>
+                </p>
+              </div>
+
+              {/* Bill settings */}
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">GST Invoice Prefix</Label>
-                  <Input
-                    value={gstPrefix}
-                    onChange={(e) => setGstPrefix(e.target.value)}
-                    className="mt-1 text-sm font-mono"
-                    placeholder="GST/"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Next GST Invoice No</Label>
-                  <Input
-                    type="number"
-                    value={gstSeq}
-                    onChange={(e) => setGstSeq(e.target.value)}
-                    className="mt-1 text-sm"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Non-GST Invoice Prefix</Label>
-                  <Input
-                    value={nonGstPrefix}
-                    onChange={(e) => setNonGstPrefix(e.target.value)}
-                    className="mt-1 text-sm font-mono"
-                    placeholder="INV/"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Next Non-GST Invoice No</Label>
-                  <Input
-                    type="number"
-                    value={nonGstSeq}
-                    onChange={(e) => setNonGstSeq(e.target.value)}
-                    className="mt-1 text-sm"
-                  />
-                </div>
                 <div>
                   <Label className="text-xs">Bill Prefix</Label>
                   <Input
@@ -482,6 +589,7 @@ export function SettingsPage() {
                     onChange={(e) => setBillPrefix(e.target.value)}
                     className="mt-1 text-sm font-mono"
                     placeholder="BILL/"
+                    data-ocid="settings.bill_prefix.input"
                   />
                 </div>
                 <div>
@@ -491,28 +599,100 @@ export function SettingsPage() {
                     value={billSeq}
                     onChange={(e) => setBillSeq(e.target.value)}
                     className="mt-1 text-sm"
+                    data-ocid="settings.bill_seq.input"
                   />
                 </div>
               </div>
               <div className="pt-2 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-2">Preview:</p>
-                <div className="flex gap-4 text-xs font-mono">
-                  <span className="text-primary">
-                    {gstPrefix}
-                    {String(gstSeq).padStart(4, "0")}
-                  </span>
-                  <span className="text-purple-600">
-                    {nonGstPrefix}
-                    {String(nonGstSeq).padStart(4, "0")}
-                  </span>
-                  <span className="text-amber-600">
-                    {billPrefix}
-                    {String(billSeq).padStart(4, "0")}
-                  </span>
-                </div>
+                <p className="text-xs text-muted-foreground mb-1">
+                  Bill Preview:
+                </p>
+                <span className="text-xs font-mono text-amber-700 font-bold">
+                  {billPrefix}
+                  {String(billSeq).padStart(4, "0")}
+                </span>
               </div>
             </div>
-            <Button onClick={handleSaveSettings} className="w-full">
+            {/* Default GST Rate */}
+            <div className="pt-4 border-t border-border space-y-3">
+              <h4 className="text-sm font-semibold">Invoice Defaults</h4>
+              <div>
+                <Label className="text-xs">Default GST Rate (%)</Label>
+                <Select
+                  value={defaultGstRate}
+                  onValueChange={setDefaultGstRate}
+                >
+                  <SelectTrigger
+                    className="mt-1 text-sm w-40"
+                    data-ocid="settings.default_gst.select"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">0%</SelectItem>
+                    <SelectItem value="5">5%</SelectItem>
+                    <SelectItem value="12">12%</SelectItem>
+                    <SelectItem value="18">18%</SelectItem>
+                    <SelectItem value="28">28%</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Used as default when creating new products
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Invoice Footer Text</Label>
+                <Textarea
+                  value={invoiceFooter}
+                  onChange={(e) => setInvoiceFooter(e.target.value)}
+                  placeholder="e.g. Bank: SBI, Account: 1234567890, IFSC: SBIN0001234&#10;Terms: Payment due within 30 days."
+                  rows={4}
+                  className="mt-1 text-sm"
+                  data-ocid="settings.invoice_footer.textarea"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Shown at the bottom of all printed invoices (bank details,
+                  terms & conditions, etc.)
+                </p>
+              </div>
+              <div>
+                <Label className="text-xs">Default Invoice Template</Label>
+                <Select
+                  value={defaultInvoiceTemplate}
+                  onValueChange={(v) =>
+                    setDefaultInvoiceTemplate(
+                      v as "default" | "retail" | "courier",
+                    )
+                  }
+                >
+                  <SelectTrigger
+                    className="mt-1 text-sm"
+                    data-ocid="settings.invoice_template.select"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">
+                      Default — Clean &amp; Minimal
+                    </SelectItem>
+                    <SelectItem value="retail">
+                      Classic Retail — GST Tax Invoice Layout
+                    </SelectItem>
+                    <SelectItem value="courier">
+                      Courier Style — DTDC-style Layout
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pre-selected template when opening invoice view
+                </p>
+              </div>
+            </div>
+            <Button
+              onClick={handleSaveSettings}
+              className="w-full"
+              data-ocid="settings.invoice.save_button"
+            >
               Save Settings
             </Button>
           </div>
@@ -971,6 +1151,48 @@ export function SettingsPage() {
                 value={compPincode}
                 onChange={(e) => setCompPincode(e.target.value)}
                 className="mt-1 text-sm"
+              />
+            </div>
+            {/* Bank Details */}
+            <div className="col-span-2 mt-2">
+              <p className="text-xs font-semibold text-muted-foreground mb-2 border-t border-border pt-2">
+                Bank Details (for invoice printing)
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs">Bank Name</Label>
+              <Input
+                value={compBankName}
+                onChange={(e) => setCompBankName(e.target.value)}
+                className="mt-1 text-sm"
+                placeholder="e.g. State Bank of India"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Account Number</Label>
+              <Input
+                value={compBankAccount}
+                onChange={(e) => setCompBankAccount(e.target.value)}
+                className="mt-1 text-sm font-mono"
+                placeholder="e.g. 123456789012"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Branch Name</Label>
+              <Input
+                value={compBankBranch}
+                onChange={(e) => setCompBankBranch(e.target.value)}
+                className="mt-1 text-sm"
+                placeholder="e.g. Anna Nagar"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">IFSC Code</Label>
+              <Input
+                value={compBankIfsc}
+                onChange={(e) => setCompBankIfsc(e.target.value)}
+                className="mt-1 text-sm font-mono"
+                placeholder="e.g. SBIN0001234"
               />
             </div>
           </div>
