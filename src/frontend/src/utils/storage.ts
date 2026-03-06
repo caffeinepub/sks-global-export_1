@@ -10,6 +10,8 @@ import type {
   CourierTariff,
   Customer,
   CustomerTariffAssignment,
+  DesignOrder,
+  DesignPricingMaster,
   Expense,
   Invoice,
   PurchaseInvoice,
@@ -38,6 +40,8 @@ export const KEYS = {
   costTariffs: (cid: string) => `sks_cost_tariffs_${cid}`,
   customerTariffs: (cid: string) => `sks_customer_tariffs_${cid}`,
   expenses: (cid: string) => `sks_expenses_${cid}`,
+  designOrders: (cid: string) => `sks_design_orders_${cid}`,
+  designPricing: (cid: string) => `sks_design_pricing_${cid}`,
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -165,6 +169,16 @@ export const getExpenses = (cid: string): Expense[] =>
 export const setExpenses = (cid: string, d: Expense[]): void =>
   set(KEYS.expenses(cid), d);
 
+export const getDesignOrders = (cid: string): DesignOrder[] =>
+  get<DesignOrder[]>(KEYS.designOrders(cid), []);
+export const setDesignOrders = (cid: string, d: DesignOrder[]): void =>
+  set(KEYS.designOrders(cid), d);
+
+export const getDesignPricing = (cid: string): DesignPricingMaster[] =>
+  get<DesignPricingMaster[]>(KEYS.designPricing(cid), []);
+export const setDesignPricing = (cid: string, d: DesignPricingMaster[]): void =>
+  set(KEYS.designPricing(cid), d);
+
 // SKS Own-Brand Daily AWB Counter
 // Key: sks_awb_daily_{companyId}_{dateStr}  (dateStr = ddmmyy)
 const sksDailyKey = (cid: string, dateStr: string) =>
@@ -252,6 +266,8 @@ export const exportAllData = (): string => {
     allData[`costTariffs_${cid}`] = getCostTariffs(cid);
     allData[`customerTariffs_${cid}`] = getCustomerTariffMap(cid);
     allData[`expenses_${cid}`] = getExpenses(cid);
+    allData[`designOrders_${cid}`] = getDesignOrders(cid);
+    allData[`designPricing_${cid}`] = getDesignPricing(cid);
   }
 
   return JSON.stringify(allData, null, 2);
@@ -303,5 +319,12 @@ export const importAllData = (jsonString: string): void => {
       );
     if (data[`expenses_${cid}`])
       setExpenses(cid, data[`expenses_${cid}`] as Expense[]);
+    if (data[`designOrders_${cid}`])
+      setDesignOrders(cid, data[`designOrders_${cid}`] as DesignOrder[]);
+    if (data[`designPricing_${cid}`])
+      setDesignPricing(
+        cid,
+        data[`designPricing_${cid}`] as DesignPricingMaster[],
+      );
   }
 };

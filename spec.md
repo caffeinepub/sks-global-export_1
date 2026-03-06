@@ -1,37 +1,40 @@
 # SKS Global Export
 
 ## Current State
-- Full POS billing with courier brand selection form (sender/receiver/weight/tariff)
-- Customer section in POS supports walking customer (name+phone) or registered customer search
-- Customers page has Add/Edit/Delete with GSTIN field (text-only, no validation)
-- Receiver pincode field in courier form is plain text input, no lookup
-- Sender section in courier form is blank by default, not pre-filled from billing customer
+
+The Design Studio page has 4 tabs: New Order (form), All Orders (CRUD table), Photo Calculator, and Pricing Master. It manages design job orders but has no actual canvas-based design tool — users cannot create or edit visual designs within the app.
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Pincode Auto-Lookup**: When user types a 6-digit pincode in the receiver pincode field (or any pincode field), call India Post Pincode API (api.postalpincode.in) to fetch area, city (district), state, and metro/non-metro classification. Show fetched data inline below the pincode field as auto-filled chips. Auto-populate receiverAddress with "Area, City, State" if address is empty.
-- **Metro/Non-Metro Classification**: After pincode lookup, classify the city as Metro or Non-Metro based on a known list of Indian metro cities. Show a badge on the courier form.
-- **Sender Auto-Fill from Billing Customer**: When a customer is selected (registered or walking) in the POS billing section, and user opens a courier brand form, auto-populate sender name and phone from the customer data. This applies to both registered customers and walking customers.
-- **GST Number Verification in Customers page**: When user enters a GSTIN in the Add/Edit Customer form, add a "Verify GST" button. On click, call the GST API (https://sheet.gstincheck.co.in/check/... or use free public API) to verify and auto-fill business name, address, state. Show loading/success/error states. Also validate GSTIN format (15-char alphanumeric pattern).
+
+- **Design Editor tab** in Design Studio — a full Photoshop-like canvas editor built with the HTML5 Canvas API and fabric.js-style interactions (using native Canvas + React state, no external lib required)
+- **Canvas Editor features:**
+  - Template presets for ID Card, Visiting Card, Passport Photo, Stamp Photo, Banner — each with correct dimensions
+  - **Layers panel** (right side): list all elements, show/hide, lock/unlock, reorder (move up/down), delete
+  - **Toolbar** (left side): Selection tool, Text tool, Rectangle/Shape tool, Circle tool, Image upload tool, Background color picker
+  - **Canvas** (center): interactive drag-move, resize handles on selected element, click to select, click empty to deselect
+  - **Properties panel** (right side below layers): context-sensitive — text properties (font, size, bold, italic, color, alignment), shape properties (fill color, stroke color, stroke width, opacity), image properties (opacity, flip H/V)
+  - **Top bar**: Template selector, canvas zoom (50%/75%/100%/150%), Undo/Redo (up to 20 steps), Clear canvas, Print/Export as PNG/JPEG
+  - Text editing: double-click text element to enter inline edit mode on canvas overlay
+  - Background: set solid color or upload image as background
+  - Grid/ruler toggle for alignment guides
 
 ### Modify
-- **POSBillingPage**: When selectedCustomer or walkingName+walkingPhone changes, and when user selects a courier brand, pre-fill courierForm.senderName and courierForm.senderPhone from customer data.
-- **CustomersPage Add/Edit form**: Add GSTIN verification button with auto-fill logic for name and address.
-- **Courier form receiver section**: Pincode field triggers auto-lookup on 6-digit input, shows area/city/state below, adds metro badge.
+
+- `DesignStudioPage.tsx` — add a 5th tab "Design Editor" with `<DesignEditorCanvas />` component
+- Tab list updated to include the new editor tab
 
 ### Remove
-- Nothing removed
+
+Nothing removed.
 
 ## Implementation Plan
-1. Create `/src/frontend/src/utils/pincodeApi.ts` — fetchPincodeData(pin) using api.postalpincode.in, returns {area, city, state, isMetro}
-2. Create `/src/frontend/src/utils/gstApi.ts` — verifyGST(gstin) using a free public GSTIN check API, returns {businessName, address, state, status}
-3. Add METRO_CITIES constant (list of major Indian metro cities) in pincodeApi.ts
-4. Modify POSBillingPage.tsx:
-   - Add useEffect: when selectedCustomer/walkingName changes, update senderName+senderPhone in courierForm
-   - Pincode field: onBlur/onChange trigger fetchPincodeData when 6 digits, show result chips, auto-fill receiverAddress
-   - Show Metro/Non-Metro badge next to pincode result
-5. Modify CustomersPage.tsx:
-   - GSTIN input: validate 15-char format with regex on change, show format hint
-   - Add "Verify GST" button next to GSTIN field (disabled if < 15 chars)
-   - On verify: show loading spinner, call verifyGST, auto-fill name/address/state fields, show success/error toast
+
+1. Create `src/frontend/src/components/DesignEditorCanvas.tsx` — full canvas editor component with all tools, layers, undo/redo, export
+2. Add "Design Editor" tab to `DesignStudioPage.tsx`
+3. Template presets: ID Card (85.6×54mm → 856×540px), Visiting Card (90×55mm → 900×550px), Passport Photo (35×45mm → 350×450px), Stamp Photo (25×35mm → 250×350px), Banner (3000×1000px), Custom
+4. Each element has: id, type (text/rect/circle/image), x, y, w, h, rotation, visible, locked, properties
+5. Undo/Redo: maintain history array of canvas state snapshots (JSON), pop/push on actions
+6. Export: use canvas.toDataURL() to download PNG or JPEG
+7. Print: open popup window with canvas image for browser print dialog

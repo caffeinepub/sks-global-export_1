@@ -12,6 +12,7 @@ import { CostPricePage } from "./pages/CostPricePage";
 import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { DesignStudioPage } from "./pages/DesignStudioPage";
 import { ExpensesPage } from "./pages/ExpensesPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
@@ -112,6 +113,19 @@ function AppLayout() {
         return <CustomerTariffsPage />;
       case "expenses":
         return <ExpensesPage />;
+      case "design-studio":
+        return (
+          <DesignStudioPage
+            onNavigate={navigate}
+            onAddToBill={(item) => {
+              // Navigate to billing and the POS will handle the item via URL params / state
+              navigate("billing/new");
+              toast.info(
+                `Design order "${item.name}" — add it as a Service line in the new bill.`,
+              );
+            }}
+          />
+        );
       default:
         return <DashboardPage onNavigate={navigate} />;
     }

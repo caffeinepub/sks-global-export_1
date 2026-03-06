@@ -8,8 +8,10 @@ import {
   ChevronLeft,
   ChevronRight,
   FileText,
+  Layers,
   LayoutDashboard,
   Package,
+  Palette,
   Receipt,
   Settings,
   ShieldCheck,
@@ -61,6 +63,12 @@ const navItems: NavItem[] = [
   { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
   { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
   { label: "Expenses", icon: Wallet, path: "expenses" },
+  {
+    label: "Design",
+    icon: Palette,
+    path: "design",
+    children: [{ label: "Design Studio", icon: Layers, path: "design-studio" }],
+  },
   { label: "Reports", icon: BarChart2, path: "reports" },
   { label: "Settings", icon: Settings, path: "settings" },
 ];
@@ -76,6 +84,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     "billing",
     "inventory",
+    "design",
   ]);
 
   const toggleGroup = (path: string) => {

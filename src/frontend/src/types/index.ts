@@ -338,3 +338,60 @@ export interface CourierTariff {
   isGSTInclusive: boolean;
   isActive: boolean;
 }
+
+// ─── Design Studio ────────────────────────────────────────────────────────────
+export type DesignStatus =
+  | "pending"
+  | "designing"
+  | "ready_print"
+  | "printing"
+  | "completed"
+  | "delivered";
+
+export type DesignType =
+  | "id_card"
+  | "visiting_card"
+  | "passport_photo"
+  | "stamp_photo"
+  | "banner"
+  | "letterhead"
+  | "envelope"
+  | "certificate"
+  | "custom";
+
+export interface DesignOrder {
+  id: string;
+  companyId: string;
+  orderNo: string; // e.g. DS001
+  date: string; // ISO
+  customerId?: string;
+  customerName: string;
+  customerPhone: string;
+  designType: DesignType;
+  subType: string;
+  quantity: number;
+  material: string;
+  lamination: "None" | "Gloss" | "Matt" | "Soft Touch";
+  colorMode: "Color" | "Black & White";
+  designSource: "Customer File" | "We Design" | "Use Template";
+  specialInstructions: string;
+  deliveryDate: string; // ISO date
+  price: number;
+  gstIncluded: boolean;
+  gstRate: number;
+  advancePaid: number;
+  status: DesignStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DesignPricingMaster {
+  id: string;
+  companyId: string;
+  serviceName: string;
+  designType: DesignType;
+  unit: "per piece" | "per sheet" | "per sqft" | "per set";
+  basePrice: number;
+  gstRate: number;
+  isActive: boolean;
+}

@@ -19,6 +19,7 @@ import {
   Clock,
   IndianRupee,
   Package,
+  Palette,
   Plus,
   Receipt,
   TrendingUp,
@@ -48,8 +49,15 @@ interface DashboardProps {
 }
 
 export function DashboardPage({ onNavigate }: DashboardProps) {
-  const { bills, products, pickups, updatePickup, activeCompany, customers } =
-    useAppStore();
+  const {
+    bills,
+    products,
+    pickups,
+    updatePickup,
+    activeCompany,
+    customers,
+    designOrders,
+  } = useAppStore();
   const [confirmPickupId, setConfirmPickupId] = useState<string | null>(null);
   const [confirmedPieces, setConfirmedPieces] = useState("");
   const [confirmedBoxes, setConfirmedBoxes] = useState("");
@@ -184,6 +192,11 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
     setConfirmedPieces("");
     setConfirmedBoxes("");
   };
+
+  // Design Studio stats
+  const pendingDesignOrders = (designOrders || []).filter(
+    (o) => o.status !== "completed" && o.status !== "delivered",
+  ).length;
 
   const statsCards = [
     {
@@ -506,6 +519,53 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Design Studio Widget */}
+      {pendingDesignOrders > 0 && (
+        <Card className="border-l-4 border-l-violet-500 bg-violet-50/30">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Palette className="w-4 h-4 text-violet-600" />
+                Design Studio
+              </CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onNavigate("design-studio")}
+                className="text-xs text-violet-700"
+                data-ocid="dashboard.design.link"
+              >
+                View Orders <ArrowRight className="w-3 h-3 ml-1" />
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <div className="p-3 bg-violet-100 rounded-xl">
+                <Palette className="w-6 h-6 text-violet-600" />
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-violet-700">
+                  {pendingDesignOrders}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  Pending design order{pendingDesignOrders !== 1 ? "s" : ""} in
+                  progress
+                </p>
+              </div>
+              <Button
+                size="sm"
+                className="ml-auto bg-violet-600 hover:bg-violet-700 text-white"
+                onClick={() => onNavigate("design-studio")}
+                data-ocid="dashboard.design.primary_button"
+              >
+                View Design Orders
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Recent Bills */}
       <Card>

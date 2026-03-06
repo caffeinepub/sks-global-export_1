@@ -9,6 +9,8 @@ import type {
   CourierBrand,
   CourierPickup,
   Customer,
+  DesignOrder,
+  DesignPricingMaster,
   Expense,
   Invoice,
   PurchaseInvoice,
@@ -21,6 +23,8 @@ import {
   getBills,
   getCompanies,
   getCustomers,
+  getDesignOrders,
+  getDesignPricing,
   getExpenses,
   getInvoices,
   getPickups,
@@ -35,6 +39,8 @@ import {
   setBills,
   setCompanies,
   setCustomers,
+  setDesignOrders,
+  setDesignPricing,
   setExpenses,
   setInvoices,
   setPickups,
@@ -134,6 +140,23 @@ interface AppState {
   updateExpense: (expense: Expense) => void;
   deleteExpense: (expenseId: string) => void;
 
+  // Design Orders
+  designOrders: DesignOrder[];
+  loadDesignOrders: () => void;
+  addDesignOrder: (order: DesignOrder) => void;
+  updateDesignOrder: (id: string, updates: Partial<DesignOrder>) => void;
+  deleteDesignOrder: (id: string) => void;
+
+  // Design Pricing
+  designPricing: DesignPricingMaster[];
+  loadDesignPricing: () => void;
+  addDesignPricing: (item: DesignPricingMaster) => void;
+  updateDesignPricing: (
+    id: string,
+    updates: Partial<DesignPricingMaster>,
+  ) => void;
+  deleteDesignPricing: (id: string) => void;
+
   // Load all company data
   loadCompanyData: (companyId: string) => void;
 }
@@ -154,6 +177,8 @@ export const useAppStore = create<AppState>((set, get) => {
       awbSerials: getAWBSerials(companyId),
       settings: getSettings(companyId),
       expenses: getExpenses(companyId),
+      designOrders: getDesignOrders(companyId),
+      designPricing: getDesignPricing(companyId),
     });
   };
 
@@ -530,6 +555,65 @@ export const useAppStore = create<AppState>((set, get) => {
       const expenses = getExpenses(cid).filter((e) => e.id !== expenseId);
       setExpenses(cid, expenses);
       set({ expenses });
+    },
+
+    // Design Orders
+    designOrders: savedCompanyId ? getDesignOrders(savedCompanyId) : [],
+    loadDesignOrders: () => {
+      const cid = get().activeCompanyId;
+      set({ designOrders: getDesignOrders(cid) });
+    },
+    addDesignOrder: (order: DesignOrder) => {
+      const cid = get().activeCompanyId;
+      const designOrders = [...getDesignOrders(cid), order];
+      setDesignOrders(cid, designOrders);
+      set({ designOrders });
+    },
+    updateDesignOrder: (id: string, updates: Partial<DesignOrder>) => {
+      const cid = get().activeCompanyId;
+      const designOrders = getDesignOrders(cid).map((o) =>
+        o.id === id
+          ? { ...o, ...updates, updatedAt: new Date().toISOString() }
+          : o,
+      );
+      setDesignOrders(cid, designOrders);
+      set({ designOrders });
+    },
+    deleteDesignOrder: (id: string) => {
+      const cid = get().activeCompanyId;
+      const designOrders = getDesignOrders(cid).filter((o) => o.id !== id);
+      setDesignOrders(cid, designOrders);
+      set({ designOrders });
+    },
+
+    // Design Pricing
+    designPricing: savedCompanyId ? getDesignPricing(savedCompanyId) : [],
+    loadDesignPricing: () => {
+      const cid = get().activeCompanyId;
+      set({ designPricing: getDesignPricing(cid) });
+    },
+    addDesignPricing: (item: DesignPricingMaster) => {
+      const cid = get().activeCompanyId;
+      const designPricing = [...getDesignPricing(cid), item];
+      setDesignPricing(cid, designPricing);
+      set({ designPricing });
+    },
+    updateDesignPricing: (
+      id: string,
+      updates: Partial<DesignPricingMaster>,
+    ) => {
+      const cid = get().activeCompanyId;
+      const designPricing = getDesignPricing(cid).map((p) =>
+        p.id === id ? { ...p, ...updates } : p,
+      );
+      setDesignPricing(cid, designPricing);
+      set({ designPricing });
+    },
+    deleteDesignPricing: (id: string) => {
+      const cid = get().activeCompanyId;
+      const designPricing = getDesignPricing(cid).filter((p) => p.id !== id);
+      setDesignPricing(cid, designPricing);
+      set({ designPricing });
     },
 
     // Load all company data
