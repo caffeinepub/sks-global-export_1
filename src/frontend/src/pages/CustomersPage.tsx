@@ -61,6 +61,7 @@ import type {
   Customer,
   CustomerTariffAssignment,
 } from "../types";
+import { validateGSTINFormat, verifyGSTIN } from "../utils/gstApi";
 import { formatCurrency, formatDate, generateId } from "../utils/helpers";
 import {
   getCustomerTariffMap,
@@ -563,6 +564,12 @@ export function CustomersPage() {
     "registered",
   );
 
+  // GST verification state
+  const [gstLoading, setGstLoading] = useState(false);
+  const [gstStatus, setGstStatus] = useState<"idle" | "valid" | "invalid">(
+    "idle",
+  );
+
   const resetForm = () => {
     setName("");
     setPhone("");
@@ -571,6 +578,39 @@ export function CustomersPage() {
     setGstin("");
     setCustomerType("registered");
     setEditCustomer(null);
+    setGstStatus("idle");
+    setGstLoading(false);
+  };
+
+  const handleVerifyGST = async () => {
+    if (!validateGSTINFormat(gstin)) {
+      toast.error("Invalid GSTIN format (e.g. 33AABCU9603R1ZM)");
+      setGstStatus("invalid");
+      return;
+    }
+    setGstLoading(true);
+    setGstStatus("idle");
+    try {
+      const data = await verifyGSTIN(gstin);
+      if (data) {
+        if (data.businessName) setName(data.businessName);
+        if (data.address) setAddress(data.address);
+        setGstStatus("valid");
+        toast.success(
+          `GST verified: ${data.businessName || data.state || "Valid"}`,
+        );
+      } else {
+        setGstStatus("invalid");
+        toast.error(
+          "Could not verify GST number. Check the number and try again.",
+        );
+      }
+    } catch {
+      setGstStatus("invalid");
+      toast.error("GST verification failed");
+    } finally {
+      setGstLoading(false);
+    }
   };
 
   const filteredCustomers = useMemo(() => {
@@ -892,14 +932,84 @@ export function CustomersPage() {
                   className="mt-1 text-sm"
                 />
               </div>
-              <div>
+              <div className="col-span-2">
                 <Label className="text-xs">GSTIN</Label>
-                <Input
-                  value={gstin}
-                  onChange={(e) => setGstin(e.target.value)}
-                  placeholder="33XXXXX..."
-                  className="mt-1 text-sm"
-                />
+                <div className="flex gap-2 mt-1">
+                  <div className="relative flex-1">
+                    <Input
+                      value={gstin}
+                      onChange={(e) => {
+                        setGstin(e.target.value.toUpperCase());
+                        setGstStatus("idle");
+                      }}
+                      placeholder="33AABCU9603R1ZM"
+                      className={`text-sm font-mono ${
+                        gstStatus === "valid"
+                          ? "border-green-500 bg-green-50"
+                          : gstStatus === "invalid"
+                            ? "border-red-400 bg-red-50"
+                            : ""
+                      }`}
+                      maxLength={15}
+                      data-ocid="customers.gstin.input"
+                    />
+                    {gstStatus === "valid" && (
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-green-600 text-xs font-bold">
+                        ✓
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={handleVerifyGST}
+                    disabled={gstin.length < 15 || gstLoading}
+                    className={`shrink-0 ${gstStatus === "valid" ? "border-green-500 text-green-700" : ""}`}
+                    data-ocid="customers.gst.verify_button"
+                  >
+                    {gstLoading ? (
+                      <span className="flex items-center gap-1">
+                        <svg
+                          className="animate-spin w-3 h-3"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          aria-label="Verifying"
+                          role="img"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                          />
+                        </svg>
+                        Verifying
+                      </span>
+                    ) : gstStatus === "valid" ? (
+                      "✓ Verified"
+                    ) : (
+                      "Verify GST"
+                    )}
+                  </Button>
+                </div>
+                {gstin.length > 0 && gstin.length < 15 && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {15 - gstin.length} more characters needed
+                  </p>
+                )}
+                {gstStatus === "valid" && (
+                  <p className="text-xs text-green-600 mt-0.5">
+                    GST verified — business details auto-filled
+                  </p>
+                )}
               </div>
             </div>
             <div>

@@ -1,39 +1,37 @@
 # SKS Global Export
 
 ## Current State
-The app has:
-- `TariffManagementPage` — full CRUD for courier tariff rate entries (brand/zone/pricing slabs)
-- `CustomersPage` with a `CustomerTariffDialog` — allows setting custom price overrides per tariff entry per customer, but it is a modal with no standalone CRUD page
-- Customer tariff data is stored in `localStorage` via `getCustomerTariffMap` / `setCustomerTariffMap` keyed by `companyId` and `customerId`
-- The `CustomerTariffAssignment` type has: `tariffId`, `brandName`, `productType`, `zone`, `customPrice`
+- Full POS billing with courier brand selection form (sender/receiver/weight/tariff)
+- Customer section in POS supports walking customer (name+phone) or registered customer search
+- Customers page has Add/Edit/Delete with GSTIN field (text-only, no validation)
+- Receiver pincode field in courier form is plain text input, no lookup
+- Sender section in courier form is blank by default, not pre-filled from billing customer
 
 ## Requested Changes (Diff)
 
 ### Add
-- A dedicated **Customer Tariff Rates** page (new sidebar entry under "Tariff Rates" or as a sub-section) that provides full CRUD for customer-tariff assignments:
-  - **List view**: table showing all customer tariff assignments across all customers, filterable by customer name and brand
-  - **Add**: dialog to select a customer (registered only), select a tariff entry (brand/productType/zone), and enter a custom price
-  - **Edit**: inline or dialog edit of the custom price for an existing assignment
-  - **Delete**: delete a single assignment with confirmation, and a "Clear All" for a customer
-- The existing Tag icon in the Customers page (CustomerTariffDialog) should remain but can optionally link to the new page filtered to that customer
+- **Pincode Auto-Lookup**: When user types a 6-digit pincode in the receiver pincode field (or any pincode field), call India Post Pincode API (api.postalpincode.in) to fetch area, city (district), state, and metro/non-metro classification. Show fetched data inline below the pincode field as auto-filled chips. Auto-populate receiverAddress with "Area, City, State" if address is empty.
+- **Metro/Non-Metro Classification**: After pincode lookup, classify the city as Metro or Non-Metro based on a known list of Indian metro cities. Show a badge on the courier form.
+- **Sender Auto-Fill from Billing Customer**: When a customer is selected (registered or walking) in the POS billing section, and user opens a courier brand form, auto-populate sender name and phone from the customer data. This applies to both registered customers and walking customers.
+- **GST Number Verification in Customers page**: When user enters a GSTIN in the Add/Edit Customer form, add a "Verify GST" button. On click, call the GST API (https://sheet.gstincheck.co.in/check/... or use free public API) to verify and auto-fill business name, address, state. Show loading/success/error states. Also validate GSTIN format (15-char alphanumeric pattern).
 
 ### Modify
-- Sidebar navigation: add "Customer Tariffs" as a navigation entry (can be grouped near "Tariff Rates")
-- The CustomerTariffDialog in CustomersPage should also show a "View All / Manage in Tariff Page" link that navigates to the new Customer Tariff Rates page filtered to that customer
+- **POSBillingPage**: When selectedCustomer or walkingName+walkingPhone changes, and when user selects a courier brand, pre-fill courierForm.senderName and courierForm.senderPhone from customer data.
+- **CustomersPage Add/Edit form**: Add GSTIN verification button with auto-fill logic for name and address.
+- **Courier form receiver section**: Pincode field triggers auto-lookup on 6-digit input, shows area/city/state below, adds metro badge.
 
 ### Remove
-- Nothing removed — the existing CustomerTariffDialog stays as a quick-access shortcut
+- Nothing removed
 
 ## Implementation Plan
-1. Create `src/frontend/src/pages/CustomerTariffsPage.tsx` with:
-   - Summary cards: total assignments, customers with custom rates, brands covered
-   - Filter bar: by customer name, by brand
-   - Table: columns = Customer, Brand, Product Type, Zone, Standard Rate, Custom Price, GST Inclusive, Actions (Edit / Delete)
-   - Add button → dialog: select customer (dropdown from registered customers), select tariff entry (dropdown showing brand - productType - zone), enter custom price
-   - Edit button → dialog: shows current tariff info, editable custom price field
-   - Delete button → AlertDialog confirmation
-   - "Clear Customer" button per customer row group or inline to remove all assignments for that customer
-2. Read customer tariff map from `getCustomerTariffMap(activeCompanyId)` and tariffs from `getTariffs(activeCompanyId)` to resolve standard rates
-3. Add "Customer Tariffs" to the sidebar navigation in `Sidebar.tsx` (use `Tags` or `UserCheck` icon, placed after "Tariff Rates")
-4. In `CustomerTariffDialog` (CustomersPage.tsx), add a small "Manage in Customer Tariffs page" link button that sets a URL param or a navigation state to open the new page filtered by that customer
-5. Apply deterministic `data-ocid` markers to all interactive elements
+1. Create `/src/frontend/src/utils/pincodeApi.ts` — fetchPincodeData(pin) using api.postalpincode.in, returns {area, city, state, isMetro}
+2. Create `/src/frontend/src/utils/gstApi.ts` — verifyGST(gstin) using a free public GSTIN check API, returns {businessName, address, state, status}
+3. Add METRO_CITIES constant (list of major Indian metro cities) in pincodeApi.ts
+4. Modify POSBillingPage.tsx:
+   - Add useEffect: when selectedCustomer/walkingName changes, update senderName+senderPhone in courierForm
+   - Pincode field: onBlur/onChange trigger fetchPincodeData when 6 digits, show result chips, auto-fill receiverAddress
+   - Show Metro/Non-Metro badge next to pincode result
+5. Modify CustomersPage.tsx:
+   - GSTIN input: validate 15-char format with regex on change, show format hint
+   - Add "Verify GST" button next to GSTIN field (disabled if < 15 chars)
+   - On verify: show loading spinner, call verifyGST, auto-fill name/address/state fields, show success/error toast

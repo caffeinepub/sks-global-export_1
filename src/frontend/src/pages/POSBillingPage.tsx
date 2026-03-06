@@ -28,7 +28,7 @@ import {
   Weight,
   X,
 } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { useAppStore } from "../hooks/useAppStore";
@@ -48,6 +48,11 @@ import {
   generateId,
   getTodayStr,
 } from "../utils/helpers";
+import {
+  type PincodeData,
+  fetchPincodeData,
+  formatPincodeAddress,
+} from "../utils/pincodeApi";
 import {
   getCustomerTariffMap,
   getTariffs,
@@ -285,6 +290,10 @@ export function POSBillingPage({
     return assignment ? assignment.customPrice : null;
   };
 
+  // Pincode lookup state
+  const [pincodeData, setPincodeData] = useState<PincodeData | null>(null);
+  const [pincodeLoading, setPincodeLoading] = useState(false);
+
   // Courier brand selection and detail form
   const [selectedBrand, setSelectedBrand] = useState<CourierBrand | null>(null);
   const [courierForm, setCourierForm] = useState<CourierFormState>({
@@ -305,6 +314,28 @@ export function POSBillingPage({
     tariffProductType: "Express",
     useTariff: false,
   });
+
+  // Auto-fill sender details when customer is selected and a brand is chosen.
+  // Uses functional setState so we don't need courierForm in the deps array.
+  useEffect(() => {
+    if (!selectedBrand) {
+      setPincodeData(null);
+      return;
+    }
+    if (selectedCustomer) {
+      setCourierForm((prev) => ({
+        ...prev,
+        senderName: prev.senderName || selectedCustomer.name,
+        senderPhone: prev.senderPhone || selectedCustomer.phone,
+      }));
+    } else if (walkingName) {
+      setCourierForm((prev) => ({
+        ...prev,
+        senderName: prev.senderName || walkingName,
+        senderPhone: prev.senderPhone || walkingPhone,
+      }));
+    }
+  }, [selectedBrand, selectedCustomer, walkingName, walkingPhone]);
 
   // Filter customers
   const filteredCustomers = customers.filter(
@@ -540,6 +571,8 @@ export function POSBillingPage({
 
     // Reset courier form
     setSelectedBrand(null);
+    setPincodeData(null);
+    setPincodeLoading(false);
     setCourierForm({
       senderName: "",
       senderPhone: "",
@@ -938,6 +971,7 @@ export function POSBillingPage({
                         onClick={() => {
                           if (isSelected) {
                             setSelectedBrand(null);
+                            setPincodeData(null);
                           } else {
                             setSelectedBrand(brand);
                             const tm =
@@ -952,9 +986,16 @@ export function POSBillingPage({
                                 : tm === "Surface"
                                   ? "Surface"
                                   : brand.serviceModes[0] || "";
+                            // Auto-fill sender from current customer selection
+                            const senderName =
+                              selectedCustomer?.name || walkingName || "";
+                            const senderPhone =
+                              selectedCustomer?.phone || walkingPhone || "";
                             setCourierForm((prev) => ({
                               ...prev,
                               serviceMode: autoServiceMode,
+                              senderName: prev.senderName || senderName,
+                              senderPhone: prev.senderPhone || senderPhone,
                             }));
                           }
                         }}
@@ -1124,29 +1165,99 @@ export function POSBillingPage({
                               placeholder="Phone"
                               className="text-xs h-8"
                             />
-                            <div className="grid grid-cols-2 gap-1.5">
-                              <Input
-                                value={courierForm.receiverAddress}
-                                onChange={(e) =>
-                                  setCourierForm((p) => ({
-                                    ...p,
-                                    receiverAddress: e.target.value,
-                                  }))
-                                }
-                                placeholder="Address"
-                                className="text-xs h-8"
-                              />
-                              <Input
-                                value={courierForm.receiverPincode}
-                                onChange={(e) =>
-                                  setCourierForm((p) => ({
-                                    ...p,
-                                    receiverPincode: e.target.value,
-                                  }))
-                                }
-                                placeholder="Pincode"
-                                className="text-xs h-8"
-                              />
+                            <div className="space-y-1">
+                              <div className="grid grid-cols-2 gap-1.5">
+                                <Input
+                                  value={courierForm.receiverAddress}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      receiverAddress: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Address"
+                                  className="text-xs h-8"
+                                />
+                                <div>
+                                  <Input
+                                    value={courierForm.receiverPincode}
+                                    onChange={(e) => {
+                                      const val = e.target.value;
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        receiverPincode: val,
+                                      }));
+                                      if (/^\d{6}$/.test(val)) {
+                                        setPincodeLoading(true);
+                                        fetchPincodeData(val).then((data) => {
+                                          setPincodeData(data);
+                                          setPincodeLoading(false);
+                                          if (data) {
+                                            setCourierForm((prev) => ({
+                                              ...prev,
+                                              receiverAddress:
+                                                prev.receiverAddress ||
+                                                formatPincodeAddress(data),
+                                            }));
+                                          }
+                                        });
+                                      } else {
+                                        setPincodeData(null);
+                                      }
+                                    }}
+                                    placeholder="Pincode"
+                                    className="text-xs h-8"
+                                    maxLength={6}
+                                    data-ocid="courier.receiver_pincode.input"
+                                  />
+                                </div>
+                              </div>
+                              {/* Pincode lookup result */}
+                              {pincodeLoading && (
+                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                                  <svg
+                                    className="animate-spin w-3 h-3"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    aria-label="Loading"
+                                    role="img"
+                                  >
+                                    <circle
+                                      className="opacity-25"
+                                      cx="12"
+                                      cy="12"
+                                      r="10"
+                                      stroke="currentColor"
+                                      strokeWidth="4"
+                                    />
+                                    <path
+                                      className="opacity-75"
+                                      fill="currentColor"
+                                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                    />
+                                  </svg>
+                                  Looking up pincode...
+                                </div>
+                              )}
+                              {pincodeData && !pincodeLoading && (
+                                <div className="text-xs bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 flex items-center gap-2 flex-wrap mt-1">
+                                  <span className="text-green-800 font-medium">
+                                    {pincodeData.area}
+                                  </span>
+                                  <span className="text-green-700">
+                                    {pincodeData.city}, {pincodeData.state}
+                                  </span>
+                                  {pincodeData.isMetro ? (
+                                    <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                      Metro
+                                    </span>
+                                  ) : (
+                                    <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                      Non-Metro
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
