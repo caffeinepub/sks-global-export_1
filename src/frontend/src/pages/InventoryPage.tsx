@@ -892,7 +892,10 @@ export function InventoryPage() {
                 value={selectedBrandId}
                 onValueChange={(v) => {
                   setSelectedBrandId(v);
-                  setSelectedProductId2("");
+                  // Auto-select the first product type as default when brand changes
+                  const brand = courierBrands.find((b) => b.id === v);
+                  const cpList = brand?.courierProducts ?? [];
+                  setSelectedProductId2(cpList.length > 0 ? cpList[0].id : "");
                 }}
               >
                 <SelectTrigger className="mt-1">
@@ -926,7 +929,6 @@ export function InventoryPage() {
                         <SelectValue placeholder="Select product (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— All / General —</SelectItem>
                         {cpList.map((cp) => (
                           <SelectItem key={cp.id} value={cp.id}>
                             {cp.productType}

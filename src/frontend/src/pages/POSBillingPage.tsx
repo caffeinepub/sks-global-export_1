@@ -955,7 +955,15 @@ export function POSBillingPage({
   const visibleChargesTotal = additionalCharges
     .filter((c) => c.showInBill)
     .reduce((sum, c) => sum + c.amount, 0);
-  const total = Math.max(0, netItemsTotal + visibleChargesTotal - billDiscount);
+  const hiddenChargesTotal = additionalCharges
+    .filter((c) => !c.showInBill)
+    .reduce((sum, c) => sum + c.amount, 0);
+  // Total includes ALL charges (visible + hidden). Hidden charges get distributed
+  // into item prices at save time, but the grand total shown must reflect them.
+  const total = Math.max(
+    0,
+    netItemsTotal + visibleChargesTotal + hiddenChargesTotal - billDiscount,
+  );
   const paid = Number(amountPaid) || 0;
   const balance = total - paid;
 
@@ -975,15 +983,15 @@ export function POSBillingPage({
     }
 
     // Distribute hidden charges proportionally into item totalPrice
-    const hiddenChargesTotal = additionalCharges
+    const hiddenTotal = additionalCharges
       .filter((c) => !c.showInBill)
       .reduce((sum, c) => sum + c.amount, 0);
 
     let finalItems = billItems;
-    if (hiddenChargesTotal !== 0 && netItemsTotal > 0) {
+    if (hiddenTotal !== 0 && netItemsTotal > 0) {
       finalItems = billItems.map((item) => {
         const share = item.totalPrice / netItemsTotal;
-        const addedAmount = Math.round(hiddenChargesTotal * share * 100) / 100;
+        const addedAmount = Math.round(hiddenTotal * share * 100) / 100;
         return {
           ...item,
           totalPrice: Math.max(0, item.totalPrice + addedAmount),
@@ -2786,15 +2794,22 @@ export function POSBillingPage({
             <span>{formatCurrency(netItemsTotal)}</span>
           </div>
 
-          {/* Visible additional charges */}
+          {/* All additional charges (visible + hidden/adjust) */}
           {additionalCharges
-            .filter((c) => c.showInBill && c.amount !== 0)
+            .filter((c) => c.amount !== 0)
             .map((charge) => (
               <div
                 key={charge.id}
                 className="flex justify-between text-xs mt-1"
               >
-                <span className="text-muted-foreground">{charge.label}</span>
+                <span className="text-muted-foreground flex items-center gap-1">
+                  {charge.label}
+                  {!charge.showInBill && (
+                    <span className="text-[9px] bg-muted px-1 py-0.5 rounded text-muted-foreground font-medium">
+                      Adjust
+                    </span>
+                  )}
+                </span>
                 <span
                   className={
                     charge.amount < 0 ? "text-red-600" : "text-foreground"
