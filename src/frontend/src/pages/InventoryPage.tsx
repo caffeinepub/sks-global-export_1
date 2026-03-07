@@ -432,6 +432,8 @@ export function InventoryPage() {
     return serials;
   };
 
+  const [selectedProductId2, setSelectedProductId2] = useState(""); // product within brand
+
   const handleAddAWBRange = () => {
     const brand = courierBrands.find((b) => b.id === selectedBrandId);
     if (!brand || !awbFrom || !awbTo) {
@@ -439,7 +441,23 @@ export function InventoryPage() {
       return;
     }
 
-    const availableSerials = generateAWBSerials(awbFrom, awbTo, brand);
+    // Determine serial logic — prefer selected product's logic if available
+    const cpList = brand.courierProducts ?? [];
+    const selectedProduct = cpList.find((p) => p.id === selectedProductId2);
+    const effectiveBrand = selectedProduct
+      ? {
+          ...brand,
+          serialLogic: selectedProduct.serialLogic,
+          serialGap: selectedProduct.serialGap ?? brand.serialGap,
+          serialPrefix: selectedProduct.serialPrefix ?? brand.serialPrefix,
+        }
+      : brand;
+
+    const availableSerials = generateAWBSerials(
+      awbFrom,
+      awbTo,
+      effectiveBrand as typeof brand,
+    );
     const qty = Number(awbQty) || availableSerials.length;
 
     const serialRange: AWBSerialRange = {
@@ -447,6 +465,8 @@ export function InventoryPage() {
       companyId: activeCompanyId,
       brandId: selectedBrandId,
       brandName: brand.brandName,
+      productId: selectedProduct?.id || undefined,
+      productTypeName: selectedProduct?.productType || undefined,
       fromSerial: awbFrom,
       toSerial: awbTo,
       quantity: qty,
@@ -458,10 +478,11 @@ export function InventoryPage() {
 
     addAWBSerial(serialRange);
     toast.success(
-      `Added ${availableSerials.length} AWB serials for ${brand.brandName}`,
+      `Added ${availableSerials.length} AWB serials for ${brand.brandName}${selectedProduct ? ` – ${selectedProduct.productType}` : ""}`,
     );
     setShowAddAWB(false);
     setSelectedBrandId("");
+    setSelectedProductId2("");
     setAwbFrom("");
     setAwbTo("");
     setAwbQty("");
@@ -715,6 +736,9 @@ export function InventoryPage() {
                         <TableRow className="bg-muted/20">
                           <TableHead className="text-xs">Range</TableHead>
                           <TableHead className="text-xs">
+                            Product Type
+                          </TableHead>
+                          <TableHead className="text-xs">
                             Purchase Date
                           </TableHead>
                           <TableHead className="text-xs">Quantity</TableHead>
@@ -734,6 +758,17 @@ export function InventoryPage() {
                           >
                             <TableCell className="text-xs font-mono">
                               {range.fromSerial} → {range.toSerial}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {range.productTypeName ? (
+                                <span className="bg-primary/10 text-primary text-xs px-1.5 py-0.5 rounded font-medium">
+                                  {range.productTypeName}
+                                </span>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  General
+                                </span>
+                              )}
                             </TableCell>
                             <TableCell className="text-xs">
                               {formatDate(range.purchaseDate)}
@@ -855,7 +890,10 @@ export function InventoryPage() {
               <Label className="text-sm">Courier Brand</Label>
               <Select
                 value={selectedBrandId}
-                onValueChange={setSelectedBrandId}
+                onValueChange={(v) => {
+                  setSelectedBrandId(v);
+                  setSelectedProductId2("");
+                }}
               >
                 <SelectTrigger className="mt-1">
                   <SelectValue placeholder="Select brand" />
@@ -869,6 +907,58 @@ export function InventoryPage() {
                 </SelectContent>
               </Select>
             </div>
+            {/* Product Type selector — only shown when brand has courierProducts */}
+            {selectedBrandId &&
+              (() => {
+                const brand = courierBrands.find(
+                  (b) => b.id === selectedBrandId,
+                );
+                const cpList = brand?.courierProducts ?? [];
+                if (cpList.length === 0) return null;
+                return (
+                  <div>
+                    <Label className="text-sm">Product Type</Label>
+                    <Select
+                      value={selectedProductId2}
+                      onValueChange={setSelectedProductId2}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Select product (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">— All / General —</SelectItem>
+                        {cpList.map((cp) => (
+                          <SelectItem key={cp.id} value={cp.id}>
+                            {cp.productType}
+                            {cp.serialPrefix
+                              ? ` (Prefix: ${cp.serialPrefix})`
+                              : ""}
+                            {" — "}
+                            {cp.category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {selectedProductId2 &&
+                      (() => {
+                        const cp = cpList.find(
+                          (p) => p.id === selectedProductId2,
+                        );
+                        if (!cp?.serialPrefix) return null;
+                        return (
+                          <p className="text-xs text-muted-foreground mt-1">
+                            AWB Prefix for this product:{" "}
+                            <span className="font-mono font-semibold">
+                              {cp.serialPrefix}
+                            </span>{" "}
+                            — AWB numbers starting/ending with this identify as{" "}
+                            {cp.productType}
+                          </p>
+                        );
+                      })()}
+                  </div>
+                );
+              })()}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">From Serial</Label>

@@ -56,7 +56,7 @@ const pageTitles: Record<string, string> = {
   "purchase-invoices": "Purchase Invoices",
   customers: "Customers",
   vendors: "Vendors",
-  pickups: "Courier Pickups",
+  pickups: "Schedule Pickup",
   settings: "Settings",
   reports: "Reports",
   expenses: "Expenses",

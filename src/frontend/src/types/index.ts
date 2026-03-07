@@ -52,12 +52,35 @@ export interface GeneralProduct {
   isActive: boolean;
 }
 
+// Individual product under a courier brand (each brand can have many products)
+export interface CourierProduct {
+  id: string;
+  productType: string; // e.g. "D Express", "Lite", "Priority", "Air Cargo", "Surface Cargo"
+  category: "Courier" | "Cargo"; // Courier = document/small parcel, Cargo = heavy freight
+  transportModes: "Air" | "Surface" | "Both";
+  serviceModes: string[]; // e.g. ["Air", "Surface", "GEC"]
+  serialLogic:
+    | "sequential_prefix_first"
+    | "sequential_prefix_second"
+    | "custom_gap"
+    | "sequential"
+    | "own_brand_auto";
+  serialPrefix?: string; // prefix letters/numbers that identify this product's AWB
+  prefixPosition?: "first" | "second"; // where the prefix appears
+  serialGap?: number;
+  sellingPrice: number;
+  gstRate: number;
+  isActive: boolean;
+}
+
 export interface CourierBrand {
   id: string;
   companyId: string;
   type: "courier_awb";
   brandName: string;
   brandSubtitle?: string; // e.g. "Domestic and International"
+  category?: "Courier" | "Cargo" | "Both"; // brand-level category
+  // Legacy top-level fields kept for backward compatibility
   productType: string;
   serviceModes: string[];
   transportModes: "Air" | "Surface" | "Both"; // fixed transport mode for this brand
@@ -74,6 +97,8 @@ export interface CourierBrand {
   sellingPrice: number;
   gstRate: number;
   isActive: boolean;
+  // New: per-brand product list (each product has its own type, serial logic, prefix, etc.)
+  courierProducts?: CourierProduct[];
 }
 
 export interface AWBSerialRange {
@@ -81,6 +106,8 @@ export interface AWBSerialRange {
   companyId: string;
   brandId: string;
   brandName: string;
+  productId?: string; // references CourierProduct.id within the brand
+  productTypeName?: string; // display name of the product type
   fromSerial: string;
   toSerial: string;
   quantity: number;
@@ -273,7 +300,12 @@ export interface PurchaseInvoice {
 export interface CourierPickup {
   id: string;
   companyId: string;
-  courierBrand: string;
+  courierBrand: string; // kept for backward compat (service/product label)
+  serviceLabel?: string; // display label: brand name, product name, etc.
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerType?: "registered" | "walking";
   scheduledDate: string;
   scheduledTime: string;
   estimatedPieces: number;

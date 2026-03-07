@@ -438,9 +438,12 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
                       </div>
                       <div>
                         <p className="text-sm font-semibold">
-                          {pickup.courierBrand}
+                          {pickup.customerName ||
+                            pickup.serviceLabel ||
+                            pickup.courierBrand}
                         </p>
                         <p className="text-xs text-muted-foreground">
+                          {pickup.serviceLabel || pickup.courierBrand} •{" "}
                           {formatDate(pickup.scheduledDate)} at{" "}
                           {pickup.scheduledTime} • {pickup.estimatedPieces} pcs
                         </p>

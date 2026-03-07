@@ -434,9 +434,27 @@ export const useAppStore = create<AppState>((set, get) => {
 
     deleteInvoice: (invoiceId: string) => {
       const cid = get().activeCompanyId;
+      // Find the invoice being deleted to get its associated bill IDs
+      const invoiceToDelete = getInvoices(cid).find(
+        (inv) => inv.id === invoiceId,
+      );
+      // Remove the invoice
       const invoices = getInvoices(cid).filter((inv) => inv.id !== invoiceId);
       setInvoices(cid, invoices);
       set({ invoices });
+      // Revert associated bills back to un-invoiced state (preserve billed products)
+      if (invoiceToDelete?.billIds?.length) {
+        const bills = getBills(cid).map((b) => {
+          if (invoiceToDelete.billIds.includes(b.id)) {
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { invoiceId: _removed, ...rest } = b;
+            return { ...rest, isInvoiced: false };
+          }
+          return b;
+        });
+        setBills(cid, bills);
+        set({ bills });
+      }
     },
 
     // Purchase Invoices

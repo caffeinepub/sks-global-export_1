@@ -85,6 +85,8 @@ interface FlatBillItem extends BillItem {
   customerId: string;
   customerName: string;
   paymentStatus: string;
+  isInvoiced: boolean;
+  invoiceNo?: string;
 }
 
 type InvoiceTemplateKey = "default" | "retail" | "courier";
@@ -2432,6 +2434,7 @@ interface BilledProductsTabProps {
 function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
   const {
     bills,
+    invoices,
     customers,
     addInvoice,
     updateBill,
@@ -2445,11 +2448,23 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterCategory, setFilterCategory] = useState("all");
+  const [filterInvoiced, setFilterInvoiced] = useState("all");
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [pendingInvoiceType, setPendingInvoiceType] = useState<
     "gst" | "non_gst"
   >("gst");
+
+  // Build a map from billId -> invoiceNo for quick lookup
+  const billInvoiceMap = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const inv of invoices) {
+      for (const bid of inv.billIds || []) {
+        map[bid] = inv.invoiceNo;
+      }
+    }
+    return map;
+  }, [invoices]);
 
   // Flatten all bill items
   const flatItems = useMemo<FlatBillItem[]>(() => {
@@ -2462,9 +2477,11 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
         customerId: bill.customerId,
         customerName: bill.customerName,
         paymentStatus: bill.paymentStatus,
+        isInvoiced: !!(bill.isInvoiced || billInvoiceMap[bill.id]),
+        invoiceNo: billInvoiceMap[bill.id],
       })),
     );
-  }, [bills]);
+  }, [bills, billInvoiceMap]);
 
   const uniqueCustomers = useMemo(() => {
     const seen = new Set<string>();
@@ -2486,9 +2503,26 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       const matchDateTo = !filterDateTo || item.billDate <= filterDateTo;
       const matchCategory =
         filterCategory === "all" || item.productType === filterCategory;
-      return matchCustomer && matchDateFrom && matchDateTo && matchCategory;
+      const matchInvoiced =
+        filterInvoiced === "all" ||
+        (filterInvoiced === "invoiced" && item.isInvoiced) ||
+        (filterInvoiced === "not_invoiced" && !item.isInvoiced);
+      return (
+        matchCustomer &&
+        matchDateFrom &&
+        matchDateTo &&
+        matchCategory &&
+        matchInvoiced
+      );
     });
-  }, [flatItems, filterCustomer, filterDateFrom, filterDateTo, filterCategory]);
+  }, [
+    flatItems,
+    filterCustomer,
+    filterDateFrom,
+    filterDateTo,
+    filterCategory,
+    filterInvoiced,
+  ]);
 
   // row key = `${billId}_${itemId}`
   const rowKey = (item: FlatBillItem) => `${item.billId}_${item.id}`;
@@ -2521,13 +2555,15 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
     setFilterDateFrom("");
     setFilterDateTo("");
     setFilterCategory("all");
+    setFilterInvoiced("all");
   };
 
   const hasFilters =
     filterCustomer !== "all" ||
     filterDateFrom ||
     filterDateTo ||
-    filterCategory !== "all";
+    filterCategory !== "all" ||
+    filterInvoiced !== "all";
 
   const handleGenerateInvoice = (type: "gst" | "non_gst") => {
     if (!allSameCustomer) return;
@@ -2662,6 +2698,16 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
               <SelectItem value="service">Service</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={filterInvoiced} onValueChange={setFilterInvoiced}>
+            <SelectTrigger className="text-sm w-full sm:w-40">
+              <SelectValue placeholder="Invoice Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Items</SelectItem>
+              <SelectItem value="not_invoiced">Not Invoiced</SelectItem>
+              <SelectItem value="invoiced">Already Invoiced</SelectItem>
+            </SelectContent>
+          </Select>
           {hasFilters && (
             <Button variant="ghost" size="sm" onClick={clearFilters}>
               <X className="w-4 h-4 mr-1" />
@@ -2671,6 +2717,12 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
         </div>
         <p className="text-xs text-muted-foreground mt-2">
           {filteredItems.length} product line(s) found
+          {filteredItems.filter((i) => i.isInvoiced).length > 0 && (
+            <span className="ml-2 text-blue-600">
+              · {filteredItems.filter((i) => i.isInvoiced).length} already
+              invoiced
+            </span>
+          )}
         </p>
       </div>
 
@@ -2689,7 +2741,7 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                     onCheckedChange={toggleAll}
                   />
                 </TableHead>
-                <TableHead className="text-xs">Bill No</TableHead>
+                <TableHead className="text-xs">Bill No / Invoice No</TableHead>
                 <TableHead className="text-xs">Date</TableHead>
                 <TableHead className="text-xs">Customer</TableHead>
                 <TableHead className="text-xs">Product</TableHead>
@@ -2717,7 +2769,7 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                   return (
                     <TableRow
                       key={key}
-                      className="hover:bg-muted/20 transition-colors"
+                      className={`hover:bg-muted/20 transition-colors ${item.isInvoiced ? "bg-blue-50/40" : ""}`}
                     >
                       <TableCell>
                         <Checkbox
@@ -2725,8 +2777,17 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                           onCheckedChange={() => toggleSelect(key)}
                         />
                       </TableCell>
-                      <TableCell className="text-xs font-mono font-semibold">
-                        {item.billNo}
+                      <TableCell className="text-xs min-w-[120px]">
+                        <p className="font-mono font-semibold text-xs">
+                          {item.billNo}
+                        </p>
+                        {item.isInvoiced && item.invoiceNo && (
+                          <div className="mt-0.5">
+                            <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 border-blue-200 font-mono">
+                              {item.invoiceNo}
+                            </Badge>
+                          </div>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs">
                         {formatDate(item.billDate)}

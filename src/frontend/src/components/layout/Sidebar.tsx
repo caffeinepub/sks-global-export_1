@@ -58,7 +58,7 @@ const navItems: NavItem[] = [
   },
   { label: "Customers", icon: Users, path: "customers" },
   { label: "Vendors", icon: UserCheck, path: "vendors" },
-  { label: "Courier Pickups", icon: Truck, path: "pickups" },
+  { label: "Schedule Pickup", icon: Truck, path: "pickups" },
   { label: "Tariff Rates", icon: Tag, path: "tariffs" },
   { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
   { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },

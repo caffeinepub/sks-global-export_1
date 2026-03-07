@@ -29,9 +29,11 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
+  Package,
   Plus,
   Trash2,
   Truck,
+  User,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -49,6 +51,7 @@ export function PickupsPage() {
   const {
     pickups,
     products,
+    customers,
     addPickup,
     updatePickup,
     deletePickup,
@@ -59,20 +62,40 @@ export function PickupsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
 
   // Form state
-  const [courierBrand, setCourierBrand] = useState("");
+  const [serviceLabel, setServiceLabel] = useState("");
   const [scheduledDate, setScheduledDate] = useState(getTodayStr());
   const [scheduledTime, setScheduledTime] = useState("14:00");
   const [estimatedPieces, setEstimatedPieces] = useState("");
   const [estimatedBoxes, setEstimatedBoxes] = useState("");
   const [notes, setNotes] = useState("");
 
+  // Customer state
+  const [customerMode, setCustomerMode] = useState<"registered" | "walking">(
+    "registered",
+  );
+  const [selectedCustomerId, setSelectedCustomerId] = useState("");
+  const [walkingName, setWalkingName] = useState("");
+  const [walkingPhone, setWalkingPhone] = useState("");
+
   // Confirm state
   const [confirmedPieces, setConfirmedPieces] = useState("");
   const [confirmedBoxes, setConfirmedBoxes] = useState("");
 
-  const courierBrands = products
-    .filter((p) => p.type === "courier_awb")
-    .map((p) => (p as { brandName: string }).brandName);
+  // Build service options: own brand courier + partner courier brands + general products + xerox + services
+  const courierBrands = products.filter((p) => p.type === "courier_awb");
+  const ownBrandCouriers = courierBrands.filter(
+    (p) => (p as { isOwnBrand?: boolean }).isOwnBrand,
+  );
+  const partnerBrands = courierBrands.filter(
+    (p) => !(p as { isOwnBrand?: boolean }).isOwnBrand,
+  );
+  const generalProducts = products.filter((p) => p.type === "general");
+  const xeroxProducts = products.filter((p) => p.type === "xerox");
+  const serviceProducts = products.filter((p) => p.type === "service");
+
+  const registeredCustomers = customers.filter(
+    (c) => c.customerType === "registered" && c.isActive,
+  );
 
   const filteredPickups = useMemo(() => {
     return [...pickups]
@@ -84,15 +107,55 @@ export function PickupsPage() {
       .filter((p) => filterStatus === "all" || p.status === filterStatus);
   }, [pickups, filterStatus]);
 
+  const resetForm = () => {
+    setServiceLabel("");
+    setScheduledDate(getTodayStr());
+    setScheduledTime("14:00");
+    setEstimatedPieces("");
+    setEstimatedBoxes("");
+    setNotes("");
+    setCustomerMode("registered");
+    setSelectedCustomerId("");
+    setWalkingName("");
+    setWalkingPhone("");
+  };
+
   const handleAddPickup = () => {
-    if (!courierBrand || !estimatedPieces) {
-      toast.error("Please fill required fields");
+    if (!serviceLabel || !estimatedPieces) {
+      toast.error("Please select a service and enter estimated pieces");
       return;
     }
+
+    let customerName: string | undefined;
+    let customerPhone: string | undefined;
+    let customerId: string | undefined;
+    let customerType: "registered" | "walking" | undefined;
+
+    if (customerMode === "registered") {
+      if (selectedCustomerId) {
+        const cust = registeredCustomers.find(
+          (c) => c.id === selectedCustomerId,
+        );
+        customerName = cust?.name;
+        customerPhone = cust?.phone;
+        customerId = selectedCustomerId;
+        customerType = "registered";
+      }
+    } else {
+      customerName = walkingName || undefined;
+      customerPhone = walkingPhone || undefined;
+      customerType = "walking";
+    }
+
     const pickup: CourierPickup = {
       id: generateId(),
       companyId: activeCompanyId,
-      courierBrand,
+      courierBrand: serviceLabel,
+      serviceLabel,
+      customerId,
+      customerName,
+      customerPhone,
+      customerType,
       scheduledDate,
       scheduledTime,
       estimatedPieces: Number(estimatedPieces),
@@ -103,12 +166,7 @@ export function PickupsPage() {
     addPickup(pickup);
     toast.success("Pickup scheduled");
     setShowForm(false);
-    setCourierBrand("");
-    setScheduledDate(getTodayStr());
-    setScheduledTime("14:00");
-    setEstimatedPieces("");
-    setEstimatedBoxes("");
-    setNotes("");
+    resetForm();
   };
 
   const handleConfirmPickup = () => {
@@ -161,12 +219,16 @@ export function PickupsPage() {
     <div className="p-6 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold">Courier Pickups</h2>
+          <h2 className="text-lg font-bold">Schedule Pickup</h2>
           <p className="text-sm text-muted-foreground">
             {pickups.length} schedules
           </p>
         </div>
-        <Button onClick={() => setShowForm(true)} size="sm">
+        <Button
+          onClick={() => setShowForm(true)}
+          size="sm"
+          data-ocid="pickups.schedule.primary_button"
+        >
           <Plus className="w-4 h-4 mr-1" /> Schedule Pickup
         </Button>
       </div>
@@ -188,10 +250,12 @@ export function PickupsPage() {
                 className="flex items-center justify-between bg-white rounded-lg p-3 border border-amber-200"
               >
                 <div>
-                  <p className="text-sm font-semibold">{p.courierBrand}</p>
+                  <p className="text-sm font-semibold">
+                    {p.customerName || "—"}
+                  </p>
                   <p className="text-xs text-muted-foreground">
-                    {p.scheduledTime} • {p.estimatedPieces} pcs,{" "}
-                    {p.estimatedBoxes} boxes
+                    {p.serviceLabel || p.courierBrand} • {p.scheduledTime} •{" "}
+                    {p.estimatedPieces} pcs, {p.estimatedBoxes} boxes
                   </p>
                 </div>
                 <Button
@@ -232,7 +296,8 @@ export function PickupsPage() {
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/30">
-                <TableHead className="text-xs">Brand</TableHead>
+                <TableHead className="text-xs">Customer</TableHead>
+                <TableHead className="text-xs">Service / Product</TableHead>
                 <TableHead className="text-xs">Date</TableHead>
                 <TableHead className="text-xs">Time</TableHead>
                 <TableHead className="text-xs">Est. Pieces</TableHead>
@@ -246,20 +311,57 @@ export function PickupsPage() {
               {filteredPickups.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={8}
+                    colSpan={9}
                     className="text-center py-12 text-muted-foreground"
+                    data-ocid="pickups.empty_state"
                   >
                     No pickups scheduled
                   </TableCell>
                 </TableRow>
               ) : (
-                filteredPickups.map((pickup) => (
-                  <TableRow key={pickup.id} className="hover:bg-muted/20">
+                filteredPickups.map((pickup, idx) => (
+                  <TableRow
+                    key={pickup.id}
+                    className="hover:bg-muted/20"
+                    data-ocid={`pickups.row.${idx + 1}`}
+                  >
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <Truck className="w-4 h-4 text-primary" />
-                        <span className="text-xs font-semibold">
-                          {pickup.courierBrand}
+                        <User className="w-4 h-4 text-muted-foreground" />
+                        <div>
+                          <p className="text-xs font-semibold">
+                            {pickup.customerName || (
+                              <span className="text-muted-foreground italic">
+                                No customer
+                              </span>
+                            )}
+                          </p>
+                          {pickup.customerPhone && (
+                            <p className="text-xs text-muted-foreground">
+                              {pickup.customerPhone}
+                            </p>
+                          )}
+                          {pickup.customerType && (
+                            <span
+                              className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                                pickup.customerType === "registered"
+                                  ? "bg-blue-50 text-blue-700"
+                                  : "bg-gray-100 text-gray-600"
+                              }`}
+                            >
+                              {pickup.customerType === "registered"
+                                ? "Registered"
+                                : "Walking"}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Package className="w-4 h-4 text-primary" />
+                        <span className="text-xs font-medium">
+                          {pickup.serviceLabel || pickup.courierBrand}
                         </span>
                       </div>
                     </TableCell>
@@ -328,6 +430,7 @@ export function PickupsPage() {
                           size="icon"
                           className="h-7 w-7 text-destructive"
                           onClick={() => deletePickup(pickup.id)}
+                          data-ocid={`pickups.delete_button.${idx + 1}`}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </Button>
@@ -342,36 +445,192 @@ export function PickupsPage() {
       </div>
 
       {/* Schedule Dialog */}
-      <Dialog open={showForm} onOpenChange={setShowForm}>
-        <DialogContent>
+      <Dialog
+        open={showForm}
+        onOpenChange={(open) => {
+          if (!open) resetForm();
+          setShowForm(open);
+        }}
+      >
+        <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Schedule Courier Pickup</DialogTitle>
+            <DialogTitle>Schedule Pickup</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label className="text-sm">Courier Brand*</Label>
-              {courierBrands.length > 0 ? (
-                <Select value={courierBrand} onValueChange={setCourierBrand}>
-                  <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Select brand" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {courierBrands.map((b) => (
-                      <SelectItem key={b} value={b}>
-                        {b}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            {/* Customer Section */}
+            <div className="bg-muted/30 rounded-lg p-3 space-y-3">
+              <div className="flex items-center gap-2 mb-1">
+                <User className="w-4 h-4 text-primary" />
+                <Label className="text-sm font-semibold">Customer</Label>
+              </div>
+              {/* Customer Type Toggle */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCustomerMode("registered")}
+                  className={`flex-1 text-xs py-1.5 rounded-md border transition-colors ${
+                    customerMode === "registered"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-white border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Registered Customer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCustomerMode("walking")}
+                  className={`flex-1 text-xs py-1.5 rounded-md border transition-colors ${
+                    customerMode === "walking"
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-white border-border text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Walking Customer
+                </button>
+              </div>
+
+              {customerMode === "registered" ? (
+                <div>
+                  <Label className="text-xs">Select Customer</Label>
+                  <Select
+                    value={selectedCustomerId}
+                    onValueChange={setSelectedCustomerId}
+                  >
+                    <SelectTrigger className="mt-1 text-sm">
+                      <SelectValue placeholder="Select registered customer" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {registeredCustomers.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.name}
+                          {c.phone ? ` — ${c.phone}` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               ) : (
-                <Input
-                  value={courierBrand}
-                  onChange={(e) => setCourierBrand(e.target.value)}
-                  placeholder="Enter courier brand name"
-                  className="mt-1 text-sm"
-                />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Name</Label>
+                    <Input
+                      value={walkingName}
+                      onChange={(e) => setWalkingName(e.target.value)}
+                      placeholder="Customer name"
+                      className="mt-1 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Phone</Label>
+                    <Input
+                      value={walkingPhone}
+                      onChange={(e) => setWalkingPhone(e.target.value)}
+                      placeholder="Mobile number"
+                      className="mt-1 text-sm"
+                    />
+                  </div>
+                </div>
               )}
             </div>
+
+            {/* Service / Product */}
+            <div>
+              <Label className="text-sm font-semibold">
+                Service / Product*
+              </Label>
+              <Select value={serviceLabel} onValueChange={setServiceLabel}>
+                <SelectTrigger className="mt-1 text-sm">
+                  <SelectValue placeholder="Select service or product" />
+                </SelectTrigger>
+                <SelectContent>
+                  {ownBrandCouriers.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Own Brand Courier
+                      </div>
+                      {ownBrandCouriers.map((p) => (
+                        <SelectItem
+                          key={p.id}
+                          value={(p as { brandName: string }).brandName}
+                        >
+                          {(p as { brandName: string }).brandName}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {partnerBrands.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Partner Courier Brands
+                      </div>
+                      {partnerBrands.map((p) => (
+                        <SelectItem
+                          key={p.id}
+                          value={(p as { brandName: string }).brandName}
+                        >
+                          {(p as { brandName: string }).brandName}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {generalProducts.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        General Products
+                      </div>
+                      {generalProducts.map((p) => (
+                        <SelectItem
+                          key={p.id}
+                          value={(p as { name: string }).name}
+                        >
+                          {(p as { name: string }).name}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {xeroxProducts.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Xerox & Printout
+                      </div>
+                      {xeroxProducts.map((p) => (
+                        <SelectItem
+                          key={p.id}
+                          value={(p as { name: string }).name}
+                        >
+                          {(p as { name: string }).name}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {serviceProducts.length > 0 && (
+                    <>
+                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        Services
+                      </div>
+                      {serviceProducts.map((p) => (
+                        <SelectItem
+                          key={p.id}
+                          value={(p as { name: string }).name}
+                        >
+                          {(p as { name: string }).name}
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                  {courierBrands.length === 0 &&
+                    generalProducts.length === 0 &&
+                    xeroxProducts.length === 0 &&
+                    serviceProducts.length === 0 && (
+                      <SelectItem value="__none__" disabled>
+                        No products found — add products first
+                      </SelectItem>
+                    )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Schedule */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Date</Label>
@@ -421,10 +680,22 @@ export function PickupsPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowForm(false)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowForm(false);
+                resetForm();
+              }}
+              data-ocid="pickups.schedule.cancel_button"
+            >
               Cancel
             </Button>
-            <Button onClick={handleAddPickup}>Schedule</Button>
+            <Button
+              onClick={handleAddPickup}
+              data-ocid="pickups.schedule.submit_button"
+            >
+              Schedule
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

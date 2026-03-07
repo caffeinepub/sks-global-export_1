@@ -334,6 +334,8 @@ export function POSBillingPage({
 
   // Courier brand selection and detail form
   const [selectedBrand, setSelectedBrand] = useState<CourierBrand | null>(null);
+  const [selectedCourierProductId, setSelectedCourierProductId] =
+    useState<string>("");
   const [courierForm, setCourierForm] = useState<CourierFormState>({
     senderName: "",
     senderPhone: "",
@@ -588,9 +590,18 @@ export function POSBillingPage({
       courierForm.height,
     );
 
-    // Determine price
-    let unitPrice = selectedBrand.sellingPrice;
-    let totalPrice = selectedBrand.sellingPrice;
+    // Determine effective product (sub-product if selected, else brand defaults)
+    const cpList = (selectedBrand as CourierBrand).courierProducts ?? [];
+    const selectedCourierProduct =
+      cpList.find((p) => p.id === selectedCourierProductId) ?? null;
+
+    // Determine price — prefer sub-product price if set, else brand price
+    const basePrice =
+      selectedCourierProduct && selectedCourierProduct.sellingPrice > 0
+        ? selectedCourierProduct.sellingPrice
+        : selectedBrand.sellingPrice;
+    let unitPrice = basePrice;
+    let totalPrice = basePrice;
 
     const customerOverride =
       courierForm.useTariff && courierForm.weight
@@ -696,7 +707,9 @@ export function POSBillingPage({
       brandName: selectedBrand.brandName,
       unitPrice,
       totalPrice,
-      gstRate: selectedBrand.gstRate,
+      gstRate: selectedCourierProduct
+        ? selectedCourierProduct.gstRate
+        : selectedBrand.gstRate,
       senderName: courierForm.senderName,
       senderPhone: courierForm.senderPhone,
       senderAddress: courierForm.senderAddress,
@@ -719,10 +732,16 @@ export function POSBillingPage({
 
     setBillItems((prev) => [...prev, item]);
     setDuplicateAWBWarning(null);
-    toast.success(`AWB ${awbSerial} added — ${selectedBrand.brandName}`);
+    const productLabel = selectedCourierProduct
+      ? ` – ${selectedCourierProduct.productType}`
+      : "";
+    toast.success(
+      `AWB ${awbSerial} added — ${selectedBrand.brandName}${productLabel}`,
+    );
 
     // Reset courier form
     setSelectedBrand(null);
+    setSelectedCourierProductId("");
     setPincodeData(null);
     setPincodeLoading(false);
     setSksIsInternational(false);
@@ -1220,12 +1239,14 @@ export function POSBillingPage({
                         onClick={() => {
                           if (isSelected) {
                             setSelectedBrand(null);
+                            setSelectedCourierProductId("");
                             setPincodeData(null);
                             setManualAWBInput("");
                             setAWBStatus("idle");
                             setAWBDuplicateInfo(null);
                           } else {
                             setSelectedBrand(brand);
+                            setSelectedCourierProductId("");
                             setManualAWBInput("");
                             setAWBStatus("idle");
                             setAWBDuplicateInfo(null);
@@ -1276,6 +1297,7 @@ export function POSBillingPage({
                               {brand.brandName}
                             </p>
                             <p className="text-xs text-muted-foreground truncate">
+                              {brand.category ? `${brand.category} • ` : ""}
                               {brand.productType}
                             </p>
                           </div>
@@ -1394,6 +1416,7 @@ export function POSBillingPage({
                             type="button"
                             onClick={() => {
                               setSelectedBrand(null);
+                              setSelectedCourierProductId("");
                               setDuplicateAWBWarning(null);
                               setManualAWBInput("");
                               setAWBStatus("idle");
@@ -1404,6 +1427,95 @@ export function POSBillingPage({
                             <X className="w-4 h-4" />
                           </button>
                         </div>
+
+                        {/* ── PRODUCT TYPE SELECTOR (when brand has courierProducts) ── */}
+                        {(() => {
+                          const cpList =
+                            (selectedBrand as CourierBrand).courierProducts ??
+                            [];
+                          if (cpList.length === 0) return null;
+                          return (
+                            <div className="space-y-2">
+                              <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Product Type
+                              </Label>
+                              <div className="grid grid-cols-2 gap-2">
+                                {cpList
+                                  .filter((cp) => cp.isActive)
+                                  .map((cp) => (
+                                    <button
+                                      key={cp.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedCourierProductId(cp.id);
+                                        // Auto-set service mode from product
+                                        const tm = cp.transportModes ?? "Both";
+                                        const autoMode =
+                                          tm === "Air"
+                                            ? "Air"
+                                            : tm === "Surface"
+                                              ? "Surface"
+                                              : cp.serviceModes[0] || "";
+                                        setCourierForm((prev) => ({
+                                          ...prev,
+                                          productType: cp.productType,
+                                          serviceMode:
+                                            prev.serviceMode || autoMode,
+                                        }));
+                                      }}
+                                      className={cn(
+                                        "text-left px-3 py-2 rounded-lg border-2 transition-all",
+                                        selectedCourierProductId === cp.id
+                                          ? "border-primary bg-primary/5"
+                                          : "border-border hover:border-primary/50 hover:bg-muted/20",
+                                      )}
+                                    >
+                                      <p className="text-xs font-semibold">
+                                        {cp.productType}
+                                      </p>
+                                      <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                        <span
+                                          className={`text-[10px] px-1 py-0.5 rounded font-medium ${cp.category === "Courier" ? "bg-blue-50 text-blue-700" : "bg-orange-50 text-orange-700"}`}
+                                        >
+                                          {cp.category}
+                                        </span>
+                                        <span className="text-[10px] text-muted-foreground">
+                                          {cp.transportModes}
+                                        </span>
+                                        {cp.serialPrefix && (
+                                          <span className="text-[10px] font-mono bg-muted px-1 rounded border">
+                                            {cp.serialPrefix}
+                                          </span>
+                                        )}
+                                      </div>
+                                      <p className="text-xs font-bold text-primary mt-1">
+                                        {formatCurrency(
+                                          cp.sellingPrice > 0
+                                            ? cp.sellingPrice
+                                            : selectedBrand.sellingPrice,
+                                        )}
+                                      </p>
+                                    </button>
+                                  ))}
+                              </div>
+                              {selectedCourierProductId &&
+                                (() => {
+                                  const cp = cpList.find(
+                                    (p) => p.id === selectedCourierProductId,
+                                  );
+                                  if (!cp?.serialPrefix) return null;
+                                  return (
+                                    <p className="text-xs text-muted-foreground bg-muted/30 rounded px-2 py-1">
+                                      AWB prefix for this product:{" "}
+                                      <span className="font-mono font-semibold">
+                                        {cp.serialPrefix}
+                                      </span>
+                                    </p>
+                                  );
+                                })()}
+                            </div>
+                          );
+                        })()}
 
                         {/* ── MANUAL AWB ENTRY (partner brands only) ── */}
                         {!isOwnBrand && (
