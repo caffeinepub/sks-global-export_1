@@ -9,6 +9,7 @@ import {
 import { Check, Printer, X } from "lucide-react";
 import { useState } from "react";
 import type { BillItem } from "../types";
+import { BarcodeDisplay } from "./BarcodeDisplay";
 
 // ─── Brand Color Config ────────────────────────────────────────────────────────
 
@@ -584,19 +585,41 @@ function DTDCSlipCopy({
                 }}
               >
                 <tbody>
-                  {/* Blank area for barcode sticker */}
+                  {/* AWB Barcode area */}
                   <tr>
                     <td
                       colSpan={2}
                       style={{
                         ...innerCell,
                         borderBottom: "1px solid #000",
-                        height: "58px",
-                        verticalAlign: "top",
-                        padding: "4px 6px",
+                        height: "60px",
+                        verticalAlign: "middle",
+                        padding: "3px 4px",
+                        textAlign: "center",
                       }}
                     >
-                      {/* intentionally blank */}
+                      {item.awbSerial ? (
+                        <BarcodeDisplay
+                          value={item.awbSerial}
+                          height={38}
+                          width={1.4}
+                          fontSize={8}
+                          displayValue={true}
+                        />
+                      ) : (
+                        <div
+                          style={{
+                            height: "38px",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            color: "#aaa",
+                            fontSize: "9px",
+                          }}
+                        >
+                          No AWB
+                        </div>
+                      )}
                     </td>
                   </tr>
                   {/* Risk Surcharge label row */}

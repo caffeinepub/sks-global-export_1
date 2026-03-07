@@ -113,6 +113,8 @@ export function SettingsPage() {
   const [compBankAccount, setCompBankAccount] = useState("");
   const [compBankIfsc, setCompBankIfsc] = useState("");
   const [compBankBranch, setCompBankBranch] = useState("");
+  const [compUpiId, setCompUpiId] = useState("");
+  const [compUpiName, setCompUpiName] = useState("");
 
   // User form
   const [showUserForm, setShowUserForm] = useState(false);
@@ -192,6 +194,8 @@ export function SettingsPage() {
     setCompBankAccount(company.bankAccount || "");
     setCompBankIfsc(company.bankIfsc || "");
     setCompBankBranch(company.bankBranch || "");
+    setCompUpiId(company.upiId || "");
+    setCompUpiName(company.upiName || "");
     setShowCompanyForm(true);
   };
 
@@ -209,6 +213,8 @@ export function SettingsPage() {
     setCompBankAccount("");
     setCompBankIfsc("");
     setCompBankBranch("");
+    setCompUpiId("");
+    setCompUpiName("");
     setShowCompanyForm(true);
   };
 
@@ -245,6 +251,8 @@ export function SettingsPage() {
       bankAccount: compBankAccount || undefined,
       bankIfsc: compBankIfsc || undefined,
       bankBranch: compBankBranch || undefined,
+      upiId: compUpiId || undefined,
+      upiName: compUpiName || undefined,
       invoicePrefix: editingCompany?.invoicePrefix || "GST/",
       invoiceSeq: editingCompany?.invoiceSeq || 1,
       nonGstInvoicePrefix: editingCompany?.nonGstInvoicePrefix || "INV/",
@@ -1193,6 +1201,32 @@ export function SettingsPage() {
                 onChange={(e) => setCompBankIfsc(e.target.value)}
                 className="mt-1 text-sm font-mono"
                 placeholder="e.g. SBIN0001234"
+              />
+            </div>
+            {/* UPI Details */}
+            <div className="col-span-2 mt-2">
+              <p className="text-xs font-semibold text-muted-foreground mb-2 border-t border-border pt-2">
+                UPI Payment (for Payment QR on bills/invoices)
+              </p>
+            </div>
+            <div>
+              <Label className="text-xs">UPI ID</Label>
+              <Input
+                value={compUpiId}
+                onChange={(e) => setCompUpiId(e.target.value)}
+                className="mt-1 text-sm font-mono"
+                placeholder="e.g. yourname@upi or 9876543210@paytm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">
+                UPI Name (shown on payment screen)
+              </Label>
+              <Input
+                value={compUpiName}
+                onChange={(e) => setCompUpiName(e.target.value)}
+                className="mt-1 text-sm"
+                placeholder="Business name shown on payment screen"
               />
             </div>
           </div>

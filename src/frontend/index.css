@@ -148,11 +148,42 @@
       display: block !important;
     }
     body {
-      background: white;
+      background: white !important;
+      margin: 0 !important;
+      padding: 0 !important;
     }
+    /* Force A4 page size */
+    @page {
+      size: A4 portrait;
+      margin: 10mm 12mm 10mm 12mm;
+    }
+    /* Print invoice takes full page */
     .print-invoice {
-      padding: 20px;
+      width: 100%;
+      max-width: 100%;
+      padding: 0 !important;
+      page-break-inside: auto;
     }
+    /* Page numbers for multi-page invoices */
+    .print-invoice table {
+      page-break-inside: auto;
+    }
+    .print-invoice tr {
+      page-break-inside: avoid;
+      page-break-after: auto;
+    }
+    /* Hide dialog chrome */
+    [role="dialog"] > div:first-child {
+      box-shadow: none !important;
+      border: none !important;
+      max-height: none !important;
+      overflow: visible !important;
+    }
+  }
+
+  /* Page break helper for multi-page invoices */
+  .invoice-page-break {
+    page-break-after: always;
   }
 
   .print-only {

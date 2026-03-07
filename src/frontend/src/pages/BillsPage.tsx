@@ -52,6 +52,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
+import { PaymentQRCode } from "../components/PaymentQRCode";
 import { useAppStore } from "../hooks/useAppStore";
 import type { Bill, BillItem, Invoice, PaymentLog } from "../types";
 import {
@@ -873,6 +874,19 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   </div>
                 )}
               </div>
+
+              {/* Payment QR Code */}
+              {activeCompany?.upiId && viewBill.balanceDue > 0 && (
+                <div className="flex justify-center pt-2 pb-1">
+                  <PaymentQRCode
+                    upiId={activeCompany.upiId}
+                    upiName={activeCompany.upiName || activeCompany.name}
+                    amount={viewBill.balanceDue}
+                    note={`Bill ${viewBill.billNo}`}
+                    size={120}
+                  />
+                </div>
+              )}
 
               {/* Payment Logs */}
               {viewBill.paymentLogs && viewBill.paymentLogs.length > 0 && (

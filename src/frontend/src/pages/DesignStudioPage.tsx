@@ -46,19 +46,24 @@ import {
   Download,
   FileText,
   Layers,
+  Package,
   Palette,
   Pencil,
   Plus,
   Printer,
+  QrCode,
   RotateCcw,
   Trash2,
   TrendingUp,
   Upload,
   Wand2,
+  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
+import { BarcodeDisplay } from "../components/BarcodeDisplay";
 import { DesignEditorCanvas } from "../components/DesignEditorCanvas";
+import { QRCodeDisplay } from "../components/QRCodeDisplay";
 import { useAppStore } from "../hooks/useAppStore";
 import type {
   DesignOrder,
@@ -66,6 +71,7 @@ import type {
   DesignStatus,
   DesignType,
 } from "../types";
+import { loadJsBarcode, loadQRCode } from "../utils/barcodeLoader";
 import { formatCurrency, formatDate, generateId } from "../utils/helpers";
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -2086,6 +2092,1022 @@ function AllOrdersTab({ onAddToBill }: AllOrdersTabProps) {
   );
 }
 
+// ─── Barcode & QR Generator ───────────────────────────────────────────────────
+
+type BarcodeType = "CODE128" | "CODE39" | "EAN13" | "EAN8" | "UPC" | "QR";
+
+const BARCODE_TYPE_LABELS: Record<BarcodeType, string> = {
+  CODE128: "Code 128",
+  CODE39: "Code 39",
+  EAN13: "EAN-13",
+  EAN8: "EAN-8",
+  UPC: "UPC-A",
+  QR: "QR Code",
+};
+
+function BarcodeGeneratorTab() {
+  const [barcodeType, setBarcodeType] = useState<BarcodeType>("CODE128");
+  const [dataInput, setDataInput] = useState("SKS001D060326");
+  const [barWidth, setBarWidth] = useState(2);
+  const [barHeight, setBarHeight] = useState(60);
+  const [lineColor, setLineColor] = useState("#000000");
+  const [bgColor, setBgColor] = useState("#ffffff");
+  const [displayValue, setDisplayValue] = useState(true);
+  const [qrErrorLevel, setQrErrorLevel] = useState<"L" | "M" | "Q" | "H">("M");
+  const [qrSize, setQrSize] = useState(200);
+  const [fontSize, setFontSize] = useState(12);
+  const isQR = barcodeType === "QR";
+
+  const downloadPng = async () => {
+    if (!dataInput.trim()) {
+      toast.error("Enter data first");
+      return;
+    }
+    try {
+      if (isQR) {
+        const QRCode = await loadQRCode();
+        const dataUrl = await QRCode.toDataURL(dataInput, {
+          width: qrSize,
+          margin: 1,
+          errorCorrectionLevel: qrErrorLevel,
+          color: { dark: lineColor, light: bgColor },
+        });
+        const link = document.createElement("a");
+        link.download = `qr-${dataInput.slice(0, 20)}.png`;
+        link.href = dataUrl;
+        link.click();
+      } else {
+        const JsBarcode = await loadJsBarcode();
+        const svgEl = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        JsBarcode(svgEl, dataInput, {
+          format: barcodeType,
+          width: barWidth,
+          height: barHeight,
+          displayValue,
+          lineColor,
+          background: bgColor,
+          fontSize,
+          margin: 8,
+        });
+        const svgData = new XMLSerializer().serializeToString(svgEl);
+        const svgBlob = new Blob([svgData], { type: "image/svg+xml" });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = svgEl.viewBox?.baseVal?.width || 300;
+          canvas.height = svgEl.viewBox?.baseVal?.height || barHeight + 40;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.fillStyle = bgColor;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0);
+          canvas.toBlob((blob) => {
+            if (!blob) return;
+            const dlUrl = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.download = `barcode-${dataInput.slice(0, 20)}.png`;
+            link.href = dlUrl;
+            link.click();
+            URL.revokeObjectURL(dlUrl);
+          });
+          URL.revokeObjectURL(url);
+        };
+        img.src = url;
+      }
+      toast.success("Download started");
+    } catch {
+      toast.error("Failed to generate image");
+    }
+  };
+
+  const downloadSvg = async () => {
+    if (!dataInput.trim()) {
+      toast.error("Enter data first");
+      return;
+    }
+    try {
+      if (isQR) {
+        const QRCode = await loadQRCode();
+        const svgStr = await QRCode.toString(dataInput, {
+          type: "svg",
+          width: qrSize,
+          margin: 1,
+          errorCorrectionLevel: qrErrorLevel,
+          color: { dark: lineColor, light: bgColor },
+        });
+        const blob = new Blob([svgStr], { type: "image/svg+xml" });
+        const link = document.createElement("a");
+        link.download = `qr-${dataInput.slice(0, 20)}.svg`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+      } else {
+        const JsBarcode = await loadJsBarcode();
+        const svgEl = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        JsBarcode(svgEl, dataInput, {
+          format: barcodeType,
+          width: barWidth,
+          height: barHeight,
+          displayValue,
+          lineColor,
+          background: bgColor,
+          fontSize,
+          margin: 8,
+        });
+        const svgStr = new XMLSerializer().serializeToString(svgEl);
+        const blob = new Blob([svgStr], { type: "image/svg+xml" });
+        const link = document.createElement("a");
+        link.download = `barcode-${dataInput.slice(0, 20)}.svg`;
+        link.href = URL.createObjectURL(blob);
+        link.click();
+      }
+      toast.success("SVG download started");
+    } catch {
+      toast.error("Failed to generate SVG");
+    }
+  };
+
+  const copyToClipboard = async () => {
+    if (!dataInput.trim()) {
+      toast.error("Enter data first");
+      return;
+    }
+    try {
+      if (isQR) {
+        const QRCode = await loadQRCode();
+        const dataUrl = await QRCode.toDataURL(dataInput, {
+          width: qrSize,
+          errorCorrectionLevel: qrErrorLevel,
+          color: { dark: lineColor, light: bgColor },
+        });
+        const res = await fetch(dataUrl);
+        const blob = await res.blob();
+        await navigator.clipboard.write([
+          new ClipboardItem({ "image/png": blob }),
+        ]);
+        toast.success("Copied to clipboard");
+      } else {
+        toast.info("Copy to clipboard works best for QR codes");
+      }
+    } catch {
+      toast.error("Copy failed (browser may not support this)");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Controls */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <QrCode className="w-4 h-4 text-primary" />
+              Barcode &amp; QR Generator
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Type selector */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Barcode / QR Type</Label>
+              <Select
+                value={barcodeType}
+                onValueChange={(v) => setBarcodeType(v as BarcodeType)}
+              >
+                <SelectTrigger
+                  className="text-xs"
+                  data-ocid="barcode_generator.type_select"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(BARCODE_TYPE_LABELS) as BarcodeType[]).map(
+                    (t) => (
+                      <SelectItem key={t} value={t}>
+                        {BARCODE_TYPE_LABELS[t]}
+                      </SelectItem>
+                    ),
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Data input */}
+            <div className="space-y-1.5">
+              <Label className="text-xs">Data / Text *</Label>
+              <Input
+                value={dataInput}
+                onChange={(e) => setDataInput(e.target.value)}
+                placeholder={
+                  isQR
+                    ? "Enter URL, text, or UPI ID..."
+                    : barcodeType === "EAN13"
+                      ? "12 or 13 digit number"
+                      : barcodeType === "EAN8"
+                        ? "7 or 8 digit number"
+                        : barcodeType === "UPC"
+                          ? "11 or 12 digit number"
+                          : "Enter barcode value..."
+                }
+                data-ocid="barcode_generator.data_input"
+              />
+            </div>
+
+            {/* Options */}
+            {isQR ? (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={qrSize}
+                    onChange={(e) => setQrSize(Number(e.target.value))}
+                    min={64}
+                    max={512}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Error Correction</Label>
+                  <Select
+                    value={qrErrorLevel}
+                    onValueChange={(v) =>
+                      setQrErrorLevel(v as "L" | "M" | "Q" | "H")
+                    }
+                  >
+                    <SelectTrigger className="text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="L">L – Low (7%)</SelectItem>
+                      <SelectItem value="M">M – Medium (15%)</SelectItem>
+                      <SelectItem value="Q">Q – Quarter (25%)</SelectItem>
+                      <SelectItem value="H">H – High (30%)</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Dark Color</Label>
+                  <input
+                    type="color"
+                    value={lineColor}
+                    onChange={(e) => setLineColor(e.target.value)}
+                    className="h-9 w-full rounded border border-input cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Light/Background</Label>
+                  <input
+                    type="color"
+                    value={bgColor}
+                    onChange={(e) => setBgColor(e.target.value)}
+                    className="h-9 w-full rounded border border-input cursor-pointer"
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Bar Width (1-4)</Label>
+                  <Input
+                    type="number"
+                    value={barWidth}
+                    onChange={(e) => setBarWidth(Number(e.target.value))}
+                    min={1}
+                    max={4}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Height (px)</Label>
+                  <Input
+                    type="number"
+                    value={barHeight}
+                    onChange={(e) => setBarHeight(Number(e.target.value))}
+                    min={20}
+                    max={200}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Line Color</Label>
+                  <input
+                    type="color"
+                    value={lineColor}
+                    onChange={(e) => setLineColor(e.target.value)}
+                    className="h-9 w-full rounded border border-input cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Background Color</Label>
+                  <input
+                    type="color"
+                    value={bgColor}
+                    onChange={(e) => setBgColor(e.target.value)}
+                    className="h-9 w-full rounded border border-input cursor-pointer"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Font Size (px)</Label>
+                  <Input
+                    type="number"
+                    value={fontSize}
+                    onChange={(e) => setFontSize(Number(e.target.value))}
+                    min={8}
+                    max={24}
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-6">
+                  <Switch
+                    checked={displayValue}
+                    onCheckedChange={setDisplayValue}
+                    id="displayValue"
+                  />
+                  <Label
+                    htmlFor="displayValue"
+                    className="text-xs cursor-pointer"
+                  >
+                    Show value below
+                  </Label>
+                </div>
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                size="sm"
+                onClick={downloadPng}
+                data-ocid="barcode_generator.download_png_button"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" />
+                Download PNG
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={downloadSvg}
+                data-ocid="barcode_generator.download_svg_button"
+              >
+                <Download className="w-3.5 h-3.5 mr-1" />
+                Download SVG
+              </Button>
+              {isQR && (
+                <Button size="sm" variant="outline" onClick={copyToClipboard}>
+                  Copy to Clipboard
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Live Preview */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Live Preview</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-col items-center justify-center min-h-[300px] gap-4">
+              {!dataInput.trim() ? (
+                <div className="text-center text-muted-foreground text-sm">
+                  <QrCode className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                  <p>Enter data to preview</p>
+                </div>
+              ) : isQR ? (
+                <div className="flex flex-col items-center gap-3">
+                  <div className="bg-white p-3 rounded-lg border border-border shadow-sm">
+                    <QRCodeDisplay
+                      value={dataInput}
+                      size={qrSize > 256 ? 256 : qrSize}
+                      errorCorrectionLevel={qrErrorLevel}
+                      darkColor={lineColor}
+                      lightColor={bgColor}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center max-w-[240px] break-all">
+                    {dataInput}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-3 w-full px-4">
+                  <div className="bg-white p-3 rounded-lg border border-border shadow-sm w-full overflow-x-auto">
+                    <BarcodeDisplay
+                      value={dataInput}
+                      format={barcodeType}
+                      width={barWidth}
+                      height={barHeight}
+                      displayValue={displayValue}
+                      lineColor={lineColor}
+                      background={bgColor}
+                      fontSize={fontSize}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {BARCODE_TYPE_LABELS[barcodeType]}
+                  </p>
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ─── Sticker Print ────────────────────────────────────────────────────────────
+
+type StickerBarcodeType = "CODE128" | "QR";
+
+interface StickerPreset {
+  label: string;
+  w: number;
+  h: number;
+}
+
+const STICKER_PRESETS: StickerPreset[] = [
+  { label: "50×25mm (small)", w: 50, h: 25 },
+  { label: "38×25mm (tiny)", w: 38, h: 25 },
+  { label: "100×50mm (medium)", w: 100, h: 50 },
+  { label: "57×32mm (standard)", w: 57, h: 32 },
+  { label: "Custom", w: 0, h: 0 },
+];
+
+const SHEET_SIZES_MM: Record<string, { w: number; h: number }> = {
+  A4: { w: 210, h: 297 },
+  A5: { w: 148, h: 210 },
+  Custom: { w: 0, h: 0 },
+};
+
+function StickerPrintTab() {
+  const { bills } = useAppStore();
+
+  const [stickerType, setStickerType] = useState<StickerBarcodeType>("CODE128");
+  const [stickerData, setStickerData] = useState("SKS001D060326");
+  const [labelText, setLabelText] = useState("");
+  const [quantity, setQuantity] = useState(1);
+  const [presetIdx, setPresetIdx] = useState(0);
+  const [customW, setCustomW] = useState(60);
+  const [customH, setCustomH] = useState(30);
+  const [sheetSize, setSheetSize] = useState("A4");
+  const [customSheetW, setCustomSheetW] = useState(210);
+  const [customSheetH, setCustomSheetH] = useState(297);
+  const [marginMm, setMarginMm] = useState(5);
+  const [gapMm, setGapMm] = useState(2);
+  const [showAwbDialog, setShowAwbDialog] = useState(false);
+
+  const selectedPreset = STICKER_PRESETS[presetIdx];
+  const isCustomPreset = selectedPreset.label === "Custom";
+  const labelW = isCustomPreset ? customW : selectedPreset.w;
+  const labelH = isCustomPreset ? customH : selectedPreset.h;
+
+  const isCustomSheet = sheetSize === "Custom";
+  const sheet = isCustomSheet
+    ? { w: customSheetW, h: customSheetH }
+    : SHEET_SIZES_MM[sheetSize];
+
+  const usableW = sheet.w - 2 * marginMm;
+  const usableH = sheet.h - 2 * marginMm;
+  const labelsPerRow =
+    labelW > 0 ? Math.floor((usableW + gapMm) / (labelW + gapMm)) : 0;
+  const labelsPerCol =
+    labelH > 0 ? Math.floor((usableH + gapMm) / (labelH + gapMm)) : 0;
+  const labelsPerSheet = Math.max(0, labelsPerRow * labelsPerCol);
+  const sheetsNeeded =
+    labelsPerSheet > 0 ? Math.ceil(quantity / labelsPerSheet) : 0;
+
+  // AWB Quick Fill
+  const courierBills = useMemo(() => {
+    const items: { awb: string; customer: string; date: string }[] = [];
+    for (const bill of [...bills]
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 30)) {
+      for (const item of bill.items) {
+        if (item.productType === "courier_awb" && item.awbSerial) {
+          items.push({
+            awb: item.awbSerial,
+            customer: item.receiverName || bill.customerName || "—",
+            date: bill.date,
+          });
+        }
+      }
+    }
+    return items.slice(0, 20);
+  }, [bills]);
+
+  const handleAwbSelect = (awb: string, customer: string) => {
+    setStickerData(awb);
+    setLabelText(customer);
+    setShowAwbDialog(false);
+  };
+
+  const handlePrint = async () => {
+    if (!stickerData.trim()) {
+      toast.error("Enter barcode data first");
+      return;
+    }
+    if (quantity < 1 || quantity > 200) {
+      toast.error("Quantity must be between 1 and 200");
+      return;
+    }
+
+    try {
+      let barcodeImgSrc = "";
+      if (stickerType === "QR") {
+        const QRCode = await loadQRCode();
+        barcodeImgSrc = await QRCode.toDataURL(stickerData, {
+          width: Math.min(labelH * 3.78 * 0.8, 150),
+          margin: 1,
+          errorCorrectionLevel: "M",
+        });
+      } else {
+        const JsBarcode = await loadJsBarcode();
+        const svgEl = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        JsBarcode(svgEl, stickerData, {
+          format: "CODE128",
+          width: 1.5,
+          height: Math.max(15, labelH * 3.78 * 0.5),
+          displayValue: true,
+          fontSize: 7,
+          margin: 2,
+          background: "#ffffff",
+          lineColor: "#000000",
+        });
+        const svgStr = new XMLSerializer().serializeToString(svgEl);
+        barcodeImgSrc = `data:image/svg+xml;base64,${btoa(svgStr)}`;
+      }
+
+      // Build label HTML
+      const labelStyle = `
+        width: ${labelW}mm;
+        height: ${labelH}mm;
+        border: 0.3mm solid #ccc;
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        padding: 1mm;
+        background: white;
+        flex-shrink: 0;
+      `;
+      const imgStyle = `max-width: 100%; max-height: ${stickerType === "QR" ? "80%" : "65%"}; object-fit: contain;`;
+      const textStyle = `font-size: ${Math.max(5, labelH * 0.8)}px; font-family: Arial, sans-serif; text-align: center; margin-top: 1mm; line-height: 1.1; overflow: hidden; max-width: 100%;`;
+
+      const labelHtml = `
+        <div style="${labelStyle}">
+          <img src="${barcodeImgSrc}" style="${imgStyle}" />
+          ${labelText ? `<div style="${textStyle}">${labelText}</div>` : ""}
+        </div>
+      `;
+
+      // Build grid of labels
+      const allLabels = Array.from({ length: quantity }, () => labelHtml).join(
+        "",
+      );
+
+      const gridStyle = `
+        display: grid;
+        grid-template-columns: repeat(${labelsPerRow}, ${labelW}mm);
+        gap: ${gapMm}mm;
+        margin: ${marginMm}mm;
+      `;
+
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8"/>
+  <title>Sticker Print – ${quantity} labels</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: white; }
+    @page { size: ${sheet.w}mm ${sheet.h}mm; margin: 0; }
+    @media print { body { margin: 0; } }
+  </style>
+</head>
+<body>
+  <div style="${gridStyle}">
+    ${allLabels}
+  </div>
+  <script>
+    window.onload = function() {
+      setTimeout(function() { window.print(); }, 400);
+    };
+  </script>
+</body>
+</html>`;
+
+      const win = window.open("", "_blank", "width=900,height=700");
+      if (!win) {
+        toast.error("Popup blocked. Allow popups for this site.");
+        return;
+      }
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+      toast.success(
+        `Printing ${quantity} stickers on ${sheetsNeeded} sheet(s)`,
+      );
+    } catch {
+      toast.error("Print failed. Check barcode data format.");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Controls */}
+        <div className="lg:col-span-2 space-y-4">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Package className="w-4 h-4 text-primary" />
+                Sticker Print Configuration
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Type toggle */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Barcode Type</Label>
+                <div className="flex gap-2">
+                  {(["CODE128", "QR"] as StickerBarcodeType[]).map((t) => (
+                    <Button
+                      key={t}
+                      size="sm"
+                      variant={stickerType === t ? "default" : "outline"}
+                      onClick={() => setStickerType(t)}
+                      data-ocid="sticker_print.type_toggle"
+                    >
+                      {t === "QR" ? (
+                        <QrCode className="w-3.5 h-3.5 mr-1.5" />
+                      ) : null}
+                      {t === "CODE128" ? "Code 128 Barcode" : "QR Code"}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Data + AWB quick fill */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Barcode Data *</Label>
+                <div className="flex gap-2">
+                  <Input
+                    value={stickerData}
+                    onChange={(e) => setStickerData(e.target.value)}
+                    placeholder="AWB number, URL, text..."
+                    className="font-mono"
+                    data-ocid="sticker_print.data_input"
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAwbDialog(true)}
+                    title="Quick fill from recent AWB"
+                    data-ocid="sticker_print.awb_quickfill_button"
+                  >
+                    <FileText className="w-3.5 h-3.5 mr-1" />
+                    AWB
+                  </Button>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-xs">
+                  Label Text (shown below barcode)
+                </Label>
+                <Input
+                  value={labelText}
+                  onChange={(e) => setLabelText(e.target.value)}
+                  placeholder="e.g. Receiver name, description..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Quantity</Label>
+                  <Input
+                    type="number"
+                    value={quantity}
+                    onChange={(e) =>
+                      setQuantity(
+                        Math.max(1, Math.min(200, Number(e.target.value))),
+                      )
+                    }
+                    min={1}
+                    max={200}
+                    data-ocid="sticker_print.quantity_input"
+                  />
+                </div>
+                <div className="col-span-2 space-y-1.5">
+                  <Label className="text-xs">Label Size Preset</Label>
+                  <Select
+                    value={String(presetIdx)}
+                    onValueChange={(v) => setPresetIdx(Number(v))}
+                  >
+                    <SelectTrigger
+                      className="text-xs"
+                      data-ocid="sticker_print.size_select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STICKER_PRESETS.map((p, i) => (
+                        <SelectItem key={p.label} value={String(i)}>
+                          {p.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Sheet Size</Label>
+                  <Select value={sheetSize} onValueChange={setSheetSize}>
+                    <SelectTrigger className="text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {Object.keys(SHEET_SIZES_MM).map((s) => (
+                        <SelectItem key={s} value={s}>
+                          {s}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {isCustomPreset && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Label Width (mm)</Label>
+                    <Input
+                      type="number"
+                      value={customW}
+                      onChange={(e) => setCustomW(Number(e.target.value))}
+                      min={10}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Label Height (mm)</Label>
+                    <Input
+                      type="number"
+                      value={customH}
+                      onChange={(e) => setCustomH(Number(e.target.value))}
+                      min={10}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {isCustomSheet && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Sheet Width (mm)</Label>
+                    <Input
+                      type="number"
+                      value={customSheetW}
+                      onChange={(e) => setCustomSheetW(Number(e.target.value))}
+                      min={50}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs">Sheet Height (mm)</Label>
+                    <Input
+                      type="number"
+                      value={customSheetH}
+                      onChange={(e) => setCustomSheetH(Number(e.target.value))}
+                      min={50}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Sheet Margin (mm)</Label>
+                  <Input
+                    type="number"
+                    value={marginMm}
+                    onChange={(e) => setMarginMm(Number(e.target.value))}
+                    min={0}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Gap Between Labels (mm)</Label>
+                  <Input
+                    type="number"
+                    value={gapMm}
+                    onChange={(e) => setGapMm(Number(e.target.value))}
+                    min={0}
+                  />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Preview column */}
+        <div className="space-y-4">
+          {/* Layout summary */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Layout Summary</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div
+                className="space-y-1.5 text-xs"
+                data-ocid="sticker_print.preview_section"
+              >
+                {[
+                  ["Label size", `${labelW}×${labelH}mm`],
+                  ["Sheet", `${sheetSize} (${sheet.w}×${sheet.h}mm)`],
+                  ["Labels per row", labelsPerRow],
+                  ["Labels per column", labelsPerCol],
+                  ["Labels per sheet", labelsPerSheet],
+                  ["Quantity", quantity],
+                  ["Sheets needed", sheetsNeeded],
+                ].map(([k, v]) => (
+                  <div key={String(k)} className="flex justify-between">
+                    <span className="text-muted-foreground">{k}</span>
+                    <span className="font-bold">{v}</span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Sheet preview */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Sheet Preview</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {labelsPerSheet === 0 ? (
+                <div className="text-center text-muted-foreground text-xs py-8">
+                  <Package className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                  <p>Adjust label size to see layout</p>
+                </div>
+              ) : (
+                <div
+                  className="bg-white border-2 border-dashed border-gray-300 shadow-sm mx-auto"
+                  style={{
+                    width: "100%",
+                    maxWidth: "200px",
+                    aspectRatio: `${sheet.w} / ${sheet.h}`,
+                    padding: `${Math.min(marginMm * 0.5, 6)}px`,
+                    overflow: "hidden",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: `repeat(${labelsPerRow}, 1fr)`,
+                      gap: `${Math.min(gapMm * 0.3, 2)}px`,
+                      height: "100%",
+                    }}
+                  >
+                    {Array.from(
+                      { length: Math.min(labelsPerSheet, 50) },
+                      (_, i) =>
+                        `preview-cell-${labelsPerRow}-${labelsPerCol}-${i}`,
+                    ).map((cellKey, i) => (
+                      <div
+                        key={cellKey}
+                        className={`border ${i < quantity ? "border-primary bg-primary/10" : "border-gray-200 bg-gray-50"}`}
+                        style={{ minHeight: "8px" }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-center text-muted-foreground mt-2">
+                {quantity} label{quantity !== 1 ? "s" : ""} on {sheetsNeeded}{" "}
+                sheet{sheetsNeeded !== 1 ? "s" : ""}
+              </p>
+            </CardContent>
+          </Card>
+
+          {/* Sample sticker preview */}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm">Sample Sticker</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex justify-center">
+                <div
+                  className="bg-white border border-gray-300 rounded flex flex-col items-center justify-center overflow-hidden p-2 gap-1"
+                  style={{
+                    width: `${Math.min(labelW * 2, 180)}px`,
+                    height: `${Math.min(labelH * 2, 100)}px`,
+                  }}
+                >
+                  {stickerData ? (
+                    stickerType === "QR" ? (
+                      <QRCodeDisplay
+                        value={stickerData}
+                        size={Math.min(labelH * 2 * 0.7, 70)}
+                      />
+                    ) : (
+                      <BarcodeDisplay
+                        value={stickerData}
+                        height={Math.min(labelH * 2 * 0.55, 45)}
+                        width={1.2}
+                        fontSize={7}
+                        displayValue={true}
+                      />
+                    )
+                  ) : (
+                    <div className="text-muted-foreground text-xs">No data</div>
+                  )}
+                  {labelText && (
+                    <p
+                      className="text-xs text-center truncate w-full"
+                      style={{ fontSize: "9px" }}
+                    >
+                      {labelText}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Button
+            className="w-full"
+            onClick={handlePrint}
+            disabled={!stickerData.trim() || labelsPerSheet === 0}
+            data-ocid="sticker_print.print_button"
+          >
+            <Printer className="w-4 h-4 mr-2" />
+            Print {quantity} Sticker{quantity !== 1 ? "s" : ""}
+          </Button>
+        </div>
+      </div>
+
+      {/* AWB Quick Fill Dialog */}
+      <Dialog open={showAwbDialog} onOpenChange={setShowAwbDialog}>
+        <DialogContent className="max-w-lg" data-ocid="sticker_print.dialog">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              Quick Fill from Recent AWB
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1 max-h-80 overflow-y-auto">
+            {courierBills.length === 0 ? (
+              <p
+                className="text-sm text-muted-foreground text-center py-6"
+                data-ocid="sticker_print.empty_state"
+              >
+                No courier bills found
+              </p>
+            ) : (
+              courierBills.map((b, idx) => (
+                <button
+                  key={`awb-${b.awb}-${idx}`}
+                  type="button"
+                  className="w-full flex items-center justify-between p-2.5 hover:bg-muted/50 rounded-lg text-left transition-colors border border-transparent hover:border-border"
+                  onClick={() => handleAwbSelect(b.awb, b.customer)}
+                  data-ocid={`sticker_print.item.${idx + 1}`}
+                >
+                  <div>
+                    <p className="text-xs font-bold font-mono text-primary">
+                      {b.awb}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {b.customer}
+                    </p>
+                  </div>
+                  <span className="text-xs text-muted-foreground">
+                    {b.date}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowAwbDialog(false)}
+              data-ocid="sticker_print.close_button"
+            >
+              <X className="w-3.5 h-3.5 mr-1" />
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function DesignStudioPage({
@@ -2165,6 +3187,22 @@ export function DesignStudioPage({
             <Wand2 className="w-4 h-4" />
             Design Editor
           </TabsTrigger>
+          <TabsTrigger
+            value="barcode"
+            className="gap-2"
+            data-ocid="design.barcode.tab"
+          >
+            <QrCode className="w-4 h-4" />
+            Barcode &amp; QR
+          </TabsTrigger>
+          <TabsTrigger
+            value="sticker"
+            className="gap-2"
+            data-ocid="design.sticker.tab"
+          >
+            <Package className="w-4 h-4" />
+            Sticker Print
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="new-order" className="mt-4">
@@ -2185,6 +3223,14 @@ export function DesignStudioPage({
 
         <TabsContent value="editor" className="mt-0 -mx-6">
           <DesignEditorCanvas />
+        </TabsContent>
+
+        <TabsContent value="barcode" className="mt-4">
+          <BarcodeGeneratorTab />
+        </TabsContent>
+
+        <TabsContent value="sticker" className="mt-4">
+          <StickerPrintTab />
         </TabsContent>
       </Tabs>
     </div>

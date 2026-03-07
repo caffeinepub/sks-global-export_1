@@ -50,8 +50,11 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { PaymentQRCode } from "../components/PaymentQRCode";
+import { buildUpiUrl } from "../components/PaymentQRCode";
+import { generateQRDataUrl } from "../components/QRCodeDisplay";
 import { useAppStore } from "../hooks/useAppStore";
 import type {
   Bill,
@@ -163,172 +166,704 @@ function buildHsnSummary(items: BillItem[]): HsnRow[] {
 }
 
 // ──────────────────────────────────────────────
-// Template: Default (existing design)
+// Template: Default (Classic Professional GST Invoice)
 // ──────────────────────────────────────────────
 
 function TemplateDefault({ invoice, company, settings }: TemplateProps) {
+  const hsnRows = useMemo(
+    () => buildHsnSummary(invoice.items),
+    [invoice.items],
+  );
+
+  const subtotal = invoice.items.reduce((s, i) => {
+    return s + (i.totalPrice * 100) / (100 + i.gstRate);
+  }, 0);
+  const totalTax = invoice.total - subtotal;
+  const rounded = Math.round(invoice.total) - invoice.total;
+  const finalTotal = invoice.total + rounded;
+
+  const S: Record<string, React.CSSProperties> = {
+    wrap: {
+      fontFamily: "Arial, Helvetica, sans-serif",
+      fontSize: "10px",
+      color: "#111",
+      background: "#fff",
+      width: "100%",
+    },
+    header: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      borderBottom: "3px solid #1e3a8a",
+      paddingBottom: "10px",
+      marginBottom: "10px",
+    },
+    companyName: {
+      fontWeight: "bold",
+      fontSize: "16px",
+      color: "#1e3a8a",
+      marginBottom: "2px",
+    },
+    companyDetail: { fontSize: "9px", color: "#555", lineHeight: "1.4" },
+    invoiceTitle: { textAlign: "right" as const },
+    invoiceTitleText: {
+      fontWeight: "bold",
+      fontSize: "20px",
+      color: "#1e3a8a",
+      letterSpacing: "2px",
+      textTransform: "uppercase" as const,
+    },
+    invoiceNo: {
+      fontSize: "13px",
+      fontWeight: "bold",
+      color: "#111",
+      marginTop: "2px",
+    },
+    invoiceDate: { fontSize: "10px", color: "#555", marginTop: "2px" },
+    metaBox: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "3px 20px",
+      background: "#eef2ff",
+      border: "1px solid #c7d7f0",
+      borderRadius: "4px",
+      padding: "6px 10px",
+      marginBottom: "8px",
+      fontSize: "10px",
+    },
+    billToBox: {
+      border: "1px solid #c7d7f0",
+      borderRadius: "4px",
+      marginBottom: "8px",
+      overflow: "hidden",
+    },
+    billToHeader: {
+      background: "#1e3a8a",
+      color: "#fff",
+      fontWeight: "bold",
+      fontSize: "10px",
+      padding: "4px 8px",
+    },
+    billToBody: { padding: "6px 8px", fontSize: "10px" },
+    customerName: { fontWeight: "bold", fontSize: "13px", marginBottom: "2px" },
+    table: {
+      width: "100%",
+      borderCollapse: "collapse" as const,
+      fontSize: "10px",
+      marginBottom: "8px",
+    },
+    th: {
+      background: "#1e3a8a",
+      color: "#fff",
+      padding: "5px 6px",
+      fontWeight: "bold",
+      textAlign: "left" as const,
+      borderRight: "1px solid #2d4fad",
+    },
+    thR: {
+      background: "#1e3a8a",
+      color: "#fff",
+      padding: "5px 6px",
+      fontWeight: "bold",
+      textAlign: "right" as const,
+      borderRight: "1px solid #2d4fad",
+    },
+    td: {
+      padding: "4px 6px",
+      borderBottom: "1px solid #e8edf8",
+      verticalAlign: "top" as const,
+    },
+    tdR: {
+      padding: "4px 6px",
+      borderBottom: "1px solid #e8edf8",
+      textAlign: "right" as const,
+      verticalAlign: "top" as const,
+    },
+    tdC: {
+      padding: "4px 6px",
+      borderBottom: "1px solid #e8edf8",
+      textAlign: "center" as const,
+      verticalAlign: "top" as const,
+    },
+    totalRow: { background: "#e8eeff", fontWeight: "bold" },
+    bottomGrid: {
+      display: "grid",
+      gridTemplateColumns: "1fr 220px",
+      gap: "12px",
+      alignItems: "start",
+      marginBottom: "8px",
+    },
+    hsnTable: {
+      width: "100%",
+      borderCollapse: "collapse" as const,
+      fontSize: "9px",
+      border: "1px solid #c7d7f0",
+    },
+    hsnTh: {
+      background: "#c7d7f0",
+      color: "#222",
+      padding: "3px 5px",
+      textAlign: "left" as const,
+      fontWeight: "bold",
+    },
+    hsnThR: {
+      background: "#c7d7f0",
+      color: "#222",
+      padding: "3px 5px",
+      textAlign: "right" as const,
+      fontWeight: "bold",
+    },
+    hsnTd: { padding: "3px 5px", borderBottom: "1px solid #e8edf8" },
+    hsnTdR: {
+      padding: "3px 5px",
+      borderBottom: "1px solid #e8edf8",
+      textAlign: "right" as const,
+    },
+    totalsBox: {
+      border: "1px solid #c7d7f0",
+      borderRadius: "4px",
+      overflow: "hidden",
+      fontSize: "10px",
+    },
+    totalsRow: {
+      display: "flex",
+      justifyContent: "space-between",
+      padding: "4px 8px",
+      borderBottom: "1px solid #e8edf8",
+    },
+    totalsFinal: {
+      display: "flex",
+      justifyContent: "space-between",
+      padding: "6px 8px",
+      background: "#1e3a8a",
+      color: "#fff",
+      fontWeight: "bold",
+      fontSize: "12px",
+    },
+    amountWords: {
+      background: "#eef2ff",
+      border: "1px solid #c7d7f0",
+      borderRadius: "4px",
+      padding: "5px 10px",
+      fontSize: "10px",
+      marginBottom: "8px",
+    },
+    footerGrid: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "10px",
+      marginBottom: "8px",
+      fontSize: "10px",
+    },
+    sectionLabel: { fontWeight: "bold", marginBottom: "3px", fontSize: "10px" },
+    detailBox: {
+      border: "1px solid #c7d7f0",
+      borderRadius: "4px",
+      padding: "5px 8px",
+      fontSize: "9px",
+      color: "#444",
+    },
+    sigGrid: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: "20px",
+      borderTop: "2px solid #1e3a8a",
+      paddingTop: "8px",
+      fontSize: "10px",
+      marginBottom: "4px",
+    },
+    sigLine: {
+      height: "40px",
+      borderBottom: "1px dashed #999",
+      marginBottom: "3px",
+    },
+    pageFooter: {
+      display: "flex",
+      justifyContent: "space-between",
+      borderTop: "1px solid #e8edf8",
+      paddingTop: "4px",
+      fontSize: "8px",
+      color: "#999",
+      marginTop: "4px",
+    },
+  };
+
+  const isGst = invoice.invoiceType === "gst";
+
   return (
-    <div className="space-y-4">
-      <div className="text-center border-b border-border pb-4">
-        <div className="flex flex-col items-center gap-1 mb-2">
-          {company?.logoUrl && (
+    <div style={S.wrap}>
+      {/* ── HEADER ── */}
+      <div style={S.header}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: "10px" }}>
+          {company?.logoUrl ? (
             <img
               src={company.logoUrl}
-              alt="Company Logo"
-              className="h-16 object-contain mb-2"
+              alt="Logo"
+              style={{
+                height: "60px",
+                objectFit: "contain",
+                marginRight: "6px",
+              }}
             />
+          ) : (
+            <div
+              style={{
+                width: "56px",
+                height: "56px",
+                background: "#1e3a8a",
+                color: "#fff",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: "bold",
+                fontSize: "18px",
+                borderRadius: "6px",
+                flexShrink: 0,
+              }}
+            >
+              {(company?.name || "C").slice(0, 2).toUpperCase()}
+            </div>
           )}
-          <h2 className="text-xl font-bold text-foreground">{company?.name}</h2>
-        </div>
-        <p className="text-sm text-muted-foreground">{company?.address}</p>
-        <p className="text-sm text-muted-foreground">
-          Phone: {company?.phone} | Email: {company?.email}
-        </p>
-        {invoice.invoiceType === "gst" && (
-          <p className="text-sm font-semibold mt-1">GSTIN: {company?.gstin}</p>
-        )}
-      </div>
-
-      <div className="text-center">
-        <h3 className="text-lg font-bold uppercase tracking-wide">
-          {invoice.invoiceType === "gst" ? "TAX INVOICE" : "INVOICE"}
-        </h3>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4 text-sm">
-        <div className="space-y-1">
-          <p className="text-muted-foreground">Invoice No:</p>
-          <p className="font-semibold">{invoice.invoiceNo}</p>
-          <p className="text-muted-foreground">Date:</p>
-          <p className="font-semibold">{formatDate(invoice.date)}</p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-muted-foreground">Bill To:</p>
-          <p className="font-semibold">{invoice.customerName}</p>
-          {invoice.customerAddress && (
-            <p className="text-muted-foreground text-xs">
-              {invoice.customerAddress}
-            </p>
-          )}
-          {invoice.customerGstin && (
-            <p className="text-xs">GSTIN: {invoice.customerGstin}</p>
-          )}
-        </div>
-      </div>
-
-      <Separator />
-
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-primary/5">
-            <TableHead className="text-xs">Item</TableHead>
-            <TableHead className="text-xs">Qty</TableHead>
-            <TableHead className="text-xs">Rate</TableHead>
-            {invoice.invoiceType === "gst" && (
-              <TableHead className="text-xs">GST</TableHead>
+          <div>
+            <div style={S.companyName}>{company?.name || "Company Name"}</div>
+            {company?.address && (
+              <div style={S.companyDetail}>{company.address}</div>
             )}
-            <TableHead className="text-xs text-right">Amount</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {invoice.items.map((item) => {
-            const halfRate = item.gstRate / 2;
-            return (
-              <TableRow key={item.id}>
-                <TableCell className="text-xs max-w-[220px]">
-                  {item.productType === "courier_awb" && item.brandName && (
-                    <p className="text-[10px] text-primary font-semibold uppercase tracking-wide">
-                      {item.brandName}
-                      {item.serviceMode ? ` · ${item.serviceMode}` : ""}
-                    </p>
-                  )}
-                  <p className="font-medium break-words whitespace-normal font-mono">
-                    {item.productName}
-                  </p>
-                  {item.description && (
-                    <p className="text-muted-foreground break-words whitespace-normal">
-                      {item.description}
-                    </p>
-                  )}
-                  {item.awbSerial && item.productName !== item.awbSerial && (
-                    <p className="text-muted-foreground break-words whitespace-normal">
-                      AWB: {item.awbSerial}
-                    </p>
-                  )}
-                </TableCell>
-                <TableCell className="text-xs">
-                  {item.quantity} {item.unit}
-                </TableCell>
-                <TableCell className="text-xs">
-                  {formatCurrency(item.unitPrice)}
-                </TableCell>
-                {invoice.invoiceType === "gst" && (
-                  <TableCell className="text-xs whitespace-nowrap">
-                    CGST {halfRate}% + SGST {halfRate}%
-                  </TableCell>
-                )}
-                <TableCell className="text-xs font-semibold text-right">
-                  {formatCurrency(item.totalPrice)}
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-
-      <Separator />
-
-      <div className="flex justify-end">
-        <div className="w-72 space-y-2 text-sm">
-          {invoice.invoiceType === "gst" &&
-            (() => {
-              const rateGroups: Record<number, number> = {};
-              for (const item of invoice.items) {
-                if (!rateGroups[item.gstRate]) rateGroups[item.gstRate] = 0;
-                const taxAmt =
-                  (item.totalPrice * item.gstRate) / (100 + item.gstRate);
-                rateGroups[item.gstRate] += taxAmt;
-              }
-              return Object.entries(rateGroups).map(([rate, totalTax]) => {
-                const halfTax = totalTax / 2;
-                const halfRate = Number(rate) / 2;
-                return (
-                  <div key={rate} className="space-y-1">
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>CGST @ {halfRate}%</span>
-                      <span>{formatCurrency(halfTax)}</span>
-                    </div>
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>SGST @ {halfRate}%</span>
-                      <span>{formatCurrency(halfTax)}</span>
-                    </div>
-                  </div>
-                );
-              });
-            })()}
-          <Separator />
-          <div className="flex justify-between font-bold text-base">
-            <span>Total</span>
-            <span>{formatCurrency(invoice.total)}</span>
+            {(company?.phone || company?.email) && (
+              <div style={S.companyDetail}>
+                {company.phone ? `Ph: ${company.phone}` : ""}
+                {company.phone && company.email ? " | " : ""}
+                {company.email || ""}
+              </div>
+            )}
+            {isGst && company?.gstin && (
+              <div style={{ ...S.companyDetail, fontWeight: "bold" }}>
+                GSTIN: {company.gstin}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={S.invoiceTitle}>
+          <div style={{ fontSize: "9px", color: "#888", marginBottom: "2px" }}>
+            (Original Copy)
+          </div>
+          <div style={S.invoiceTitleText}>
+            {isGst ? "TAX INVOICE" : "INVOICE"}
+          </div>
+          <div style={S.invoiceNo}>#{invoice.invoiceNo}</div>
+          <div style={S.invoiceDate}>Date: {formatDate(invoice.date)}</div>
+          <div
+            style={{
+              ...S.invoiceDate,
+              textTransform: "capitalize",
+              color: invoice.paymentStatus === "paid" ? "#16a34a" : "#b45309",
+            }}
+          >
+            {invoice.paymentStatus}
           </div>
         </div>
       </div>
 
-      {settings?.invoiceFooter && (
-        <div className="border-t border-border pt-3 text-xs text-muted-foreground whitespace-pre-line">
-          {settings.invoiceFooter}
+      {/* ── META + BILL TO ── */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: "8px",
+          marginBottom: "8px",
+        }}
+      >
+        <div style={S.billToBox}>
+          <div style={S.billToHeader}>Bill To</div>
+          <div style={S.billToBody}>
+            <div style={S.customerName}>{invoice.customerName}</div>
+            {invoice.customerAddress && (
+              <div style={{ color: "#444", fontSize: "9px" }}>
+                {invoice.customerAddress}
+              </div>
+            )}
+            {invoice.customerGstin && (
+              <div style={{ fontSize: "9px" }}>
+                <strong>GSTIN:</strong> {invoice.customerGstin}
+              </div>
+            )}
+          </div>
+        </div>
+        <div style={{ ...S.billToBox }}>
+          <div style={S.billToHeader}>Invoice Details</div>
+          <div style={{ padding: "6px 8px", fontSize: "10px" }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: "3px",
+              }}
+            >
+              <span style={{ color: "#555" }}>Invoice No:</span>
+              <strong>{invoice.invoiceNo}</strong>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                marginBottom: "3px",
+              }}
+            >
+              <span style={{ color: "#555" }}>Date:</span>
+              <strong>{formatDate(invoice.date)}</strong>
+            </div>
+            {company?.state && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  marginBottom: "3px",
+                }}
+              >
+                <span style={{ color: "#555" }}>Place of Supply:</span>
+                <strong>{company.state}</strong>
+              </div>
+            )}
+            <div style={{ display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: "#555" }}>Payment:</span>
+              <strong
+                style={{
+                  textTransform: "capitalize",
+                  color:
+                    invoice.paymentStatus === "paid" ? "#16a34a" : "#b45309",
+                }}
+              >
+                {invoice.paymentStatus}
+              </strong>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── ITEMS TABLE ── */}
+      <table style={S.table}>
+        <thead>
+          <tr>
+            <th style={{ ...S.th, width: "30px", textAlign: "center" }}>
+              S.No
+            </th>
+            <th style={S.th}>Particulars / Description</th>
+            <th style={{ ...S.th, width: "58px" }}>HSN/SAC</th>
+            <th style={{ ...S.th, width: "50px" }}>Qty</th>
+            <th style={{ ...S.thR, width: "72px" }}>Unit Price</th>
+            {isGst && <th style={{ ...S.thR, width: "44px" }}>GST%</th>}
+            <th style={{ ...S.thR, width: "78px" }}>Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          {invoice.items.map((item, idx) => {
+            const longText =
+              item.productName.length + (item.description?.length || 0) > 80;
+            const descFontSize = longText ? "8px" : "9px";
+            return (
+              <tr
+                key={item.id}
+                style={{ background: idx % 2 === 0 ? "#fff" : "#f7f9ff" }}
+              >
+                <td style={{ ...S.tdC, fontSize: "10px" }}>{idx + 1}</td>
+                <td style={{ ...S.td, maxWidth: "240px" }}>
+                  {item.productType === "courier_awb" && item.brandName && (
+                    <div
+                      style={{
+                        fontSize: "8.5px",
+                        color: "#1e3a8a",
+                        fontWeight: "bold",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      {item.brandName}
+                      {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                    </div>
+                  )}
+                  <div
+                    style={{
+                      fontWeight: "bold",
+                      fontFamily: "Courier New, monospace",
+                      fontSize: "10px",
+                      wordBreak: "break-word",
+                    }}
+                  >
+                    {item.productName}
+                  </div>
+                  {item.description && (
+                    <div
+                      style={{
+                        color: "#666",
+                        fontSize: descFontSize,
+                        marginTop: "1px",
+                        wordBreak: "break-word",
+                        lineHeight: "1.3",
+                      }}
+                    >
+                      {item.description}
+                    </div>
+                  )}
+                </td>
+                <td style={{ ...S.td, fontSize: "9px" }}>
+                  {item.productType === "service" ? "9983" : "9967"}
+                </td>
+                <td style={{ ...S.td, fontSize: "10px" }}>
+                  {item.quantity} {item.unit}
+                </td>
+                <td style={{ ...S.tdR, fontSize: "10px" }}>
+                  {formatCurrency(item.unitPrice)}
+                </td>
+                {isGst && (
+                  <td style={{ ...S.tdR, fontSize: "10px" }}>
+                    {item.gstRate > 0 ? `${item.gstRate}%` : "Nil"}
+                  </td>
+                )}
+                <td style={{ ...S.tdR, fontWeight: "bold", fontSize: "10px" }}>
+                  {formatCurrency(item.totalPrice)}
+                </td>
+              </tr>
+            );
+          })}
+          <tr style={S.totalRow}>
+            <td
+              colSpan={isGst ? 4 : 3}
+              style={{
+                ...S.td,
+                textAlign: "right",
+                fontWeight: "bold",
+                borderTop: "2px solid #c7d7f0",
+              }}
+            >
+              TOTAL
+            </td>
+            <td
+              style={{
+                ...S.td,
+                fontWeight: "bold",
+                borderTop: "2px solid #c7d7f0",
+              }}
+            >
+              {invoice.items.reduce((s, i) => s + i.quantity, 0)}
+            </td>
+            {isGst && (
+              <td style={{ ...S.td, borderTop: "2px solid #c7d7f0" }} />
+            )}
+            <td
+              style={{
+                ...S.tdR,
+                fontWeight: "bold",
+                borderTop: "2px solid #c7d7f0",
+              }}
+            >
+              {formatCurrency(invoice.total)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* ── BOTTOM: HSN summary + Totals ── */}
+      {isGst ? (
+        <div style={S.bottomGrid}>
+          <div>
+            <div style={S.sectionLabel}>HSN/SAC Summary</div>
+            <table style={S.hsnTable}>
+              <thead>
+                <tr>
+                  <th style={S.hsnTh}>HSN/SAC</th>
+                  <th style={S.hsnThR}>GST%</th>
+                  <th style={S.hsnThR}>Taxable Amt</th>
+                  <th style={S.hsnThR}>CGST</th>
+                  <th style={S.hsnThR}>SGST</th>
+                  <th style={S.hsnThR}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {hsnRows.map((row) => (
+                  <tr key={`${row.hsn}-${row.gstRate}`}>
+                    <td style={S.hsnTd}>{row.hsn}</td>
+                    <td style={S.hsnTdR}>{row.gstRate}%</td>
+                    <td style={S.hsnTdR}>{formatCurrency(row.taxableValue)}</td>
+                    <td style={S.hsnTdR}>{formatCurrency(row.cgst)}</td>
+                    <td style={S.hsnTdR}>{formatCurrency(row.sgst)}</td>
+                    <td style={S.hsnTdR}>
+                      {formatCurrency(row.taxableValue + row.cgst + row.sgst)}
+                    </td>
+                  </tr>
+                ))}
+                <tr style={{ fontWeight: "bold", background: "#e8eeff" }}>
+                  <td colSpan={2} style={S.hsnTd}>
+                    Total
+                  </td>
+                  <td style={S.hsnTdR}>{formatCurrency(subtotal)}</td>
+                  <td style={S.hsnTdR}>{formatCurrency(totalTax / 2)}</td>
+                  <td style={S.hsnTdR}>{formatCurrency(totalTax / 2)}</td>
+                  <td style={S.hsnTdR}>{formatCurrency(invoice.total)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div style={S.totalsBox}>
+            <div style={S.totalsRow}>
+              <span style={{ color: "#555" }}>Sub Total</span>
+              <strong>{formatCurrency(subtotal)}</strong>
+            </div>
+            {hsnRows.map((row) => (
+              <div key={`t-${row.hsn}-${row.gstRate}`}>
+                <div style={S.totalsRow}>
+                  <span style={{ color: "#555" }}>
+                    CGST @ {row.gstRate / 2}%
+                  </span>
+                  <strong>{formatCurrency(row.cgst)}</strong>
+                </div>
+                <div style={S.totalsRow}>
+                  <span style={{ color: "#555" }}>
+                    SGST @ {row.gstRate / 2}%
+                  </span>
+                  <strong>{formatCurrency(row.sgst)}</strong>
+                </div>
+              </div>
+            ))}
+            {Math.abs(rounded) >= 0.01 && (
+              <div style={S.totalsRow}>
+                <span style={{ color: "#555" }}>Round Off</span>
+                <strong>
+                  {rounded >= 0 ? "+" : ""}
+                  {rounded.toFixed(2)}
+                </strong>
+              </div>
+            )}
+            <div style={S.totalsFinal}>
+              <span>Total Amount</span>
+              <span>{formatCurrency(finalTotal)}</span>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginBottom: "8px",
+          }}
+        >
+          <div style={S.totalsBox}>
+            <div style={S.totalsFinal}>
+              <span>Total Amount</span>
+              <span>{formatCurrency(invoice.total)}</span>
+            </div>
+          </div>
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-8 mt-8 pt-8 border-t border-border">
-        <div className="text-center">
-          <div className="h-12 border-b border-dashed border-muted-foreground mb-1" />
-          <p className="text-xs text-muted-foreground">Customer Signature</p>
+      {/* ── AMOUNT IN WORDS ── */}
+      <div style={S.amountWords}>
+        <strong>Amount in Words:</strong>{" "}
+        <em>{amountToWords(finalTotal)} Only</em>
+      </div>
+
+      {/* ── BANK + TERMS + QR ── */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr 1fr",
+          gap: "10px",
+          marginBottom: "8px",
+          fontSize: "10px",
+        }}
+      >
+        <div>
+          <div style={S.sectionLabel}>Terms &amp; Declaration</div>
+          <div
+            style={{
+              ...S.detailBox,
+              minHeight: "52px",
+              whiteSpace: "pre-line",
+            }}
+          >
+            {settings?.invoiceFooter ||
+              "Thank you for your business.\nGoods once sold will not be taken back.\nAll disputes subject to local jurisdiction."}
+          </div>
         </div>
-        <div className="text-center">
-          <div className="h-12 border-b border-dashed border-muted-foreground mb-1" />
-          <p className="text-xs text-muted-foreground">For {company?.name}</p>
+        <div>
+          <div style={S.sectionLabel}>Bank Details</div>
+          <div style={{ ...S.detailBox, minHeight: "52px" }}>
+            {company?.bankName ? (
+              <>
+                <div>
+                  <strong>Bank:</strong> {company.bankName}
+                </div>
+                <div>
+                  <strong>A/C No:</strong> {company.bankAccount}
+                </div>
+                <div>
+                  <strong>Branch:</strong> {company.bankBranch || ""}
+                </div>
+                <div>
+                  <strong>IFSC:</strong> {company.bankIfsc}
+                </div>
+              </>
+            ) : (
+              <span style={{ color: "#bbb" }}>
+                No bank details. Add in Settings.
+              </span>
+            )}
+          </div>
         </div>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          <div style={S.sectionLabel}>Scan to Pay</div>
+          {company?.upiId ? (
+            <PaymentQRCode
+              upiId={company.upiId}
+              upiName={company.upiName || company.name || ""}
+              amount={invoice.total}
+              note={`Invoice ${invoice.invoiceNo}`}
+              size={90}
+            />
+          ) : (
+            <div
+              style={{
+                border: "1px dashed #ccc",
+                borderRadius: "4px",
+                padding: "8px",
+                fontSize: "9px",
+                color: "#aaa",
+                textAlign: "center",
+              }}
+            >
+              Set UPI ID in Settings
+              <br />
+              to show Payment QR
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── SIGNATURES ── */}
+      <div style={S.sigGrid}>
+        <div style={{ textAlign: "center" }}>
+          <div style={S.sigLine} />
+          <div style={{ color: "#555" }}>Receiver&apos;s Signature</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={S.sigLine} />
+          <div style={{ color: "#555" }}>
+            For {company?.name || ""}
+            <br />
+            <em>Authorised Signatory</em>
+          </div>
+        </div>
+      </div>
+
+      {/* ── PAGE FOOTER ── */}
+      <div style={S.pageFooter}>
+        <span>{invoice.invoiceNo}</span>
+        <span>This is a computer generated invoice</span>
       </div>
     </div>
   );
@@ -550,65 +1085,97 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
           </tr>
         </thead>
         <tbody>
-          {invoice.items.map((item, idx) => (
-            <tr
-              key={item.id}
-              style={{
-                background: idx % 2 === 0 ? "#fff" : "#f7f9ff",
-                borderBottom: "1px solid #e5eaf5",
-              }}
-            >
-              <td style={{ padding: "4px 6px", textAlign: "center" }}>
-                {idx + 1}
-              </td>
-              <td style={{ padding: "4px 6px" }}>
-                {item.productType === "courier_awb" && item.brandName && (
-                  <div
-                    style={{
-                      fontSize: "9px",
-                      color: "#1e3a8a",
-                      fontWeight: "bold",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {item.brandName}
-                    {item.serviceMode ? ` · ${item.serviceMode}` : ""}
-                  </div>
-                )}
-                <div style={{ fontWeight: "bold", fontFamily: "monospace" }}>
-                  {item.productName}
-                </div>
-                {item.description && (
-                  <div style={{ color: "#666", fontSize: "9px" }}>
-                    {item.description}
-                  </div>
-                )}
-              </td>
-              <td style={{ padding: "4px 6px" }}>
-                {item.productType === "service" ? "998" : "9967"}
-              </td>
-              <td style={{ padding: "4px 6px" }}>
-                {item.quantity} {item.unit}
-              </td>
-              <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                {formatCurrency(item.unitPrice)}
-              </td>
-              <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                {item.gstRate > 0
-                  ? `CGST ${item.gstRate / 2}% + SGST ${item.gstRate / 2}%`
-                  : "0%"}
-              </td>
-              <td
+          {invoice.items.map((item, idx) => {
+            const longText =
+              item.productName.length + (item.description?.length || 0) > 100;
+            const cellFontSize = longText ? "8.5px" : "10px";
+            const retailClampStyle: React.CSSProperties = {
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+            };
+            return (
+              <tr
+                key={item.id}
                 style={{
-                  padding: "4px 6px",
-                  textAlign: "right",
-                  fontWeight: "bold",
+                  background: idx % 2 === 0 ? "#fff" : "#f7f9ff",
+                  borderBottom: "1px solid #e5eaf5",
                 }}
               >
-                {formatCurrency(item.totalPrice)}
-              </td>
-            </tr>
-          ))}
+                <td style={{ padding: "4px 6px", textAlign: "center" }}>
+                  {idx + 1}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    minWidth: "200px",
+                    maxWidth: "260px",
+                    fontSize: cellFontSize,
+                  }}
+                >
+                  <div style={retailClampStyle}>
+                    {item.productType === "courier_awb" && item.brandName && (
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          color: "#1e3a8a",
+                          fontWeight: "bold",
+                          textTransform: "uppercase",
+                          display: "block",
+                        }}
+                      >
+                        {item.brandName}
+                        {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontWeight: "bold",
+                        fontFamily: "monospace",
+                        display: "block",
+                      }}
+                    >
+                      {item.productName}
+                    </span>
+                    {item.description && (
+                      <span
+                        style={{
+                          color: "#666",
+                          fontSize: longText ? "7.5px" : "9px",
+                          display: "block",
+                        }}
+                      >
+                        {item.description}
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td style={{ padding: "4px 6px" }}>
+                  {item.productType === "service" ? "998" : "9967"}
+                </td>
+                <td style={{ padding: "4px 6px" }}>
+                  {item.quantity} {item.unit}
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                  {formatCurrency(item.unitPrice)}
+                </td>
+                <td style={{ padding: "4px 6px", textAlign: "right" }}>
+                  {item.gstRate > 0 ? `${item.gstRate}%` : "0%"}
+                </td>
+                <td
+                  style={{
+                    padding: "4px 6px",
+                    textAlign: "right",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {formatCurrency(item.totalPrice)}
+                </td>
+              </tr>
+            );
+          })}
           {/* Total row */}
           <tr style={{ background: "#e8eeff", fontWeight: "bold" }}>
             <td
@@ -878,6 +1445,24 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
               </span>
             )}
           </div>
+          {/* Payment QR Code */}
+          {company?.upiId && (
+            <div
+              style={{
+                marginTop: "8px",
+                display: "flex",
+                justifyContent: "center",
+              }}
+            >
+              <PaymentQRCode
+                upiId={company.upiId}
+                upiName={company.upiName || company.name}
+                amount={invoice.total}
+                note={`Invoice ${invoice.invoiceNo}`}
+                size={90}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1131,71 +1716,99 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
           </tr>
         </thead>
         <tbody>
-          {invoice.items.map((item, idx) => (
-            <tr
-              key={item.id}
-              style={{
-                background: idx % 2 === 0 ? "#fff" : "#f0f5ff",
-                borderBottom: "1px solid #dde8ff",
-              }}
-            >
-              <td style={{ padding: "5px 7px", textAlign: "center" }}>
-                {idx + 1}
-              </td>
-              <td style={{ padding: "5px 7px" }}>
-                {item.productType === "courier_awb" && item.brandName && (
-                  <div
-                    style={{
-                      fontSize: "9px",
-                      color: "#1d4ed8",
-                      fontWeight: "bold",
-                      textTransform: "uppercase",
-                    }}
-                  >
-                    {item.brandName}
-                    {item.serviceMode ? ` · ${item.serviceMode}` : ""}
-                  </div>
-                )}
-                <div
-                  style={{
-                    fontWeight: "bold",
-                    fontFamily: "monospace",
-                    letterSpacing: "0.3px",
-                  }}
-                >
-                  {item.productName}
-                </div>
-                {item.description && (
-                  <div
-                    style={{ fontSize: "9px", color: "#666", marginTop: "1px" }}
-                  >
-                    {item.description}
-                  </div>
-                )}
-              </td>
-              <td style={{ padding: "5px 7px" }}>
-                {item.productType === "service" ? "998" : "9967"}
-              </td>
-              <td style={{ padding: "5px 7px" }}>
-                {item.quantity} {item.unit}
-              </td>
-              <td style={{ padding: "5px 7px", textAlign: "right" }}>
-                {formatCurrency(item.unitPrice)}
-              </td>
-              <td style={{ padding: "5px 7px", textAlign: "right" }}>
-                {item.gstRate > 0 ? `${item.gstRate}%` : "0%"}
-              </td>
-              <td
+          {invoice.items.map((item, idx) => {
+            const longText =
+              item.productName.length + (item.description?.length || 0) > 100;
+            const cellFontSize = longText ? "8.5px" : "10px";
+            const courierClampStyle: React.CSSProperties = {
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              wordBreak: "break-word",
+            };
+            return (
+              <tr
+                key={item.id}
                 style={{
-                  padding: "5px 7px",
-                  textAlign: "right",
-                  fontWeight: "bold",
+                  background: idx % 2 === 0 ? "#fff" : "#f0f5ff",
+                  borderBottom: "1px solid #dde8ff",
                 }}
               >
-                {formatCurrency(item.totalPrice)}
-              </td>
-            </tr>
-          ))}
+                <td style={{ padding: "5px 7px", textAlign: "center" }}>
+                  {idx + 1}
+                </td>
+                <td
+                  style={{
+                    padding: "5px 7px",
+                    minWidth: "200px",
+                    maxWidth: "260px",
+                    fontSize: cellFontSize,
+                  }}
+                >
+                  <div style={courierClampStyle}>
+                    {item.productType === "courier_awb" && item.brandName && (
+                      <span
+                        style={{
+                          fontSize: "9px",
+                          color: "#1d4ed8",
+                          fontWeight: "bold",
+                          textTransform: "uppercase",
+                          display: "block",
+                        }}
+                      >
+                        {item.brandName}
+                        {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        fontWeight: "bold",
+                        fontFamily: "monospace",
+                        letterSpacing: "0.3px",
+                        display: "block",
+                      }}
+                    >
+                      {item.productName}
+                    </span>
+                    {item.description && (
+                      <span
+                        style={{
+                          fontSize: longText ? "7.5px" : "9px",
+                          color: "#666",
+                          marginTop: "1px",
+                          display: "block",
+                        }}
+                      >
+                        {item.description}
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td style={{ padding: "5px 7px" }}>
+                  {item.productType === "service" ? "998" : "9967"}
+                </td>
+                <td style={{ padding: "5px 7px" }}>
+                  {item.quantity} {item.unit}
+                </td>
+                <td style={{ padding: "5px 7px", textAlign: "right" }}>
+                  {formatCurrency(item.unitPrice)}
+                </td>
+                <td style={{ padding: "5px 7px", textAlign: "right" }}>
+                  {item.gstRate > 0 ? `${item.gstRate}%` : "0%"}
+                </td>
+                <td
+                  style={{
+                    padding: "5px 7px",
+                    textAlign: "right",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {formatCurrency(item.totalPrice)}
+                </td>
+              </tr>
+            );
+          })}
           {/* Total qty row */}
           <tr
             style={{
@@ -1432,7 +2045,7 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
         </div>
       </div>
 
-      {/* Footer: QR placeholder + Signature */}
+      {/* Footer: Payment QR + Signature */}
       <div
         style={{
           display: "grid",
@@ -1444,26 +2057,31 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
         }}
       >
         <div />
-        {/* QR placeholder */}
+        {/* Payment QR */}
         <div style={{ textAlign: "center" }}>
-          <div
-            style={{
-              width: "52px",
-              height: "52px",
-              background: "#e0eaff",
-              border: "1px solid #dde8ff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: "8px",
-              color: "#888",
-              margin: "0 auto 4px",
-              borderRadius: "4px",
-            }}
-          >
-            QR
-          </div>
-          <div style={{ fontSize: "8px", color: "#aaa" }}>Scan to verify</div>
+          {company?.upiId ? (
+            <PaymentQRCode
+              upiId={company.upiId}
+              upiName={company.upiName || company.name}
+              amount={invoice.total}
+              note={`Invoice ${invoice.invoiceNo}`}
+              size={80}
+            />
+          ) : (
+            <div
+              style={{
+                fontSize: "8px",
+                color: "#aaa",
+                border: "1px dashed #dde8ff",
+                padding: "6px",
+                borderRadius: "4px",
+              }}
+            >
+              Set UPI in Settings
+              <br />
+              to show Payment QR
+            </div>
+          )}
         </div>
         {/* Authorised signatory */}
         <div style={{ textAlign: "right" }}>
@@ -1611,6 +2229,8 @@ function InvoiceViewDialog({
   onExcelExport,
 }: InvoiceViewDialogProps) {
   const { activeCompany, settings, updateSettings } = useAppStore();
+  const printRef = useRef<HTMLDivElement>(null);
+  const [printing, setPrinting] = useState(false);
 
   const [selectedTemplate, setSelectedTemplate] = useState<InvoiceTemplateKey>(
     () => (settings?.invoiceTemplate ?? "default") as InvoiceTemplateKey,
@@ -1623,25 +2243,127 @@ function InvoiceViewDialog({
     }
   };
 
+  const handlePrint = async () => {
+    if (!invoice || !printRef.current) return;
+    setPrinting(true);
+    try {
+      // Clone the print area so we can mutate it for print without affecting the UI
+      const clone = printRef.current.cloneNode(true) as HTMLElement;
+
+      // Replace every <canvas> in the clone with an <img> using its pixel data
+      const canvases = printRef.current.querySelectorAll("canvas");
+      const cloneCanvases = clone.querySelectorAll("canvas");
+      canvases.forEach((canvas, i) => {
+        try {
+          const dataUrl = canvas.toDataURL("image/png");
+          const img = document.createElement("img");
+          img.src = dataUrl;
+          img.width = canvas.width || 100;
+          img.height = canvas.height || 100;
+          img.style.display = "block";
+          cloneCanvases[i]?.parentNode?.replaceChild(img, cloneCanvases[i]);
+        } catch {
+          // ignore cross-origin canvas errors
+        }
+      });
+
+      // If no canvas was found (QR not yet drawn), generate QR data URL as fallback
+      if (canvases.length === 0 && activeCompany?.upiId) {
+        const upiUrl = buildUpiUrl(
+          activeCompany.upiId,
+          activeCompany.upiName || activeCompany.name,
+          invoice.total,
+          `Invoice ${invoice.invoiceNo}`,
+        );
+        const qrDataUrl = await generateQRDataUrl(upiUrl, 100);
+        if (qrDataUrl) {
+          // Find the payment QR section and inject the image
+          const qrSection = clone.querySelector(
+            '[data-ocid="payment_qr.section"]',
+          );
+          if (qrSection) {
+            const img = document.createElement("img");
+            img.src = qrDataUrl;
+            img.width = 100;
+            img.height = 100;
+            img.style.display = "block";
+            qrSection.innerHTML = "";
+            qrSection.appendChild(img);
+          }
+        }
+      }
+
+      const html = clone.innerHTML;
+
+      const printWindow = window.open("", "_blank", "width=900,height=1200");
+      if (!printWindow) {
+        toast.error("Popup blocked. Please allow popups for this site.");
+        return;
+      }
+
+      printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Invoice ${invoice.invoiceNo}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 12mm 14mm 12mm 14mm;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11px;
+      color: #111;
+      background: white;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    table { border-collapse: collapse; }
+    img { max-width: 100%; }
+    @media print {
+      body { margin: 0; }
+    }
+  </style>
+</head>
+<body>
+${html}
+</body>
+</html>`);
+
+      printWindow.document.close();
+      printWindow.focus();
+      setTimeout(() => {
+        printWindow.print();
+        printWindow.close();
+      }, 600);
+    } finally {
+      setPrinting(false);
+    }
+  };
+
   return (
     <Dialog open={!!invoice} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="no-print">
-            Invoice {invoice?.invoiceNo}
-          </DialogTitle>
+          <DialogTitle>Invoice {invoice?.invoiceNo}</DialogTitle>
         </DialogHeader>
 
         {invoice && (
           <>
-            {/* Template switcher — hidden on print */}
+            {/* Template switcher */}
             <TemplateSwitcher
               selected={selectedTemplate}
               onChange={handleTemplateChange}
             />
 
             {/* Printable invoice area */}
-            <div className="print-invoice" id="invoice-print">
+            <div
+              ref={printRef}
+              id="invoice-print"
+              style={{ background: "white" }}
+            >
               {selectedTemplate === "default" && (
                 <TemplateDefault
                   invoice={invoice}
@@ -1667,10 +2389,10 @@ function InvoiceViewDialog({
           </>
         )}
 
-        <div className="flex gap-2 mt-4 no-print">
-          <Button onClick={() => window.print()} className="flex-1">
+        <div className="flex gap-2 mt-4">
+          <Button onClick={handlePrint} className="flex-1" disabled={printing}>
             <Printer className="w-4 h-4 mr-2" />
-            Print / PDF
+            {printing ? "Preparing..." : "Print / PDF"}
           </Button>
           {invoice && (
             <>

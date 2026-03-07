@@ -18,6 +18,8 @@ export interface Company {
   bankAccount?: string;
   bankIfsc?: string;
   bankBranch?: string;
+  upiId?: string;
+  upiName?: string;
 }
 
 export interface AppUser {
