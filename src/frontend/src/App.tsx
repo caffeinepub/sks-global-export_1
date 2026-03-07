@@ -1,7 +1,8 @@
 import { Toaster } from "@/components/ui/sonner";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
+import { BackupPromptDialog } from "./components/BackupPromptDialog";
 import { SaveIndicator } from "./components/SaveIndicator";
 import { Header } from "./components/layout/Header";
 import { Sidebar } from "./components/layout/Sidebar";
@@ -41,7 +42,15 @@ const usePageStore = create<PageStore>((set) => ({
 
 function AppLayout() {
   const { currentPage, navigate } = usePageStore();
-  const { isAuthenticated, activeCompanyId, loadCompanyData } = useAppStore();
+  const { isAuthenticated, activeCompanyId, loadCompanyData, logout } =
+    useAppStore();
+
+  // Backup prompt state
+  const [backupPrompt, setBackupPrompt] = useState<{
+    open: boolean;
+    reason: "logout" | "close";
+    onProceed: () => void;
+  }>({ open: false, reason: "logout", onProceed: () => {} });
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: loadCompanyData is stable from zustand
   useEffect(() => {
@@ -76,6 +85,31 @@ function AppLayout() {
       }
     }
   }, [isAuthenticated]);
+
+  // Intercept tab/window close — show native browser confirmation
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Modern browsers show their own generic message
+      e.returnValue =
+        "You have unsaved data. Are you sure you want to leave without taking a backup?";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, []);
+
+  // Wrapper around logout — shows backup prompt first
+  const handleLogoutRequest = () => {
+    setBackupPrompt({
+      open: true,
+      reason: "logout",
+      onProceed: () => {
+        setBackupPrompt((p) => ({ ...p, open: false }));
+        logout();
+      },
+    });
+  };
 
   const renderPage = () => {
     switch (currentPage) {
@@ -132,14 +166,26 @@ function AppLayout() {
   };
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
-      <SaveIndicator />
-      <Sidebar currentPage={currentPage} onNavigate={navigate} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <Header currentPage={currentPage} onNavigate={navigate} />
-        <main className="flex-1 overflow-y-auto">{renderPage()}</main>
+    <>
+      <div className="flex h-screen bg-background overflow-hidden">
+        <SaveIndicator />
+        <Sidebar currentPage={currentPage} onNavigate={navigate} />
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <Header
+            currentPage={currentPage}
+            onNavigate={navigate}
+            onLogoutRequest={handleLogoutRequest}
+          />
+          <main className="flex-1 overflow-y-auto">{renderPage()}</main>
+        </div>
       </div>
-    </div>
+      <BackupPromptDialog
+        open={backupPrompt.open}
+        reason={backupPrompt.reason}
+        onProceed={backupPrompt.onProceed}
+        onCancel={() => setBackupPrompt((p) => ({ ...p, open: false }))}
+      />
+    </>
   );
 }
 

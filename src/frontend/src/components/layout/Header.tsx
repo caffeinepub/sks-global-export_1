@@ -44,6 +44,7 @@ import { getLastBackupTime } from "../../utils/storage";
 interface HeaderProps {
   currentPage: string;
   onNavigate: (page: string) => void;
+  onLogoutRequest?: () => void;
 }
 
 const pageTitles: Record<string, string> = {
@@ -73,7 +74,11 @@ type AlertItem = {
   navigateTo: string;
 };
 
-export function Header({ currentPage, onNavigate }: HeaderProps) {
+export function Header({
+  currentPage,
+  onNavigate,
+  onLogoutRequest,
+}: HeaderProps) {
   const {
     currentUser,
     companies,
@@ -204,7 +209,11 @@ export function Header({ currentPage, onNavigate }: HeaderProps) {
   };
 
   const handleLogout = () => {
-    logout();
+    if (onLogoutRequest) {
+      onLogoutRequest();
+    } else {
+      logout();
+    }
   };
 
   const handleChangePassword = () => {

@@ -18,6 +18,7 @@ import {
   AlertCircle,
   ArrowRight,
   CheckCircle2,
+  FileDown,
   Package,
   PackageCheck,
   Plus,
@@ -256,6 +257,8 @@ export function POSBillingPage({
     activeCompanyId,
     activeCompany,
   } = useAppStore();
+
+  const [paperSize, setPaperSize] = useState<"A6" | "A5">("A6");
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
     null,
@@ -1056,6 +1059,173 @@ export function POSBillingPage({
   };
 
   const customerName = selectedCustomer?.name || walkingName || "";
+
+  // ─── Print POS Receipt ──────────────────────────────────────────────────────
+  const printPOSBill = (mode: "print" | "pdf") => {
+    if (billItems.length === 0) {
+      toast.error("No items in the bill to print");
+      return;
+    }
+    const companyName = activeCompany?.name || "SKS Global Export";
+    const companyAddress = activeCompany?.address || "";
+    const companyPhone = activeCompany?.phone || "";
+    const custName =
+      selectedCustomer?.name || walkingName || "Walking Customer";
+    const billNo = settings
+      ? generateBillNo(settings.billPrefix, settings.billSeq)
+      : "DRAFT";
+    const billDate = date;
+
+    const isA6 = paperSize === "A6";
+    const pageSize = isA6 ? "105mm 148mm" : "148mm 210mm";
+    const fontSize = isA6 ? "9.5px" : "11px";
+    const margin = isA6 ? "5mm" : "8mm";
+
+    const fmt = (n: number) =>
+      new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 2,
+      }).format(n);
+
+    const fmtDate = (d: string) =>
+      new Date(d).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+
+    const itemRows = billItems
+      .map(
+        (item, idx) => `
+      <tr>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;">${idx + 1}</td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;max-width:120px;word-wrap:break-word;">
+          ${item.productName}
+          ${item.description ? `<br/><span style="font-size:0.85em;color:#666;">${item.description}</span>` : ""}
+        </td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;text-align:right;">${fmt(item.unitPrice)}</td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">${fmt(item.totalPrice)}</td>
+      </tr>`,
+      )
+      .join("");
+
+    const chargeRows = additionalCharges
+      .filter((c) => c.showInBill && c.amount !== 0)
+      .map(
+        (c) => `
+      <tr>
+        <td colspan="4" style="padding:2px 4px;text-align:right;color:#555;font-size:0.9em;">${c.label}:</td>
+        <td style="padding:2px 4px;text-align:right;">${c.amount < 0 ? "–" : "+"}${fmt(Math.abs(c.amount))}</td>
+      </tr>`,
+      )
+      .join("");
+
+    const discountRow =
+      totalItemDiscounts > 0
+        ? `<tr><td colspan="4" style="padding:2px 4px;text-align:right;color:#d97706;font-size:0.9em;">Discounts:</td><td style="padding:2px 4px;text-align:right;color:#d97706;">–${fmt(totalItemDiscounts)}</td></tr>`
+        : "";
+
+    const billDiscountRow =
+      billDiscount > 0
+        ? `<tr><td colspan="4" style="padding:2px 4px;text-align:right;color:#d97706;font-size:0.9em;">Bill Discount:</td><td style="padding:2px 4px;text-align:right;color:#d97706;">–${fmt(billDiscount)}</td></tr>`
+        : "";
+
+    const pdfNote =
+      mode === "pdf"
+        ? `<p style="font-size:0.75em;color:#888;text-align:center;margin-top:4px;font-style:italic;">In print dialog, choose "Save as PDF"</p>`
+        : "";
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Bill ${billNo}</title>
+<style>
+  @page { size: ${pageSize}; margin: ${margin}; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: ${fontSize}; color: #111; background: #fff; }
+  h1 { font-size: 1.15em; font-weight: 700; text-align: center; margin-bottom: 2px; }
+  .addr { text-align: center; color: #444; font-size: 0.88em; line-height: 1.4; }
+  .divider { border: none; border-top: 1px dashed #aaa; margin: 5px 0; }
+  .bill-meta { display: flex; justify-content: space-between; font-size: 0.88em; margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  th { background: #f3f4f6; font-size: 0.85em; padding: 3px 4px; text-align: left; border-bottom: 2px solid #ddd; }
+  th.right { text-align: right; }
+  th.center { text-align: center; }
+  .total-row td { font-weight: 700; font-size: 1.05em; border-top: 1.5px solid #111; padding: 4px; }
+  .total-row td:last-child { text-align: right; }
+  .paid-row td { color: #16a34a; font-size: 0.92em; padding: 2px 4px; }
+  .paid-row td:last-child { text-align: right; }
+  .balance-row td { color: #dc2626; font-size: 0.92em; padding: 2px 4px; }
+  .balance-row td:last-child { text-align: right; }
+  .footer-note { text-align: center; font-size: 0.8em; color: #666; margin-top: 6px; }
+</style>
+</head>
+<body>
+  <h1>${companyName}</h1>
+  ${companyAddress ? `<p class="addr">${companyAddress}</p>` : ""}
+  ${companyPhone ? `<p class="addr">Ph: ${companyPhone}</p>` : ""}
+  <hr class="divider"/>
+  <div class="bill-meta">
+    <span><strong>Bill No:</strong> ${billNo}</span>
+    <span><strong>Date:</strong> ${fmtDate(billDate)}</span>
+  </div>
+  <div class="bill-meta">
+    <span><strong>Customer:</strong> ${custName}</span>
+    <span><strong>Method:</strong> ${paymentMethod.toUpperCase()}</span>
+  </div>
+  <hr class="divider"/>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:18px;">#</th>
+        <th>Item</th>
+        <th class="center" style="width:30px;">Qty</th>
+        <th class="right" style="width:55px;">Rate</th>
+        <th class="right" style="width:60px;">Amt</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemRows}
+      ${discountRow}
+      ${chargeRows}
+      ${billDiscountRow}
+    </tbody>
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="4">Grand Total</td>
+        <td>${fmt(total)}</td>
+      </tr>
+      <tr class="paid-row">
+        <td colspan="4">Amount Paid</td>
+        <td>${fmt(paid)}</td>
+      </tr>
+      ${balance > 0 ? `<tr class="balance-row"><td colspan="4">Balance Due</td><td>${fmt(Math.max(0, balance))}</td></tr>` : ""}
+    </tfoot>
+  </table>
+  ${notes ? `<hr class="divider"/><p style="font-size:0.85em;color:#555;margin-top:3px;"><em>Note: ${notes}</em></p>` : ""}
+  <p class="footer-note">Thank you for your business!</p>
+  ${pdfNote}
+  <script>window.onload = function(){ window.focus(); window.print(); };<\/script>
+</body>
+</html>`;
+
+    const w = window.open(
+      "",
+      "_blank",
+      isA6 ? "width=420,height=600" : "width=600,height=800",
+    );
+    if (!w) {
+      toast.error(
+        "Popup blocked! Please allow popups for this site and try again.",
+      );
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+  };
 
   return (
     <div className="p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
@@ -2933,14 +3103,53 @@ export function POSBillingPage({
             <Save className="w-4 h-4 mr-2" />
             Save Bill
           </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => window.print()}
-          >
-            <Printer className="w-4 h-4 mr-2" />
-            Print Receipt
-          </Button>
+          {/* Paper size selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground flex-1">
+              Paper Size:
+            </span>
+            <div className="flex rounded-lg border border-border overflow-hidden">
+              <button
+                type="button"
+                className={`px-3 py-1.5 text-xs font-medium transition-colors ${paperSize === "A6" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => setPaperSize("A6")}
+                data-ocid="pos.paper_size_a6.toggle"
+              >
+                A6
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1.5 text-xs font-medium border-l border-border transition-colors ${paperSize === "A5" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:bg-muted"}`}
+                onClick={() => setPaperSize("A5")}
+                data-ocid="pos.paper_size_a5.toggle"
+              >
+                A5
+              </button>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => printPOSBill("print")}
+              disabled={billItems.length === 0}
+              data-ocid="pos.print_receipt.button"
+            >
+              <Printer className="w-4 h-4 mr-2" />
+              Print
+            </Button>
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => printPOSBill("pdf")}
+              disabled={billItems.length === 0}
+              title="In print dialog, choose 'Save as PDF'"
+              data-ocid="pos.download_pdf.button"
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              PDF
+            </Button>
+          </div>
           <Button
             variant="ghost"
             className="w-full text-sm text-muted-foreground"

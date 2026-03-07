@@ -41,6 +41,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Download,
   Eye,
+  FileImage,
   FileSpreadsheet,
   FileText,
   Pencil,
@@ -63,6 +64,11 @@ import type {
   CompanySettings,
   Invoice,
 } from "../types";
+import {
+  downloadAsJPEG,
+  downloadAsPDF,
+  downloadAsPNG,
+} from "../utils/downloadHelpers";
 import {
   amountToWords,
   exportToExcel,
@@ -2233,6 +2239,9 @@ function InvoiceViewDialog({
   const { activeCompany, settings, updateSettings } = useAppStore();
   const printRef = useRef<HTMLDivElement>(null);
   const [printing, setPrinting] = useState(false);
+  const [downloading, setDownloading] = useState<"pdf" | "jpeg" | "png" | null>(
+    null,
+  );
 
   const [selectedTemplate, setSelectedTemplate] = useState<InvoiceTemplateKey>(
     () => (settings?.invoiceTemplate ?? "default") as InvoiceTemplateKey,
@@ -2345,6 +2354,45 @@ ${html}
     }
   };
 
+  const handleDownloadPDF = async () => {
+    if (!invoice || !printRef.current) return;
+    setDownloading("pdf");
+    try {
+      await downloadAsPDF(printRef.current, `Invoice-${invoice.invoiceNo}.pdf`);
+    } catch {
+      toast.error("PDF download failed. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadJPEG = async () => {
+    if (!invoice || !printRef.current) return;
+    setDownloading("jpeg");
+    try {
+      await downloadAsJPEG(
+        printRef.current,
+        `Invoice-${invoice.invoiceNo}.jpg`,
+      );
+    } catch {
+      toast.error("JPEG download failed. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDownloadPNG = async () => {
+    if (!invoice || !printRef.current) return;
+    setDownloading("png");
+    try {
+      await downloadAsPNG(printRef.current, `Invoice-${invoice.invoiceNo}.png`);
+    } catch {
+      toast.error("PNG download failed. Please try again.");
+    } finally {
+      setDownloading(null);
+    }
+  };
+
   return (
     <Dialog open={!!invoice} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
@@ -2391,10 +2439,40 @@ ${html}
           </>
         )}
 
-        <div className="flex gap-2 mt-4">
-          <Button onClick={handlePrint} className="flex-1" disabled={printing}>
+        <div className="flex flex-wrap gap-2 mt-4">
+          <Button
+            onClick={handlePrint}
+            variant="outline"
+            disabled={printing || !!downloading}
+          >
             <Printer className="w-4 h-4 mr-2" />
-            {printing ? "Preparing..." : "Print / PDF"}
+            {printing ? "Preparing..." : "Print"}
+          </Button>
+          <Button
+            onClick={handleDownloadPDF}
+            disabled={printing || !!downloading}
+            data-ocid="invoice.download_pdf.button"
+          >
+            <Download className="w-4 h-4 mr-2" />
+            {downloading === "pdf" ? "Downloading..." : "PDF"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadJPEG}
+            disabled={printing || !!downloading}
+            data-ocid="invoice.download_jpeg.button"
+          >
+            <FileImage className="w-4 h-4 mr-2" />
+            {downloading === "jpeg" ? "Downloading..." : "JPEG"}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={handleDownloadPNG}
+            disabled={printing || !!downloading}
+            data-ocid="invoice.download_png.button"
+          >
+            <FileImage className="w-4 h-4 mr-2" />
+            {downloading === "png" ? "Downloading..." : "PNG"}
           </Button>
           {invoice && (
             <>

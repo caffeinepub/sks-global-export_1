@@ -698,7 +698,8 @@ export function InventoryPage() {
                             {brand.brandName}
                           </h4>
                           <p className="text-xs text-muted-foreground">
-                            {brand.productType}
+                            {brand.category ?? "Courier"} &bull;{" "}
+                            {brand.transportModes ?? "Both"}
                           </p>
                         </div>
                       </div>
@@ -910,54 +911,83 @@ export function InventoryPage() {
                 </SelectContent>
               </Select>
             </div>
-            {/* Product Type selector — only shown when brand has courierProducts */}
+            {/* Product Type selector — always shown when a brand is selected */}
             {selectedBrandId &&
               (() => {
                 const brand = courierBrands.find(
                   (b) => b.id === selectedBrandId,
                 );
                 const cpList = brand?.courierProducts ?? [];
-                if (cpList.length === 0) return null;
+                const selectedCp = cpList.find(
+                  (p) => p.id === selectedProductId2,
+                );
                 return (
                   <div>
-                    <Label className="text-sm">Product Type</Label>
-                    <Select
-                      value={selectedProductId2}
-                      onValueChange={setSelectedProductId2}
-                    >
-                      <SelectTrigger className="mt-1">
-                        <SelectValue placeholder="Select product (optional)" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {cpList.map((cp) => (
-                          <SelectItem key={cp.id} value={cp.id}>
-                            {cp.productType}
-                            {cp.serialPrefix
-                              ? ` (Prefix: ${cp.serialPrefix})`
-                              : ""}
-                            {" — "}
-                            {cp.category}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {selectedProductId2 &&
-                      (() => {
-                        const cp = cpList.find(
-                          (p) => p.id === selectedProductId2,
-                        );
-                        if (!cp?.serialPrefix) return null;
-                        return (
-                          <p className="text-xs text-muted-foreground mt-1">
-                            AWB Prefix for this product:{" "}
-                            <span className="font-mono font-semibold">
-                              {cp.serialPrefix}
-                            </span>{" "}
-                            — AWB numbers starting/ending with this identify as{" "}
-                            {cp.productType}
-                          </p>
-                        );
-                      })()}
+                    <Label className="text-sm font-medium">
+                      Product Type
+                      {cpList.length > 0
+                        ? ""
+                        : " (no products — add in Products page)"}
+                    </Label>
+                    {cpList.length > 0 ? (
+                      <>
+                        <Select
+                          value={selectedProductId2}
+                          onValueChange={setSelectedProductId2}
+                        >
+                          <SelectTrigger
+                            className="mt-1"
+                            data-ocid="inventory.awb_range.product_type.select"
+                          >
+                            <SelectValue placeholder="Select product type" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {cpList.map((cp) => (
+                              <SelectItem key={cp.id} value={cp.id}>
+                                <span className="font-medium">
+                                  {cp.productType}
+                                </span>
+                                {cp.serialPrefix ? (
+                                  <span className="ml-1 text-muted-foreground text-xs">
+                                    (Prefix: {cp.serialPrefix})
+                                  </span>
+                                ) : null}{" "}
+                                <span className="text-xs text-muted-foreground">
+                                  — {cp.category}
+                                </span>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {selectedCp && (
+                          <div className="mt-1 p-2 bg-blue-50 rounded text-xs text-blue-700 space-y-0.5">
+                            <div>
+                              <span className="font-medium">Category:</span>{" "}
+                              {selectedCp.category}
+                              {" · "}
+                              <span className="font-medium">Transport:</span>{" "}
+                              {selectedCp.transportModes ?? "—"}
+                            </div>
+                            {selectedCp.serialPrefix && (
+                              <div>
+                                <span className="font-medium">AWB Prefix:</span>{" "}
+                                <span className="font-mono font-semibold">
+                                  {selectedCp.serialPrefix}
+                                </span>{" "}
+                                — serials for this product type start/end with
+                                this prefix
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <p className="mt-1 text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded p-2">
+                        This brand has no product types defined yet. Go to{" "}
+                        <strong>Products → Courier Brands</strong>, expand this
+                        brand, and add product types first.
+                      </p>
+                    )}
                   </div>
                 );
               })()}

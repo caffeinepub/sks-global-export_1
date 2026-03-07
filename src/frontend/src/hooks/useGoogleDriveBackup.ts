@@ -5,8 +5,14 @@ import { exportAllData } from "../utils/storage";
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
 const GDRIVE_CLIENT_ID_KEY = "sks_gdrive_client_id";
 
+// Hardcoded OAuth Client ID - always use this
+const HARDCODED_CLIENT_ID =
+  "860382780332-18i92vnm1s103s7at56uo6i1ouc9gtu3.apps.googleusercontent.com";
+
 export function getStoredClientId(): string {
+  // Always prefer the hardcoded ID; fallback to localStorage or window override
   return (
+    HARDCODED_CLIENT_ID ||
     localStorage.getItem(GDRIVE_CLIENT_ID_KEY) ||
     ((window as unknown as Record<string, unknown>)
       .SKS_GOOGLE_CLIENT_ID as string) ||
@@ -17,10 +23,10 @@ export function getStoredClientId(): string {
 export function saveClientId(id: string) {
   localStorage.setItem(GDRIVE_CLIENT_ID_KEY, id.trim());
 }
+
 const BACKUP_FILE_NAME = "sks_global_export_backup.json";
 const GDRIVE_CONNECTED_KEY = "sks_gdrive_connected";
 const LAST_BACKUP_GDRIVE_KEY = "sks_gdrive_last_backup";
-const AUTO_BACKUP_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface GisTokenClient {
   requestAccessToken: (opts?: { prompt?: string }) => void;
@@ -73,13 +79,19 @@ const uploadToDrive = async (
   accessToken: string,
   content: string,
 ): Promise<void> => {
-  // Check if file already exists
+  // Search for existing file
   const searchRes = await fetch(
     `https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}'+and+trashed=false&fields=files(id,name)`,
     {
       headers: { Authorization: `Bearer ${accessToken}` },
     },
   );
+
+  if (!searchRes.ok) {
+    const errText = await searchRes.text();
+    throw new Error(`Drive search failed (${searchRes.status}): ${errText}`);
+  }
+
   const searchData = (await searchRes.json()) as {
     files?: Array<{ id: string }>;
   };
@@ -112,7 +124,7 @@ const uploadToDrive = async (
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Drive upload failed: ${err}`);
+    throw new Error(`Drive upload failed (${res.status}): ${err}`);
   }
 };
 
@@ -129,20 +141,87 @@ export function useGoogleDriveBackup() {
   // Store access token in memory only
   const accessTokenRef = useRef<string | null>(null);
   const tokenClientRef = useRef<GisTokenClient | null>(null);
-  const autoBackupTimerRef = useRef<ReturnType<typeof setInterval> | null>(
-    null,
+
+  // Pending backup resolve/reject for when we need a fresh token
+  const _pendingBackupRef = useRef<{
+    resolve: () => void;
+    reject: (e: Error) => void;
+  } | null>(null);
+
+  // Initialize the token client (idempotent)
+  const _initTokenClient = useCallback(
+    (onToken: (token: string) => void, onError: (msg: string) => void) => {
+      const clientId = getStoredClientId();
+      if (!window.google?.accounts?.oauth2) return;
+
+      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+        client_id: clientId,
+        scope: SCOPE,
+        callback: (response) => {
+          if (response.error) {
+            onError(`OAuth error: ${response.error}`);
+            return;
+          }
+          if (response.access_token) {
+            accessTokenRef.current = response.access_token;
+            onToken(response.access_token);
+          }
+        },
+      });
+    },
+    [],
   );
 
+  // Request a fresh token silently (no popup) or with consent prompt
+  const requestToken = useCallback(
+    (prompt: "" | "consent" = ""): Promise<string> => {
+      return new Promise((resolve, reject) => {
+        if (!tokenClientRef.current) {
+          reject(new Error("Token client not initialised"));
+          return;
+        }
+        // Override callback temporarily
+        tokenClientRef.current = window.google!.accounts.oauth2.initTokenClient(
+          {
+            client_id: getStoredClientId(),
+            scope: SCOPE,
+            callback: (response) => {
+              if (response.error) {
+                reject(new Error(`OAuth error: ${response.error}`));
+                return;
+              }
+              if (response.access_token) {
+                accessTokenRef.current = response.access_token;
+                resolve(response.access_token);
+              }
+            },
+          },
+        );
+        tokenClientRef.current.requestAccessToken({ prompt });
+      });
+    },
+    [],
+  );
+
+  /**
+   * Core backup: always requests a fresh token before uploading.
+   * Google access tokens expire in 1 hour; re-requesting with prompt=""
+   * is silent if the user already granted consent.
+   */
   const backupNow = useCallback(async (): Promise<void> => {
-    if (!accessTokenRef.current) {
-      setError("Not connected to Google Drive");
-      return;
-    }
     setIsBackingUp(true);
     setError(null);
     try {
+      await loadGisScript();
+      if (!window.google?.accounts?.oauth2) {
+        throw new Error(
+          "Google Identity Services not available. Check your internet connection.",
+        );
+      }
+      // Always get a fresh token (silent if already consented)
+      const token = await requestToken("");
       const data = exportAllData();
-      await uploadToDrive(accessTokenRef.current, data);
+      await uploadToDrive(token, data);
       const now = new Date().toISOString();
       localStorage.setItem(LAST_BACKUP_GDRIVE_KEY, now);
       setLastBackupTime(now);
@@ -150,38 +229,14 @@ export function useGoogleDriveBackup() {
       const msg = e instanceof Error ? e.message : "Backup failed";
       setError(msg);
       console.error("Google Drive backup error:", e);
+      throw e; // re-throw so callers can handle
     } finally {
       setIsBackingUp(false);
     }
-  }, []);
-
-  const startAutoBackup = useCallback(() => {
-    if (autoBackupTimerRef.current) {
-      clearInterval(autoBackupTimerRef.current);
-    }
-    autoBackupTimerRef.current = setInterval(() => {
-      if (accessTokenRef.current) {
-        backupNow();
-      }
-    }, AUTO_BACKUP_INTERVAL_MS);
-  }, [backupNow]);
-
-  const stopAutoBackup = useCallback(() => {
-    if (autoBackupTimerRef.current) {
-      clearInterval(autoBackupTimerRef.current);
-      autoBackupTimerRef.current = null;
-    }
-  }, []);
+  }, [requestToken]);
 
   const connect = useCallback(async () => {
     setError(null);
-    const clientId = getStoredClientId();
-    if (!clientId) {
-      setError(
-        "Please enter your Google OAuth Client ID above and save it before connecting.",
-      );
-      return;
-    }
     try {
       await loadGisScript();
 
@@ -192,47 +247,63 @@ export function useGoogleDriveBackup() {
         return;
       }
 
-      // Always reinitialise so we pick up the latest saved Client ID
-      tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
-        client_id: clientId,
-        scope: SCOPE,
-        callback: (response) => {
-          if (response.error) {
-            setError(`OAuth error: ${response.error}`);
-            return;
-          }
-          if (response.access_token) {
-            accessTokenRef.current = response.access_token;
-            setIsConnected(true);
-            localStorage.setItem(GDRIVE_CONNECTED_KEY, "true");
-            startAutoBackup();
-            // Do an immediate backup on connect
-            backupNow();
-          }
-        },
+      await new Promise<void>((resolve, reject) => {
+        tokenClientRef.current = window.google!.accounts.oauth2.initTokenClient(
+          {
+            client_id: getStoredClientId(),
+            scope: SCOPE,
+            callback: async (response) => {
+              if (response.error) {
+                setError(`OAuth error: ${response.error}`);
+                reject(new Error(response.error));
+                return;
+              }
+              if (response.access_token) {
+                accessTokenRef.current = response.access_token;
+                setIsConnected(true);
+                localStorage.setItem(GDRIVE_CONNECTED_KEY, "true");
+                // Immediately do a real backup
+                try {
+                  const data = exportAllData();
+                  await uploadToDrive(response.access_token, data);
+                  const now = new Date().toISOString();
+                  localStorage.setItem(LAST_BACKUP_GDRIVE_KEY, now);
+                  setLastBackupTime(now);
+                  setError(null);
+                } catch (uploadErr) {
+                  const msg =
+                    uploadErr instanceof Error
+                      ? uploadErr.message
+                      : "Initial backup failed";
+                  setError(msg);
+                }
+                resolve();
+              }
+            },
+          },
+        );
+        tokenClientRef.current.requestAccessToken({ prompt: "consent" });
       });
-
-      tokenClientRef.current.requestAccessToken({ prompt: "" });
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Connection failed";
       setError(msg);
     }
-  }, [backupNow, startAutoBackup]);
+  }, []);
 
   const disconnect = useCallback(() => {
     accessTokenRef.current = null;
+    tokenClientRef.current = null;
     setIsConnected(false);
     localStorage.removeItem(GDRIVE_CONNECTED_KEY);
-    stopAutoBackup();
     setError(null);
-  }, [stopAutoBackup]);
+  }, []);
 
-  // Clean up on unmount
+  // Preload GIS script on mount so it's ready when user clicks
   useEffect(() => {
-    return () => {
-      stopAutoBackup();
-    };
-  }, [stopAutoBackup]);
+    loadGisScript().catch(() => {
+      // silently ignore preload failures
+    });
+  }, []);
 
   return {
     isConnected,
@@ -242,6 +313,7 @@ export function useGoogleDriveBackup() {
     connect,
     disconnect,
     backupNow,
-    autoIntervalMinutes: 5,
+    // No auto-interval — manual + on-logout only
+    autoIntervalMinutes: 0,
   };
 }

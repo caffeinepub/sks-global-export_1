@@ -95,8 +95,8 @@ export function SettingsPage() {
 
   // Google Drive backup
   const gdrive = useGoogleDriveBackup();
-  const [googleClientId, setGoogleClientId] = useState(getStoredClientId);
-  const [clientIdSaved, setClientIdSaved] = useState(false);
+  const [googleClientId, _setGoogleClientId] = useState(getStoredClientId);
+  const [_clientIdSaved, _setClientIdSaved] = useState(!!getStoredClientId());
 
   // Company form
   const [showCompanyForm, setShowCompanyForm] = useState(false);
@@ -906,29 +906,27 @@ export function SettingsPage() {
                     </p>
                   ) : gdrive.isConnected ? (
                     <p className="text-xs text-muted-foreground">
-                      No backup yet — auto-backup will run every{" "}
-                      {gdrive.autoIntervalMinutes} minutes
+                      Connected — click Backup Now to save data to Drive
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Connect to enable auto-backup every{" "}
-                      {gdrive.autoIntervalMinutes} minutes
+                      Connect to backup your data to Google Drive
                     </p>
                   )}
                 </div>
               </div>
 
-              {/* Auto-backup notice */}
+              {/* Connected info */}
               {gdrive.isConnected && (
                 <div className="flex items-center gap-2 text-xs text-muted-foreground bg-blue-50 p-2.5 rounded-lg">
                   <RefreshCw className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
                   <span>
-                    Auto-backup running every {gdrive.autoIntervalMinutes}{" "}
-                    minutes to{" "}
+                    Backups saved as{" "}
                     <span className="font-mono font-semibold">
                       sks_global_export_backup.json
                     </span>{" "}
-                    in your Drive
+                    in your Google Drive. A backup prompt also appears before
+                    logout or closing the app.
                   </span>
                 </div>
               )}
@@ -988,7 +986,7 @@ export function SettingsPage() {
                 )}
               </div>
 
-              {/* Client ID input */}
+              {/* Client ID — pre-configured */}
               <div className="space-y-2">
                 <label
                   htmlFor="google-client-id"
@@ -996,51 +994,14 @@ export function SettingsPage() {
                 >
                   Google OAuth Client ID
                 </label>
-                <div className="flex gap-2">
-                  <input
-                    id="google-client-id"
-                    type="text"
-                    value={googleClientId}
-                    onChange={(e) => {
-                      setGoogleClientId(e.target.value);
-                      setClientIdSaved(false);
-                    }}
-                    placeholder="Paste your Client ID here (e.g. 123456-abc.apps.googleusercontent.com)"
-                    className="flex-1 text-xs border border-border rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      if (!googleClientId.trim()) {
-                        toast.error("Please enter a Client ID");
-                        return;
-                      }
-                      saveClientId(googleClientId);
-                      setClientIdSaved(true);
-                      toast.success("Client ID saved");
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
-                {clientIdSaved && (
-                  <p className="text-xs text-green-600 flex items-center gap-1">
-                    <CheckCircle className="w-3 h-3" /> Client ID saved — click
-                    Connect Google Drive above
+                <div className="flex gap-2 items-center p-2.5 bg-green-50 border border-green-200 rounded-lg">
+                  <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                  <p className="text-xs text-green-800 font-medium flex-1 truncate">
+                    Client ID pre-configured — click Connect Google Drive above
                   </p>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  Get this from{" "}
-                  <a
-                    href="https://console.cloud.google.com/apis/credentials"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-blue-600 underline"
-                  >
-                    Google Cloud Console &rarr; APIs &amp; Services &rarr;
-                    Credentials
-                  </a>
+                </div>
+                <p className="text-xs text-muted-foreground font-mono truncate text-center opacity-60">
+                  {googleClientId}
                 </p>
               </div>
             </div>

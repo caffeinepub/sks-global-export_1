@@ -880,8 +880,19 @@ export function ProductsPage() {
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground mt-0.5">
-                        {brand.productType} &bull; GST {brand.gstRate}% &bull;{" "}
+                        GST {brand.gstRate}% &bull;{" "}
                         {formatCurrency(brand.sellingPrice)}
+                        {cpList.length > 0 && (
+                          <span className="ml-1 text-primary font-medium">
+                            &bull; {cpList.length} product type
+                            {cpList.length !== 1 ? "s" : ""} — click to manage
+                          </span>
+                        )}
+                        {cpList.length === 0 && (
+                          <span className="ml-1 text-amber-600 font-medium">
+                            &bull; Click to add product types
+                          </span>
+                        )}
                       </p>
                     </div>
                     {/* Brand actions */}
@@ -1397,15 +1408,6 @@ export function ProductsPage() {
                     </Select>
                   </div>
                   <div>
-                    <Label className="text-xs">Default Product Type</Label>
-                    <Input
-                      value={productType}
-                      onChange={(e) => setProductType(e.target.value)}
-                      className="mt-1 text-sm"
-                      placeholder="e.g. Courier, Express, Cargo"
-                    />
-                  </div>
-                  <div>
                     <Label className="text-xs">Default Transport Mode</Label>
                     <Select
                       value={transportModes}
@@ -1510,9 +1512,11 @@ export function ProductsPage() {
                   <div className="flex items-start gap-2">
                     <Tag className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
                     <span>
-                      After creating the brand, click the row to expand it and
-                      add individual products (D Express, Lite, Priority, etc.)
-                      with their own AWB prefix, serial logic, and pricing.
+                      <strong>Product Types</strong> (e.g. D Express, Lite,
+                      Priority, Air Cargo) are managed separately. After saving
+                      this brand, click the brand row to expand it and use the{" "}
+                      <strong>"Add Product"</strong> button to add each product
+                      type with its own AWB prefix, serial logic, and pricing.
                     </span>
                   </div>
                 </div>

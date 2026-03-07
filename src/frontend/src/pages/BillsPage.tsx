@@ -41,6 +41,9 @@ import {
   CheckCircle2,
   DollarSign,
   ExternalLink,
+  FileDown,
+  FileImage,
+  FileSpreadsheet,
   FileText,
   MapPin,
   Pencil,
@@ -49,13 +52,19 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { PaymentQRCode } from "../components/PaymentQRCode";
 import { useAppStore } from "../hooks/useAppStore";
 import type { Bill, BillItem, Invoice, PaymentLog } from "../types";
 import {
+  downloadAsJPEG,
+  downloadAsPDF,
+  downloadAsPNG,
+} from "../utils/downloadHelpers";
+import {
+  exportToExcel,
   formatCurrency,
   formatDate,
   formatDateTime,
@@ -129,6 +138,12 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     new Date().toISOString().split("T")[0],
   );
   const [paymentNotes, setPaymentNotes] = useState("");
+
+  // Bill PDF/image download
+  const billPrintRef = useRef<HTMLDivElement>(null);
+  const [billDownloading, setBillDownloading] = useState<
+    "pdf" | "jpeg" | "png" | null
+  >(null);
 
   // AWB Tracking
   const [trackItem, setTrackItem] = useState<{
@@ -378,6 +393,219 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     setShowInvoiceDialog(false);
   };
 
+  // ─── Print Bill Receipt (popup window) ────────────────────────────────────
+  const printBillReceipt = (bill: Bill, mode: "print" | "pdf") => {
+    const companyName = activeCompany?.name || "SKS Global Export";
+    const companyAddress = activeCompany?.address || "";
+    const companyPhone = activeCompany?.phone || "";
+
+    const fmt = (n: number) =>
+      new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: "INR",
+        minimumFractionDigits: 2,
+      }).format(n);
+
+    const fmtDate = (d: string) =>
+      new Date(d).toLocaleDateString("en-IN", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+      });
+
+    const logoHtml = activeCompany?.logoUrl
+      ? `<div style="text-align:center;margin-bottom:4px;"><img src="${activeCompany.logoUrl}" alt="logo" style="height:44px;object-fit:contain;"/></div>`
+      : "";
+
+    const itemRows = bill.items
+      .map(
+        (item, idx) => `
+      <tr>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;">${idx + 1}</td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;max-width:120px;word-wrap:break-word;">
+          ${item.productName}
+          ${item.description ? `<br/><span style="font-size:0.85em;color:#666;">${item.description}</span>` : ""}
+        </td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;text-align:center;">${item.quantity}</td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;text-align:right;">${fmt(item.unitPrice)}</td>
+        <td style="padding:3px 4px;border-bottom:1px solid #eee;text-align:right;font-weight:600;">${fmt(item.totalPrice)}</td>
+      </tr>`,
+      )
+      .join("");
+
+    const chargeRows = (bill.additionalCharges || [])
+      .filter((c) => c.amount !== 0)
+      .map(
+        (c) => `
+      <tr>
+        <td colspan="4" style="padding:2px 4px;text-align:right;color:#555;font-size:0.9em;">${c.label}:</td>
+        <td style="padding:2px 4px;text-align:right;">${c.amount < 0 ? "–" : "+"}${fmt(Math.abs(c.amount))}</td>
+      </tr>`,
+      )
+      .join("");
+
+    const billDiscountRow =
+      bill.billDiscount && bill.billDiscount > 0
+        ? `<tr><td colspan="4" style="padding:2px 4px;text-align:right;color:#d97706;font-size:0.9em;">Bill Discount:</td><td style="padding:2px 4px;text-align:right;color:#d97706;">–${fmt(bill.billDiscount)}</td></tr>`
+        : "";
+
+    const pdfNote =
+      mode === "pdf"
+        ? `<p style="font-size:0.75em;color:#888;text-align:center;margin-top:4px;font-style:italic;">In print dialog, choose "Save as PDF"</p>`
+        : "";
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Bill ${bill.billNo}</title>
+<style>
+  @page { size: 105mm 148mm; margin: 5mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 9.5px; color: #111; background: #fff; }
+  h1 { font-size: 1.15em; font-weight: 700; text-align: center; margin-bottom: 2px; }
+  .addr { text-align: center; color: #444; font-size: 0.88em; line-height: 1.4; }
+  .divider { border: none; border-top: 1px dashed #aaa; margin: 5px 0; }
+  .bill-meta { display: flex; justify-content: space-between; font-size: 0.88em; margin: 3px 0; }
+  table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+  th { background: #f3f4f6; font-size: 0.85em; padding: 3px 4px; text-align: left; border-bottom: 2px solid #ddd; }
+  th.right { text-align: right; }
+  th.center { text-align: center; }
+  .total-row td { font-weight: 700; font-size: 1.05em; border-top: 1.5px solid #111; padding: 4px; }
+  .total-row td:last-child { text-align: right; }
+  .paid-row td { color: #16a34a; font-size: 0.92em; padding: 2px 4px; }
+  .paid-row td:last-child { text-align: right; }
+  .balance-row td { color: #dc2626; font-size: 0.92em; padding: 2px 4px; }
+  .balance-row td:last-child { text-align: right; }
+  .status-badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.8em; font-weight: 600; text-transform: uppercase; }
+  .status-paid { background: #dcfce7; color: #16a34a; }
+  .status-pending { background: #fef9c3; color: #854d0e; }
+  .status-partial { background: #fef3c7; color: #92400e; }
+  .footer-note { text-align: center; font-size: 0.8em; color: #666; margin-top: 6px; }
+</style>
+</head>
+<body>
+  ${logoHtml}
+  <h1>${companyName}</h1>
+  ${companyAddress ? `<p class="addr">${companyAddress}</p>` : ""}
+  ${companyPhone ? `<p class="addr">Ph: ${companyPhone}</p>` : ""}
+  <hr class="divider"/>
+  <div class="bill-meta">
+    <span><strong>Bill No:</strong> ${bill.billNo}</span>
+    <span><strong>Date:</strong> ${fmtDate(bill.date)}</span>
+  </div>
+  <div class="bill-meta">
+    <span><strong>Customer:</strong> ${bill.customerName}</span>
+    <span><strong>Method:</strong> ${bill.paymentMethod.toUpperCase()}</span>
+  </div>
+  <div class="bill-meta">
+    <span><strong>Status:</strong> <span class="status-badge status-${bill.paymentStatus}">${bill.paymentStatus}</span></span>
+  </div>
+  <hr class="divider"/>
+  <table>
+    <thead>
+      <tr>
+        <th style="width:18px;">#</th>
+        <th>Item</th>
+        <th class="center" style="width:30px;">Qty</th>
+        <th class="right" style="width:55px;">Rate</th>
+        <th class="right" style="width:60px;">Amt</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${itemRows}
+      ${chargeRows}
+      ${billDiscountRow}
+    </tbody>
+    <tfoot>
+      <tr class="total-row">
+        <td colspan="4">Grand Total</td>
+        <td>${fmt(bill.total)}</td>
+      </tr>
+      <tr class="paid-row">
+        <td colspan="4">Amount Paid</td>
+        <td>${fmt(bill.amountPaid)}</td>
+      </tr>
+      ${bill.balanceDue > 0 ? `<tr class="balance-row"><td colspan="4">Balance Due</td><td>${fmt(bill.balanceDue)}</td></tr>` : ""}
+    </tfoot>
+  </table>
+  ${bill.notes ? `<hr class="divider"/><p style="font-size:0.85em;color:#555;margin-top:3px;"><em>Note: ${bill.notes}</em></p>` : ""}
+  ${activeCompany?.upiId && bill.balanceDue > 0 ? `<p style="font-size:0.8em;text-align:center;margin-top:5px;color:#555;">UPI: ${activeCompany.upiId}</p>` : ""}
+  <p class="footer-note">Thank you for your business!</p>
+  ${pdfNote}
+  <script>window.onload = function(){ window.focus(); window.print(); };<\/script>
+</body>
+</html>`;
+
+    const w = window.open("", "_blank", "width=420,height=600");
+    if (!w) {
+      toast.error(
+        "Popup blocked! Please allow popups for this site and try again.",
+      );
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+  };
+
+  // ─── Bill Direct Download Handlers ───────────────────────────────────────────
+  const handleBillDownloadPDF = async () => {
+    if (!viewBill || !billPrintRef.current) return;
+    setBillDownloading("pdf");
+    try {
+      await downloadAsPDF(billPrintRef.current, `Bill-${viewBill.billNo}.pdf`);
+    } catch {
+      toast.error("PDF download failed. Please try again.");
+    } finally {
+      setBillDownloading(null);
+    }
+  };
+
+  const handleBillDownloadJPEG = async () => {
+    if (!viewBill || !billPrintRef.current) return;
+    setBillDownloading("jpeg");
+    try {
+      await downloadAsJPEG(billPrintRef.current, `Bill-${viewBill.billNo}.jpg`);
+    } catch {
+      toast.error("JPEG download failed. Please try again.");
+    } finally {
+      setBillDownloading(null);
+    }
+  };
+
+  const handleBillDownloadPNG = async () => {
+    if (!viewBill || !billPrintRef.current) return;
+    setBillDownloading("png");
+    try {
+      await downloadAsPNG(billPrintRef.current, `Bill-${viewBill.billNo}.png`);
+    } catch {
+      toast.error("PNG download failed. Please try again.");
+    } finally {
+      setBillDownloading(null);
+    }
+  };
+
+  // ─── Excel Export ────────────────────────────────────────────────────────────
+  const handleExportExcel = () => {
+    const data = filteredBills.map((b) => ({
+      "Bill No": b.billNo,
+      Date: formatDate(b.date),
+      Customer: b.customerName,
+      "Items Count": b.items.length,
+      Total: b.total,
+      "Amount Paid": b.amountPaid,
+      "Balance Due": b.balanceDue,
+      "Payment Method": b.paymentMethod,
+      "Payment Status": b.paymentStatus,
+      "Invoice Status": b.isInvoiced ? "Invoiced" : "Not Invoiced",
+    }));
+    exportToExcel(
+      [{ name: "Bills", data }],
+      `bills_export_${new Date().toISOString().split("T")[0]}.csv`,
+    );
+    toast.success("Bills exported to Excel/CSV");
+  };
+
   const getStatusBadge = (status: string) => {
     const classes: Record<string, string> = {
       paid: "status-paid",
@@ -435,6 +663,16 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
               Select bills from same customer to generate invoice
             </p>
           )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleExportExcel}
+            title="Export bills to Excel/CSV"
+            data-ocid="bills.export_excel.button"
+          >
+            <FileSpreadsheet className="w-4 h-4 mr-1" />
+            Excel
+          </Button>
         </div>
       </div>
 
@@ -725,7 +963,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
             <DialogTitle>Bill Details - {viewBill?.billNo}</DialogTitle>
           </DialogHeader>
           {viewBill && (
-            <div className="space-y-4">
+            <div className="space-y-4" ref={billPrintRef}>
               <div
                 className="text-center border-b border-border pb-3"
                 id="bill-print"
@@ -918,10 +1156,40 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
               )}
             </div>
           )}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => window.print()}>
+          <DialogFooter className="flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => viewBill && printBillReceipt(viewBill, "print")}
+              data-ocid="bills.print.button"
+            >
               <Printer className="w-4 h-4 mr-2" />
               Print
+            </Button>
+            <Button
+              onClick={handleBillDownloadPDF}
+              disabled={!!billDownloading}
+              data-ocid="bills.download_pdf.button"
+            >
+              <FileDown className="w-4 h-4 mr-2" />
+              {billDownloading === "pdf" ? "Downloading..." : "PDF"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleBillDownloadJPEG}
+              disabled={!!billDownloading}
+              data-ocid="bills.download_jpeg.button"
+            >
+              <FileImage className="w-4 h-4 mr-2" />
+              {billDownloading === "jpeg" ? "Downloading..." : "JPEG"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleBillDownloadPNG}
+              disabled={!!billDownloading}
+              data-ocid="bills.download_png.button"
+            >
+              <FileImage className="w-4 h-4 mr-2" />
+              {billDownloading === "png" ? "Downloading..." : "PNG"}
             </Button>
             <Button
               onClick={() => setViewBill(null)}
