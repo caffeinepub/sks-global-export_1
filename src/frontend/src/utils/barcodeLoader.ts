@@ -1,13 +1,54 @@
 /**
- * Loaders for qrcode (bundled) and jsbarcode (CDN fallback).
- * qrcode is now a proper npm dependency — no CDN needed.
+ * Loaders for QRCode and JsBarcode via CDN.
+ * Uses CDN fallback for both since neither is a bundled npm dependency.
  */
 
-import QRCodeLib from "qrcode";
+// ─── QR Code via CDN ──────────────────────────────────────────────────────────
 
-// Re-export the bundled QRCode directly
-export async function loadQRCode() {
-  return QRCodeLib;
+type QRCodeLib = {
+  toCanvas: (
+    canvas: HTMLCanvasElement,
+    text: string,
+    options?: {
+      width?: number;
+      errorCorrectionLevel?: string;
+      color?: { dark?: string; light?: string };
+    },
+  ) => Promise<void>;
+  toDataURL: (
+    text: string,
+    options?: {
+      width?: number;
+      margin?: number;
+      errorCorrectionLevel?: string;
+      color?: { dark?: string; light?: string };
+    },
+  ) => Promise<string>;
+  toString: (
+    text: string,
+    options?: {
+      type?: string;
+      width?: number;
+      margin?: number;
+      errorCorrectionLevel?: string;
+      color?: { dark?: string; light?: string };
+    },
+  ) => Promise<string>;
+};
+
+let qrPromise: Promise<QRCodeLib> | null = null;
+
+export async function loadQRCode(): Promise<QRCodeLib> {
+  if (!qrPromise) {
+    qrPromise = loadScript(
+      "https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js",
+    ).then(() => {
+      const lib = (window as unknown as Record<string, unknown>).QRCode;
+      if (!lib) throw new Error("QRCode not found after script load");
+      return lib as QRCodeLib;
+    });
+  }
+  return qrPromise;
 }
 
 // Cache promise so we only load jsbarcode script once

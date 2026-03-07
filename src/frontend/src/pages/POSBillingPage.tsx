@@ -17,11 +17,14 @@ import { cn } from "@/lib/utils";
 import {
   AlertCircle,
   ArrowRight,
+  CheckCircle2,
   Package,
+  PackageCheck,
   Plus,
   Printer,
   Save,
   Search,
+  Tag,
   Trash2,
   Truck,
   User,
@@ -33,6 +36,7 @@ import { toast } from "sonner";
 import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { useAppStore } from "../hooks/useAppStore";
 import type {
+  AdditionalCharge,
   Bill,
   BillItem,
   CourierBrand,
@@ -89,7 +93,6 @@ function calcTariffPrice(
     const slabs = match.slabs ?? [];
     const grams = weightKg * 1000;
 
-    // Find the first slab whose maxGrams >= grams (null = additional slab)
     const fixedSlabs = slabs.filter((s) => s.maxGrams !== null);
     const addlSlab = slabs.find((s) => s.maxGrams === null);
 
@@ -104,7 +107,6 @@ function calcTariffPrice(
       price = matchedSlab.price;
       slabDesc = `0–${matchedSlab.maxGrams}g`;
     } else if (addlSlab) {
-      // Use last fixed slab as base price, add addl per 500g
       const lastFixed = fixedSlabs[fixedSlabs.length - 1];
       const lastMaxG = lastFixed?.maxGrams ?? 500;
       const lastPrice = lastFixed?.price ?? 0;
@@ -112,7 +114,6 @@ function calcTariffPrice(
       price = lastPrice + addlUnits * addlSlab.price;
       slabDesc = `${lastMaxG}g + ${addlUnits}×500g extra`;
     } else if (fixedSlabs.length > 0) {
-      // Weight exceeds all fixed slabs and no addl slab — use last fixed
       const lastFixed = fixedSlabs[fixedSlabs.length - 1];
       price = lastFixed.price;
       slabDesc = `>${fixedSlabs[fixedSlabs.length - 2]?.maxGrams ?? 0}g`;
@@ -228,6 +229,14 @@ interface CourierFormState {
   useTariff: boolean;
 }
 
+// AWB check status for manual entry
+type AWBStatus =
+  | "idle"
+  | "in_stock"
+  | "not_in_stock"
+  | "duplicate_bill"
+  | "duplicate_current";
+
 interface POSBillingPageProps {
   onNavigate: (page: string) => void;
 }
@@ -264,8 +273,24 @@ export function POSBillingPage({
   const [productSearch, setProductSearch] = useState("");
   const [slipItem, setSlipItem] = useState<BillItem | null>(null);
 
+  // Bill-level discount
+  const [billDiscount, setBillDiscount] = useState(0);
+
+  // Additional charges
+  const [additionalCharges, setAdditionalCharges] = useState<
+    AdditionalCharge[]
+  >([]);
+
   // SKS own-brand: Domestic (D) or International (W)
   const [sksIsInternational, setSksIsInternational] = useState(false);
+
+  // Manual AWB entry for partner brands
+  const [manualAWBInput, setManualAWBInput] = useState("");
+  const [awbStatus, setAWBStatus] = useState<AWBStatus>("idle");
+  const [awbDuplicateInfo, setAWBDuplicateInfo] = useState<{
+    senderName: string;
+    date: string;
+  } | null>(null);
 
   // AWB duplicate warning: stores the duplicate bill item if detected
   const [duplicateAWBWarning, setDuplicateAWBWarning] = useState<{
@@ -329,7 +354,6 @@ export function POSBillingPage({
   });
 
   // Auto-fill sender details when customer is selected and a brand is chosen.
-  // Uses functional setState so we don't need courierForm in the deps array.
   useEffect(() => {
     if (!selectedBrand) {
       setPincodeData(null);
@@ -417,28 +441,74 @@ export function POSBillingPage({
   };
 
   // Helper: find if an AWB serial has already been used in any saved bill
-  const findDuplicateAWBInBills = (
-    awb: string,
-  ): { senderName: string; date: string } | null => {
-    for (const bill of bills) {
-      for (const item of bill.items) {
-        if (item.productType === "courier_awb" && item.awbSerial === awb) {
-          return {
-            senderName: item.senderName || bill.customerName || "Unknown",
-            date: bill.date,
-          };
+  const findDuplicateAWBInBills = useCallback(
+    (awb: string): { senderName: string; date: string } | null => {
+      for (const bill of bills) {
+        for (const item of bill.items) {
+          if (item.productType === "courier_awb" && item.awbSerial === awb) {
+            return {
+              senderName: item.senderName || bill.customerName || "Unknown",
+              date: bill.date,
+            };
+          }
         }
       }
-    }
-    return null;
-  };
+      return null;
+    },
+    [bills],
+  );
 
   // Helper: find if AWB is already in the current unsaved bill items
-  const findDuplicateAWBInCurrentBill = (awb: string): boolean => {
-    return billItems.some(
-      (i) => i.productType === "courier_awb" && i.awbSerial === awb,
-    );
-  };
+  const findDuplicateAWBInCurrentBill = useCallback(
+    (awb: string): boolean => {
+      return billItems.some(
+        (i) => i.productType === "courier_awb" && i.awbSerial === awb,
+      );
+    },
+    [billItems],
+  );
+
+  // Check if AWB is in inventory stock for a brand
+  const checkAWBInStock = useCallback(
+    (brandId: string, awb: string): boolean => {
+      return awbSerials.some(
+        (r) => r.brandId === brandId && r.availableSerials.includes(awb),
+      );
+    },
+    [awbSerials],
+  );
+
+  // Run AWB validation checks on input change
+  const validateManualAWB = useCallback(
+    (awb: string, brandId: string) => {
+      if (!awb.trim()) {
+        setAWBStatus("idle");
+        setAWBDuplicateInfo(null);
+        return;
+      }
+
+      // Check duplicate in saved bills
+      const dup = findDuplicateAWBInBills(awb.trim());
+      if (dup) {
+        setAWBStatus("duplicate_bill");
+        setAWBDuplicateInfo(dup);
+        return;
+      }
+
+      // Check duplicate in current bill
+      if (findDuplicateAWBInCurrentBill(awb.trim())) {
+        setAWBStatus("duplicate_current");
+        setAWBDuplicateInfo(null);
+        return;
+      }
+
+      // Check in stock
+      const inStock = checkAWBInStock(brandId, awb.trim());
+      setAWBStatus(inStock ? "in_stock" : "not_in_stock");
+      setAWBDuplicateInfo(null);
+    },
+    [findDuplicateAWBInBills, findDuplicateAWBInCurrentBill, checkAWBInStock],
+  );
 
   const addCourierWithDetails = () => {
     if (!selectedBrand) return;
@@ -457,28 +527,42 @@ export function POSBillingPage({
       const serial = incrementSKSDailyCounter(activeCompanyId, date);
       awbSerial = buildSKSAWB(serial, date, sksIsInternational);
     } else {
-      const nextSerial = getNextAWBSerial(selectedBrand.id);
-      if (!nextSerial) {
+      // Manual AWB entry for partner brands
+      const trimmed = manualAWBInput.trim();
+      if (!trimmed) {
+        toast.error("Please enter or scan the AWB number");
+        return;
+      }
+
+      // Block if duplicate in saved bills
+      if (awbStatus === "duplicate_bill") {
         toast.error(
-          `No AWB serials available for ${selectedBrand.brandName}. Please add stock in Inventory.`,
+          `AWB ${trimmed} already used by ${awbDuplicateInfo?.senderName}. Cannot book.`,
         );
         return;
       }
-      awbSerial = nextSerial;
+
+      // Block if duplicate in current bill
+      if (awbStatus === "duplicate_current") {
+        toast.error(`AWB ${trimmed} is already in the current bill.`);
+        return;
+      }
+
+      awbSerial = trimmed;
     }
 
-    // Duplicate AWB check — check saved bills
-    const dupInBills = findDuplicateAWBInBills(awbSerial);
-    if (dupInBills) {
-      setDuplicateAWBWarning({ awb: awbSerial, ...dupInBills });
-      toast.error(`AWB ${awbSerial} already used! Duplicate entry blocked.`);
-      return;
-    }
-
-    // Duplicate check in current unsaved bill
-    if (findDuplicateAWBInCurrentBill(awbSerial)) {
-      toast.error(`AWB ${awbSerial} is already added in the current bill.`);
-      return;
+    // Duplicate AWB check — check saved bills (extra safety for own-brand)
+    if (isOwnBrand) {
+      const dupInBills = findDuplicateAWBInBills(awbSerial);
+      if (dupInBills) {
+        setDuplicateAWBWarning({ awb: awbSerial, ...dupInBills });
+        toast.error(`AWB ${awbSerial} already used! Duplicate entry blocked.`);
+        return;
+      }
+      if (findDuplicateAWBInCurrentBill(awbSerial)) {
+        toast.error(`AWB ${awbSerial} is already added in the current bill.`);
+        return;
+      }
     }
 
     const brandTransportMode =
@@ -504,13 +588,10 @@ export function POSBillingPage({
       courierForm.height,
     );
 
-    // Determine price — use tariff if enabled, otherwise brand's selling price
-    // Check customer-specific override first, then standard tariff, then brand price
-    // Tariff rates may be GST-inclusive, so extract base price from the tariff amount
+    // Determine price
     let unitPrice = selectedBrand.sellingPrice;
     let totalPrice = selectedBrand.sellingPrice;
 
-    // Check for customer-specific tariff override (when tariff mode is active)
     const customerOverride =
       courierForm.useTariff && courierForm.weight
         ? getCustomerTariffOverride(
@@ -521,7 +602,6 @@ export function POSBillingPage({
         : null;
 
     if (customerOverride !== null) {
-      // Use customer-specific price (treat same as tariff for GST extraction)
       const matchedTariff = tariffs.find(
         (t) =>
           t.brandName.toLowerCase() === selectedBrand.brandName.toLowerCase() &&
@@ -549,7 +629,6 @@ export function POSBillingPage({
         Number(courierForm.weight),
       );
       if (tariffResult.price > 0) {
-        // Find the matching tariff to check GST-inclusive flag
         const matchedTariff = tariffs.find(
           (t) =>
             t.brandName.toLowerCase() ===
@@ -561,7 +640,6 @@ export function POSBillingPage({
         );
         const gstRate = selectedBrand.gstRate || 0;
         if (matchedTariff?.isGSTInclusive && gstRate > 0) {
-          // Tariff is GST-inclusive — extract base price so billing system can re-add GST correctly
           const basePrice =
             Math.round((tariffResult.price / (1 + gstRate / 100)) * 100) / 100;
           unitPrice = basePrice;
@@ -573,7 +651,7 @@ export function POSBillingPage({
       }
     }
 
-    // Determine which weight is higher — actual or volumetric
+    // Weight display
     const actualWtKg = Number.parseFloat(courierForm.weight) || 0;
     const volWtKg = calcVolumetricWeight(
       courierForm.length,
@@ -584,7 +662,6 @@ export function POSBillingPage({
     const weightLabel =
       displayWeightKg > 0 ? `${displayWeightKg.toFixed(3)} kg` : "";
 
-    // Format booking date
     const bookingDateFormatted = (() => {
       try {
         return new Date(date).toLocaleDateString("en-IN", {
@@ -597,7 +674,6 @@ export function POSBillingPage({
       }
     })();
 
-    // Description: Receiver Name - Destination Pincode - Weight - Booking Date
     const description = [
       courierForm.receiverName,
       courierForm.receiverPincode || "",
@@ -611,7 +687,7 @@ export function POSBillingPage({
       id: generateId(),
       productId: selectedBrand.id,
       productType: "courier_awb",
-      productName: awbSerial, // Item name = AWB No
+      productName: awbSerial,
       description,
       quantity: 1,
       unit: "Piece",
@@ -633,19 +709,26 @@ export function POSBillingPage({
       chargeableWeightKg: chargeableWt,
     };
 
-    // Only consume inventory serial for partner brands (not own-brand)
+    // Consume AWB from inventory for partner brands if in stock
     if (!isOwnBrand) {
-      consumeAWBSerial(selectedBrand.id, awbSerial);
+      if (awbStatus === "in_stock") {
+        consumeAWBSerial(selectedBrand.id, awbSerial);
+      }
+      // If not in stock, allow override without consuming
     }
+
     setBillItems((prev) => [...prev, item]);
     setDuplicateAWBWarning(null);
-    toast.success(`AWB ${awbSerial} assigned — ${selectedBrand.brandName}`);
+    toast.success(`AWB ${awbSerial} added — ${selectedBrand.brandName}`);
 
     // Reset courier form
     setSelectedBrand(null);
     setPincodeData(null);
     setPincodeLoading(false);
     setSksIsInternational(false);
+    setManualAWBInput("");
+    setAWBStatus("idle");
+    setAWBDuplicateInfo(null);
     setDuplicateAWBWarning(null);
     setCourierForm({
       senderName: "",
@@ -666,17 +749,6 @@ export function POSBillingPage({
       useTariff: false,
     });
   };
-
-  const getNextAWBSerial = useCallback(
-    (brandId: string): string | null => {
-      const ranges = awbSerials.filter(
-        (r) => r.brandId === brandId && r.availableSerials.length > 0,
-      );
-      if (ranges.length === 0) return null;
-      return ranges[0].availableSerials[0];
-    },
-    [awbSerials],
-  );
 
   const consumeAWBSerial = (brandId: string, serial: string) => {
     const range = awbSerials.find(
@@ -699,7 +771,8 @@ export function POSBillingPage({
             ? {
                 ...i,
                 quantity: i.quantity + 1,
-                totalPrice: (i.quantity + 1) * i.unitPrice,
+                totalPrice:
+                  (i.quantity + 1) * i.unitPrice - (i.discountAmount || 0),
               }
             : i,
         ),
@@ -756,11 +829,23 @@ export function POSBillingPage({
       return;
     }
     setBillItems(
-      billItems.map((i) =>
-        i.id === itemId
-          ? { ...i, quantity: qty, totalPrice: qty * i.unitPrice }
-          : i,
-      ),
+      billItems.map((i) => {
+        if (i.id !== itemId) return i;
+        const rawTotal = qty * i.unitPrice;
+        const discAmt =
+          i.discountType === "percent"
+            ? Math.round(rawTotal * ((i.discountValue || 0) / 100) * 100) / 100
+            : i.discountAmount || 0;
+        return {
+          ...i,
+          quantity: qty,
+          discountAmount:
+            i.discountType === "percent" ? discAmt : i.discountAmount,
+          totalPrice:
+            rawTotal -
+            (i.discountType === "percent" ? discAmt : i.discountAmount || 0),
+        };
+      }),
     );
   };
 
@@ -770,10 +855,34 @@ export function POSBillingPage({
     );
   };
 
+  // Per-item discount helper
+  const updateItemDiscount = (
+    itemId: string,
+    type: "amount" | "percent",
+    value: number,
+  ) => {
+    setBillItems(
+      billItems.map((i) => {
+        if (i.id !== itemId) return i;
+        const rawTotal = i.quantity * i.unitPrice;
+        const discAmt =
+          type === "percent"
+            ? Math.round(rawTotal * (value / 100) * 100) / 100
+            : Math.min(value, rawTotal);
+        return {
+          ...i,
+          discountType: type,
+          discountValue: value,
+          discountAmount: discAmt,
+          totalPrice: Math.max(0, rawTotal - discAmt),
+        };
+      }),
+    );
+  };
+
   const removeItem = (itemId: string) => {
     const item = billItems.find((i) => i.id === itemId);
     if (item?.productType === "courier_awb" && item.awbSerial) {
-      // Only return serial to available for partner brands (not own-brand)
       const brand = products.find((p) => p.id === item.productId) as
         | CourierBrand
         | undefined;
@@ -796,8 +905,38 @@ export function POSBillingPage({
     setBillItems(billItems.filter((i) => i.id !== itemId));
   };
 
-  const subtotal = billItems.reduce((sum, i) => sum + i.totalPrice, 0);
-  const total = subtotal;
+  // ─── Additional Charges helpers ────────────────────────────────────────────
+  const addPresetCharge = (label: string) => {
+    setAdditionalCharges((prev) => [
+      ...prev,
+      { id: generateId(), label, amount: 0, showInBill: true },
+    ]);
+  };
+
+  const updateCharge = (id: string, updates: Partial<AdditionalCharge>) => {
+    setAdditionalCharges((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, ...updates } : c)),
+    );
+  };
+
+  const removeCharge = (id: string) => {
+    setAdditionalCharges((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  // ─── Bill totals ────────────────────────────────────────────────────────────
+  const subtotalBeforeDiscounts = billItems.reduce(
+    (sum, i) => sum + i.quantity * i.unitPrice,
+    0,
+  );
+  const totalItemDiscounts = billItems.reduce(
+    (sum, i) => sum + (i.discountAmount || 0),
+    0,
+  );
+  const netItemsTotal = subtotalBeforeDiscounts - totalItemDiscounts;
+  const visibleChargesTotal = additionalCharges
+    .filter((c) => c.showInBill)
+    .reduce((sum, c) => sum + c.amount, 0);
+  const total = Math.max(0, netItemsTotal + visibleChargesTotal - billDiscount);
   const paid = Number(amountPaid) || 0;
   const balance = total - paid;
 
@@ -816,6 +955,28 @@ export function POSBillingPage({
       return;
     }
 
+    // Distribute hidden charges proportionally into item totalPrice
+    const hiddenChargesTotal = additionalCharges
+      .filter((c) => !c.showInBill)
+      .reduce((sum, c) => sum + c.amount, 0);
+
+    let finalItems = billItems;
+    if (hiddenChargesTotal !== 0 && netItemsTotal > 0) {
+      finalItems = billItems.map((item) => {
+        const share = item.totalPrice / netItemsTotal;
+        const addedAmount = Math.round(hiddenChargesTotal * share * 100) / 100;
+        return {
+          ...item,
+          totalPrice: Math.max(0, item.totalPrice + addedAmount),
+        };
+      });
+    }
+
+    const finalSubtotal = finalItems.reduce((sum, i) => sum + i.totalPrice, 0);
+    const visibleCharges = additionalCharges.filter((c) => c.showInBill);
+    const visibleTotal = visibleCharges.reduce((sum, c) => sum + c.amount, 0);
+    const finalTotal = Math.max(0, finalSubtotal + visibleTotal - billDiscount);
+
     const billNo = generateBillNo(settings.billPrefix, settings.billSeq);
     const customerId = selectedCustomer?.id || `walking_${generateId()}`;
     const customerName =
@@ -832,13 +993,16 @@ export function POSBillingPage({
       customerName,
       customerType,
       date,
-      items: billItems,
-      subtotal,
-      total,
+      items: finalItems,
+      subtotal: finalSubtotal,
+      total: finalTotal,
+      billDiscount: billDiscount > 0 ? billDiscount : undefined,
+      additionalCharges: visibleCharges.length > 0 ? visibleCharges : undefined,
       paymentMethod,
-      paymentStatus: paid >= total ? "paid" : paid > 0 ? "partial" : "pending",
+      paymentStatus:
+        paid >= finalTotal ? "paid" : paid > 0 ? "partial" : "pending",
       amountPaid: paid,
-      balanceDue: Math.max(0, balance),
+      balanceDue: Math.max(0, finalTotal - paid),
       notes: notes || undefined,
       isInvoiced: false,
     };
@@ -860,6 +1024,8 @@ export function POSBillingPage({
     setNotes("");
     setAmountPaid("");
     setPaymentMethod("cash");
+    setBillDiscount(0);
+    setAdditionalCharges([]);
   };
 
   const customerName = selectedCustomer?.name || walkingName || "";
@@ -889,6 +1055,7 @@ export function POSBillingPage({
                   onFocus={() => setShowCustomerSearch(true)}
                   placeholder="Search customer..."
                   className="pl-9 text-sm"
+                  data-ocid="pos.customer.search_input"
                 />
               </div>
               {showCustomerSearch && customerSearch && (
@@ -931,6 +1098,7 @@ export function POSBillingPage({
                   placeholder="Name"
                   className="text-sm"
                   disabled={!!selectedCustomer}
+                  data-ocid="pos.walking.input"
                 />
                 <Input
                   value={walkingPhone}
@@ -976,6 +1144,7 @@ export function POSBillingPage({
                 onChange={(e) => setProductSearch(e.target.value)}
                 placeholder="Search products..."
                 className="pl-9 text-sm"
+                data-ocid="pos.product.search_input"
               />
             </div>
           </div>
@@ -1041,9 +1210,9 @@ export function POSBillingPage({
                 {/* Brand Cards Grid */}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-52 overflow-y-auto pr-1">
                   {courierBrands.map((brand) => {
-                    const nextSerial = getNextAWBSerial(brand.id);
                     const style = getBrandStyle(brand.brandName);
                     const isSelected = selectedBrand?.id === brand.id;
+                    const isOwn = brand.isOwnBrand === true;
                     return (
                       <button
                         type="button"
@@ -1052,8 +1221,14 @@ export function POSBillingPage({
                           if (isSelected) {
                             setSelectedBrand(null);
                             setPincodeData(null);
+                            setManualAWBInput("");
+                            setAWBStatus("idle");
+                            setAWBDuplicateInfo(null);
                           } else {
                             setSelectedBrand(brand);
+                            setManualAWBInput("");
+                            setAWBStatus("idle");
+                            setAWBDuplicateInfo(null);
                             const tm =
                               (
                                 brand as CourierBrand & {
@@ -1066,7 +1241,6 @@ export function POSBillingPage({
                                 : tm === "Surface"
                                   ? "Surface"
                                   : brand.serviceModes[0] || "";
-                            // Auto-fill sender from current customer selection
                             const senderName =
                               selectedCustomer?.name || walkingName || "";
                             const senderPhone =
@@ -1110,17 +1284,13 @@ export function POSBillingPage({
                           <span className="text-sm font-bold text-primary">
                             {formatCurrency(brand.sellingPrice)}
                           </span>
-                          {brand.isOwnBrand ? (
+                          {isOwn ? (
                             <span className="text-xs bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-semibold">
                               Auto
                             </span>
-                          ) : nextSerial ? (
-                            <span className="text-xs bg-green-50 text-green-700 px-1.5 py-0.5 rounded font-mono">
-                              ✓
-                            </span>
                           ) : (
-                            <span className="text-xs bg-red-50 text-red-700 px-1.5 py-0.5 rounded">
-                              ✗
+                            <span className="text-xs bg-slate-50 text-slate-600 px-1.5 py-0.5 rounded font-medium">
+                              Manual AWB
                             </span>
                           )}
                         </div>
@@ -1144,9 +1314,6 @@ export function POSBillingPage({
                   (() => {
                     const isOwnBrand =
                       (selectedBrand as CourierBrand).isOwnBrand === true;
-                    const nextSerial = isOwnBrand
-                      ? "__own__"
-                      : getNextAWBSerial(selectedBrand.id);
                     const volWt = calcVolumetricWeight(
                       courierForm.length,
                       courierForm.width,
@@ -1159,7 +1326,8 @@ export function POSBillingPage({
                       courierForm.height,
                     );
                     const style = getBrandStyle(selectedBrand.brandName);
-                    // Preview the SKS AWB that will be generated (counter is NOT incremented here — just a preview)
+
+                    // Preview the SKS AWB that will be generated
                     const { dateToDdMmYy } = (() => {
                       const dd = String(new Date(date).getDate()).padStart(
                         2,
@@ -1181,6 +1349,15 @@ export function POSBillingPage({
                     const previewAWB = isOwnBrand
                       ? `SKS${String(getSKSDailyCounter + 1).padStart(3, "0")}${sksIsInternational ? "W" : "D"}${dateToDdMmYy}`
                       : null;
+
+                    // Determine if Add to Bill should be disabled
+                    const canAdd = isOwnBrand
+                      ? true
+                      : awbStatus !== "idle" &&
+                        awbStatus !== "duplicate_bill" &&
+                        awbStatus !== "duplicate_current" &&
+                        manualAWBInput.trim() !== "";
+
                     return (
                       <div className="border border-primary/30 rounded-xl p-4 bg-primary/2 space-y-4">
                         {/* Header */}
@@ -1218,6 +1395,9 @@ export function POSBillingPage({
                             onClick={() => {
                               setSelectedBrand(null);
                               setDuplicateAWBWarning(null);
+                              setManualAWBInput("");
+                              setAWBStatus("idle");
+                              setAWBDuplicateInfo(null);
                             }}
                             className="text-muted-foreground hover:text-foreground"
                           >
@@ -1225,7 +1405,94 @@ export function POSBillingPage({
                           </button>
                         </div>
 
-                        {/* Duplicate AWB Warning */}
+                        {/* ── MANUAL AWB ENTRY (partner brands only) ── */}
+                        {!isOwnBrand && (
+                          <div className="space-y-2">
+                            <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              AWB Number *
+                            </Label>
+                            <div className="flex gap-2">
+                              <div className="relative flex-1">
+                                <Input
+                                  value={manualAWBInput}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setManualAWBInput(val);
+                                    validateManualAWB(val, selectedBrand.id);
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") {
+                                      validateManualAWB(
+                                        manualAWBInput,
+                                        selectedBrand.id,
+                                      );
+                                    }
+                                  }}
+                                  placeholder="Scan or enter AWB number..."
+                                  className="text-sm font-mono pr-8"
+                                  autoFocus
+                                  data-ocid="courier.awb.input"
+                                />
+                                {awbStatus !== "idle" && (
+                                  <div className="absolute right-2 top-1/2 -translate-y-1/2">
+                                    {awbStatus === "in_stock" && (
+                                      <CheckCircle2 className="w-4 h-4 text-green-600" />
+                                    )}
+                                    {awbStatus === "not_in_stock" && (
+                                      <AlertCircle className="w-4 h-4 text-amber-500" />
+                                    )}
+                                    {(awbStatus === "duplicate_bill" ||
+                                      awbStatus === "duplicate_current") && (
+                                      <AlertCircle className="w-4 h-4 text-red-600" />
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* AWB status feedback */}
+                            {awbStatus === "in_stock" && (
+                              <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-2 py-1.5">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                                AWB in stock — ready to book
+                              </div>
+                            )}
+                            {awbStatus === "not_in_stock" && (
+                              <div className="flex items-center gap-1.5 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                Not in inventory — will add anyway (override
+                                mode)
+                              </div>
+                            )}
+                            {awbStatus === "duplicate_current" && (
+                              <div className="flex items-center gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                                <AlertCircle className="w-3.5 h-3.5" />
+                                AWB already added in current bill
+                              </div>
+                            )}
+                            {awbStatus === "duplicate_bill" &&
+                              awbDuplicateInfo && (
+                                <div className="flex items-start gap-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                                  <span>
+                                    Already booked by{" "}
+                                    <strong>
+                                      {awbDuplicateInfo.senderName}
+                                    </strong>{" "}
+                                    on{" "}
+                                    <strong>
+                                      {new Date(
+                                        awbDuplicateInfo.date,
+                                      ).toLocaleDateString("en-IN")}
+                                    </strong>
+                                    . Cannot use this AWB.
+                                  </span>
+                                </div>
+                              )}
+                          </div>
+                        )}
+
+                        {/* Duplicate AWB Warning (own brand) */}
                         {duplicateAWBWarning && (
                           <div className="flex items-start gap-2 bg-red-50 border border-red-300 rounded-lg px-3 py-2.5">
                             <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
@@ -1588,7 +1855,6 @@ export function POSBillingPage({
                               <Label className="text-xs">
                                 Mode of Transport
                               </Label>
-                              {/* If brand has fixed single transport mode, show read-only badge; if Both, show selector */}
                               {(() => {
                                 const tm =
                                   (
@@ -1614,7 +1880,6 @@ export function POSBillingPage({
                                     </div>
                                   );
                                 }
-                                // Both — show selector
                                 return (
                                   <Select
                                     value={courierForm.serviceMode || "Air"}
@@ -1640,9 +1905,12 @@ export function POSBillingPage({
                                         .filter(
                                           (m) => m !== "Air" && m !== "Surface",
                                         )
-                                        .map((mode) => (
-                                          <SelectItem key={mode} value={mode}>
-                                            {mode}
+                                        .map((svcMode) => (
+                                          <SelectItem
+                                            key={svcMode}
+                                            value={svcMode}
+                                          >
+                                            {svcMode}
                                           </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -1653,12 +1921,11 @@ export function POSBillingPage({
                           )}
                         </div>
 
-                        {/* Tariff Toggle — for any brand with tariff entries */}
+                        {/* Tariff Toggle */}
                         {brandsWithTariffs.has(
                           selectedBrand.brandName.toLowerCase(),
                         ) &&
                           (() => {
-                            // Dynamic zones and product types from stored tariffs for this brand
                             const brandTariffs = tariffs.filter(
                               (t) =>
                                 t.brandName.toLowerCase() ===
@@ -1718,7 +1985,6 @@ export function POSBillingPage({
                                           setCourierForm((p) => ({
                                             ...p,
                                             tariffProductType: v,
-                                            // reset zone when product type changes
                                             tariffZone:
                                               brandTariffs.find(
                                                 (t) => t.productType === v,
@@ -1796,7 +2062,6 @@ export function POSBillingPage({
 
                           const gstRate = selectedBrand.gstRate || 0;
 
-                          // Find the matching tariff to check GST-inclusive flag
                           const matchedTariff = hasTariff
                             ? tariffs.find(
                                 (t) =>
@@ -1812,7 +2077,6 @@ export function POSBillingPage({
                           const isGSTInclusive =
                             matchedTariff?.isGSTInclusive ?? false;
 
-                          // Check for customer-specific override
                           const custOverride = hasTariff
                             ? getCustomerTariffOverride(
                                 selectedBrand.brandName,
@@ -1821,7 +2085,6 @@ export function POSBillingPage({
                               )
                             : null;
 
-                          // Determine effective tariff total (customer override takes precedence)
                           const effectiveTariffTotal =
                             custOverride !== null
                               ? custOverride
@@ -1829,7 +2092,6 @@ export function POSBillingPage({
                                 ? tariffResult.price
                                 : null;
 
-                          // Tariff total and breakdown
                           const tariffTotal = effectiveTariffTotal;
                           const tariffBase =
                             tariffTotal && gstRate > 0 && isGSTInclusive
@@ -1842,7 +2104,6 @@ export function POSBillingPage({
                               ? tariffTotal - tariffBase
                               : 0;
 
-                          // Non-tariff: base price + GST added on top
                           const basePrice = selectedBrand.sellingPrice;
                           const gstOnBase = (basePrice * gstRate) / 100;
                           const totalNonTariff = basePrice + gstOnBase;
@@ -1860,7 +2121,6 @@ export function POSBillingPage({
                                 )}
                               </div>
 
-                              {/* Breakdown line when tariff is active */}
                               {tariffResult && custOverride === null && (
                                 <p className="text-xs italic text-muted-foreground">
                                   {tariffResult.breakdown}
@@ -1873,7 +2133,6 @@ export function POSBillingPage({
                                 </p>
                               )}
 
-                              {/* Warning if weight exceeds max for zone */}
                               {tariffResult?.warning && (
                                 <div className="flex items-center gap-1.5">
                                   <AlertCircle className="w-3.5 h-3.5 text-amber-600 flex-shrink-0" />
@@ -1884,7 +2143,6 @@ export function POSBillingPage({
                               )}
 
                               {hasTariff && tariffTotal ? (
-                                // Tariff active: show tariff breakdown
                                 <>
                                   <div className="flex justify-between text-xs">
                                     <span className="text-muted-foreground">
@@ -1934,7 +2192,6 @@ export function POSBillingPage({
                                   )}
                                 </>
                               ) : (
-                                // No tariff: base + GST added on top
                                 <>
                                   <div className="flex justify-between text-xs">
                                     <span className="text-muted-foreground">
@@ -1963,7 +2220,8 @@ export function POSBillingPage({
                                 </>
                               )}
 
-                              <div className="flex justify-between text-xs">
+                              {/* AWB Serial info */}
+                              <div className="flex justify-between text-xs pt-1 border-t border-border/50">
                                 <span className="text-muted-foreground">
                                   AWB Serial
                                 </span>
@@ -1972,14 +2230,20 @@ export function POSBillingPage({
                                     "font-mono",
                                     isOwnBrand
                                       ? "text-blue-700"
-                                      : nextSerial
+                                      : awbStatus === "in_stock"
                                         ? "text-green-700"
-                                        : "text-red-600",
+                                        : awbStatus === "not_in_stock"
+                                          ? "text-amber-600"
+                                          : awbStatus === "duplicate_bill" ||
+                                              awbStatus === "duplicate_current"
+                                            ? "text-red-600"
+                                            : "text-muted-foreground",
                                   )}
                                 >
                                   {isOwnBrand
                                     ? (previewAWB ?? "Auto-generated")
-                                    : nextSerial || "No serials available"}
+                                    : manualAWBInput.trim() ||
+                                      "Enter AWB above"}
                                 </span>
                               </div>
                             </div>
@@ -1990,10 +2254,16 @@ export function POSBillingPage({
                         <Button
                           className="w-full"
                           onClick={addCourierWithDetails}
-                          disabled={!isOwnBrand && !nextSerial}
+                          disabled={isOwnBrand ? false : !canAdd}
+                          data-ocid="courier.add_to_bill.primary_button"
                         >
                           <Plus className="w-4 h-4 mr-2" />
                           Add to Bill
+                          {!isOwnBrand && awbStatus === "not_in_stock" && (
+                            <span className="ml-1 text-[10px] opacity-80">
+                              (Override)
+                            </span>
+                          )}
                         </Button>
                       </div>
                     );
@@ -2060,16 +2330,20 @@ export function POSBillingPage({
             Bill Items ({billItems.length})
           </h3>
           {billItems.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div
+              className="text-center py-8 text-muted-foreground"
+              data-ocid="pos.items.empty_state"
+            >
               <Package className="w-10 h-10 mx-auto mb-2 opacity-30" />
               <p className="text-sm">No items added yet</p>
             </div>
           ) : (
             <div className="space-y-2">
-              {billItems.map((item) => (
+              {billItems.map((item, idx) => (
                 <div
                   key={item.id}
                   className="border border-border rounded-lg p-3"
+                  data-ocid={`pos.items.item.${idx + 1}`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -2085,7 +2359,6 @@ export function POSBillingPage({
                         >
                           {item.productName}
                         </p>
-                        {/* Only show AWB badge if productName is NOT already the AWB serial */}
                         {item.awbSerial &&
                           item.productName !== item.awbSerial && (
                             <Badge variant="outline" className="text-xs">
@@ -2138,6 +2411,58 @@ export function POSBillingPage({
                           @ {formatCurrency(item.unitPrice)}
                         </span>
                       </div>
+
+                      {/* Per-item discount row */}
+                      <div className="flex items-center gap-2 mt-2">
+                        <Tag className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                        <span className="text-xs text-muted-foreground">
+                          Discount:
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newType =
+                              item.discountType === "percent"
+                                ? "amount"
+                                : "percent";
+                            updateItemDiscount(
+                              item.id,
+                              newType,
+                              item.discountValue || 0,
+                            );
+                          }}
+                          className={cn(
+                            "text-xs px-1.5 py-0.5 rounded border font-mono font-semibold transition-colors",
+                            item.discountType === "percent"
+                              ? "bg-violet-100 text-violet-700 border-violet-200"
+                              : "bg-blue-50 text-blue-700 border-blue-200",
+                          )}
+                        >
+                          {item.discountType === "percent" ? "%" : "₹"}
+                        </button>
+                        <Input
+                          type="number"
+                          value={item.discountValue || ""}
+                          onChange={(e) => {
+                            const val = Number(e.target.value) || 0;
+                            updateItemDiscount(
+                              item.id,
+                              item.discountType || "amount",
+                              val,
+                            );
+                          }}
+                          placeholder="0"
+                          className="w-16 h-6 text-xs p-1 text-center"
+                          min="0"
+                          data-ocid={`pos.items.discount_input.${idx + 1}`}
+                        />
+                        {(item.discountAmount || 0) > 0 && (
+                          <span className="text-xs text-amber-600 font-medium">
+                            – {formatCurrency(item.discountAmount!)}
+                          </span>
+                        )}
+                      </div>
+
                       {/* Optional description */}
                       <Input
                         value={item.description || ""}
@@ -2152,6 +2477,11 @@ export function POSBillingPage({
                       <p className="text-sm font-bold text-foreground">
                         {formatCurrency(item.totalPrice)}
                       </p>
+                      {(item.discountAmount || 0) > 0 && (
+                        <p className="text-xs text-muted-foreground line-through">
+                          {formatCurrency(item.quantity * item.unitPrice)}
+                        </p>
+                      )}
                       <div className="flex items-center gap-1 mt-1 justify-end">
                         {item.productType === "courier_awb" && (
                           <button
@@ -2168,6 +2498,7 @@ export function POSBillingPage({
                           type="button"
                           className="text-destructive hover:text-destructive/80"
                           onClick={() => removeItem(item.id)}
+                          data-ocid={`pos.items.delete_button.${idx + 1}`}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
@@ -2176,6 +2507,114 @@ export function POSBillingPage({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+
+        {/* Additional Charges Section */}
+        <div className="bg-white rounded-xl border border-border p-4 shadow-xs">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-foreground flex items-center gap-2">
+              <PackageCheck className="w-4 h-4 text-primary" /> Additional
+              Charges
+            </h3>
+          </div>
+
+          {/* Quick-add preset buttons */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            {["Packing", "Pickup", "Old Balance", "Wastage"].map((label) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => addPresetCharge(label)}
+                className="text-xs px-2.5 py-1 rounded-full border border-primary/30 text-primary hover:bg-primary/10 transition-colors font-medium"
+                data-ocid={`pos.charges.${label.toLowerCase().replace(" ", "_")}.button`}
+              >
+                + {label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => addPresetCharge("Custom Charge")}
+              className="text-xs px-2.5 py-1 rounded-full border border-dashed border-muted-foreground/40 text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+              data-ocid="pos.charges.custom.button"
+            >
+              + Custom
+            </button>
+          </div>
+
+          {/* Charges list */}
+          {additionalCharges.length === 0 ? (
+            <p className="text-xs text-muted-foreground text-center py-3">
+              No additional charges
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {additionalCharges.map((charge, idx) => (
+                <div
+                  key={charge.id}
+                  className="flex items-center gap-2 p-2 rounded-lg bg-muted/30 border border-border"
+                  data-ocid={`pos.charges.item.${idx + 1}`}
+                >
+                  <Input
+                    value={charge.label}
+                    onChange={(e) =>
+                      updateCharge(charge.id, { label: e.target.value })
+                    }
+                    className="h-7 text-xs flex-1 min-w-0 bg-white"
+                    placeholder="Charge label"
+                  />
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <span className="text-xs text-muted-foreground">₹</span>
+                    <Input
+                      type="number"
+                      value={charge.amount || ""}
+                      onChange={(e) =>
+                        updateCharge(charge.id, {
+                          amount: Number(e.target.value) || 0,
+                        })
+                      }
+                      className="h-7 text-xs w-20 text-center bg-white"
+                      placeholder="0"
+                      data-ocid={`pos.charges.amount_input.${idx + 1}`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
+                    <Switch
+                      checked={charge.showInBill}
+                      onCheckedChange={(checked) =>
+                        updateCharge(charge.id, { showInBill: checked })
+                      }
+                      className="data-[state=checked]:bg-green-600 h-4 w-8"
+                      data-ocid={`pos.charges.show_in_bill.switch.${idx + 1}`}
+                    />
+                    <span
+                      className={cn(
+                        "text-[10px] font-medium w-16",
+                        charge.showInBill
+                          ? "text-green-700"
+                          : "text-muted-foreground",
+                      )}
+                    >
+                      {charge.showInBill ? "Show" : "Adjust"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeCharge(charge.id)}
+                    className="text-destructive hover:text-destructive/80 flex-shrink-0"
+                    data-ocid={`pos.charges.delete_button.${idx + 1}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+              <p className="text-[10px] text-muted-foreground pl-1">
+                <span className="font-semibold text-green-700">Show</span> =
+                visible line on bill &nbsp;|&nbsp;{" "}
+                <span className="font-semibold">Adjust</span> = silently
+                distributed into item prices
+              </p>
             </div>
           )}
         </div>
@@ -2191,13 +2630,16 @@ export function POSBillingPage({
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className="text-sm"
+            data-ocid="pos.date.input"
           />
         </div>
 
         {/* Bill Summary */}
         <div className="bg-white rounded-xl border border-border p-4 shadow-xs">
           <h3 className="text-sm font-semibold mb-3">Bill Summary</h3>
-          <div className="space-y-2">
+
+          {/* Item lines */}
+          <div className="space-y-1.5">
             {billItems.map((item) => (
               <div key={item.id} className="flex justify-between text-xs">
                 <span className="text-muted-foreground truncate max-w-[150px]">
@@ -2209,17 +2651,79 @@ export function POSBillingPage({
               </div>
             ))}
           </div>
-          <Separator className="my-3" />
-          <div className="flex justify-between items-center">
-            <span className="text-sm font-medium text-muted-foreground">
-              Subtotal (Tax Incl.)
-            </span>
-            <span className="text-sm font-bold">
-              {formatCurrency(subtotal)}
-            </span>
+
+          <Separator className="my-2" />
+
+          {/* Subtotal before discounts */}
+          <div className="flex justify-between text-xs text-muted-foreground">
+            <span>Subtotal (before discounts)</span>
+            <span>{formatCurrency(subtotalBeforeDiscounts)}</span>
           </div>
+
+          {/* Item discounts */}
+          {totalItemDiscounts > 0 && (
+            <div className="flex justify-between text-xs text-amber-600 mt-1">
+              <span>Item Discounts</span>
+              <span>– {formatCurrency(totalItemDiscounts)}</span>
+            </div>
+          )}
+
+          {/* Net items total */}
+          <div className="flex justify-between text-xs font-semibold mt-1">
+            <span>Net Items Total</span>
+            <span>{formatCurrency(netItemsTotal)}</span>
+          </div>
+
+          {/* Visible additional charges */}
+          {additionalCharges
+            .filter((c) => c.showInBill && c.amount !== 0)
+            .map((charge) => (
+              <div
+                key={charge.id}
+                className="flex justify-between text-xs mt-1"
+              >
+                <span className="text-muted-foreground">{charge.label}</span>
+                <span
+                  className={
+                    charge.amount < 0 ? "text-red-600" : "text-foreground"
+                  }
+                >
+                  {charge.amount < 0 ? "– " : "+ "}
+                  {formatCurrency(Math.abs(charge.amount))}
+                </span>
+              </div>
+            ))}
+
+          {/* Bill-level discount input */}
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-xs text-muted-foreground flex-1">
+              Bill Discount (₹)
+            </span>
+            <Input
+              type="number"
+              value={billDiscount || ""}
+              onChange={(e) =>
+                setBillDiscount(Math.max(0, Number(e.target.value) || 0))
+              }
+              placeholder="0"
+              className="w-20 h-7 text-xs text-center"
+              min="0"
+              data-ocid="pos.bill_discount.input"
+            />
+          </div>
+          {billDiscount > 0 && (
+            <div className="flex justify-between text-xs text-amber-600 mt-0.5">
+              <span>Bill Discount</span>
+              <span>– {formatCurrency(billDiscount)}</span>
+            </div>
+          )}
+
+          <Separator className="my-3" />
+
           <div className="flex justify-between items-center mt-2">
-            <span className="text-lg font-bold text-foreground">Total</span>
+            <span className="text-lg font-bold text-foreground">
+              Grand Total
+            </span>
             <span className="text-xl font-bold text-primary">
               {formatCurrency(total)}
             </span>
@@ -2238,7 +2742,10 @@ export function POSBillingPage({
                   setPaymentMethod(v as Bill["paymentMethod"])
                 }
               >
-                <SelectTrigger className="text-sm">
+                <SelectTrigger
+                  className="text-sm"
+                  data-ocid="pos.payment_method.select"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -2258,6 +2765,7 @@ export function POSBillingPage({
                 onChange={(e) => setAmountPaid(e.target.value)}
                 placeholder={String(total)}
                 className="text-sm"
+                data-ocid="pos.amount_paid.input"
               />
             </div>
             <div className="flex justify-between text-sm p-2 bg-muted rounded-lg">
@@ -2283,6 +2791,7 @@ export function POSBillingPage({
             placeholder="Any notes for this bill..."
             className="text-sm resize-none"
             rows={2}
+            data-ocid="pos.notes.textarea"
           />
         </div>
 
@@ -2292,6 +2801,7 @@ export function POSBillingPage({
             className="w-full bg-primary hover:bg-primary/90"
             onClick={handleSaveBill}
             disabled={billItems.length === 0}
+            data-ocid="pos.save.primary_button"
           >
             <Save className="w-4 h-4 mr-2" />
             Save Bill
@@ -2314,7 +2824,10 @@ export function POSBillingPage({
               setCustomerSearch("");
               setNotes("");
               setAmountPaid("");
+              setBillDiscount(0);
+              setAdditionalCharges([]);
             }}
+            data-ocid="pos.clear.secondary_button"
           >
             Clear All
           </Button>

@@ -155,6 +155,13 @@ export interface Vendor {
   isActive: boolean;
 }
 
+export interface AdditionalCharge {
+  id: string;
+  label: string; // "Packing Charge" | "Pickup Charge" | "Old Balance" | "Wastage" | custom
+  amount: number; // can be negative (deduction)
+  showInBill: boolean; // if false, silently distribute into item totals
+}
+
 export interface BillItem {
   id: string;
   productId: string;
@@ -169,6 +176,9 @@ export interface BillItem {
   unitPrice: number;
   totalPrice: number;
   gstRate: number;
+  discountType?: "amount" | "percent";
+  discountValue?: number; // raw input value (e.g. 10 for 10% or ₹10)
+  discountAmount?: number; // computed discount in ₹
   trackingStatus?:
     | "booked"
     | "in_transit"
@@ -199,6 +209,8 @@ export interface Bill {
   items: BillItem[];
   subtotal: number;
   total: number;
+  billDiscount?: number; // total bill-level discount in ₹
+  additionalCharges?: AdditionalCharge[]; // visible charges saved on bill
   paymentMethod: "cash" | "upi" | "card" | "credit" | "mixed";
   paymentStatus: "paid" | "partial" | "pending";
   amountPaid: number;

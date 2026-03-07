@@ -127,6 +127,7 @@ interface AppState {
   loadAWBSerials: () => void;
   addAWBSerial: (serial: AWBSerialRange) => void;
   updateAWBSerial: (serial: AWBSerialRange) => void;
+  deleteAWBSerial: (serialId: string) => void;
 
   // Settings
   settings: CompanySettings | null;
@@ -510,6 +511,13 @@ export const useAppStore = create<AppState>((set, get) => {
       const awbSerials = getAWBSerials(cid).map((s) =>
         s.id === serial.id ? serial : s,
       );
+      setAWBSerials(cid, awbSerials);
+      set({ awbSerials });
+    },
+
+    deleteAWBSerial: (serialId: string) => {
+      const cid = get().activeCompanyId;
+      const awbSerials = getAWBSerials(cid).filter((s) => s.id !== serialId);
       setAWBSerials(cid, awbSerials);
       set({ awbSerials });
     },

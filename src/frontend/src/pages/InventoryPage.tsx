@@ -1,4 +1,3 @@
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,20 +25,325 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { AlertTriangle, Package, Plus, TrendingUp, Truck } from "lucide-react";
+import {
+  AlertTriangle,
+  Package,
+  Pencil,
+  Plus,
+  Trash2,
+  Truck,
+} from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import type { AWBSerialRange, CourierBrand, GeneralProduct } from "../types";
-import { formatCurrency, formatDate, generateId } from "../utils/helpers";
+import { formatDate, generateId } from "../utils/helpers";
 
+// ─── Edit General Product Dialog ─────────────────────────────────────────────
+interface EditProductDialogProps {
+  product: GeneralProduct;
+  open: boolean;
+  onClose: () => void;
+  onSave: (updated: GeneralProduct) => void;
+}
+
+function EditProductDialog({
+  product,
+  open,
+  onClose,
+  onSave,
+}: EditProductDialogProps) {
+  const [form, setForm] = useState({
+    name: product.name,
+    category: product.category,
+    unit: product.unit,
+    sellingPrice: String(product.sellingPrice),
+    purchasePrice: String(product.purchasePrice),
+    gstRate: String(product.gstRate),
+    hsnCode: product.hsnCode,
+    minStockAlert: String(product.minStockAlert),
+    currentStock: String(product.currentStock),
+  });
+
+  const handleSave = () => {
+    if (!form.name.trim()) {
+      toast.error("Product name is required");
+      return;
+    }
+    onSave({
+      ...product,
+      name: form.name.trim(),
+      category: form.category.trim(),
+      unit: form.unit.trim() || "Piece",
+      sellingPrice: Number(form.sellingPrice) || 0,
+      purchasePrice: Number(form.purchasePrice) || 0,
+      gstRate: Number(form.gstRate) || 0,
+      hsnCode: form.hsnCode.trim(),
+      minStockAlert: Number(form.minStockAlert) || 0,
+      currentStock: Number(form.currentStock) || 0,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit Product — {product.name}</DialogTitle>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="col-span-2">
+            <Label className="text-xs">Product Name *</Label>
+            <Input
+              value={form.name}
+              onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+              className="mt-1 text-sm"
+              data-ocid="inventory.product.input"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Category</Label>
+            <Input
+              value={form.category}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, category: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Unit</Label>
+            <Input
+              value={form.unit}
+              onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
+              className="mt-1 text-sm"
+              placeholder="Piece"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Selling Price (₹)</Label>
+            <Input
+              type="number"
+              value={form.sellingPrice}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, sellingPrice: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Purchase Price (₹)</Label>
+            <Input
+              type="number"
+              value={form.purchasePrice}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, purchasePrice: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">GST Rate (%)</Label>
+            <Input
+              type="number"
+              value={form.gstRate}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, gstRate: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">HSN Code</Label>
+            <Input
+              value={form.hsnCode}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, hsnCode: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Current Stock</Label>
+            <Input
+              type="number"
+              value={form.currentStock}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, currentStock: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+          <div>
+            <Label className="text-xs">Min Stock Alert</Label>
+            <Input
+              type="number"
+              value={form.minStockAlert}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, minStockAlert: e.target.value }))
+              }
+              className="mt-1 text-sm"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={onClose}
+            data-ocid="inventory.product.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button
+            onClick={handleSave}
+            data-ocid="inventory.product.save_button"
+          >
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Edit AWB Range Dialog ────────────────────────────────────────────────────
+interface EditAWBDialogProps {
+  range: AWBSerialRange;
+  vendors: { id: string; name: string }[];
+  open: boolean;
+  onClose: () => void;
+  onSave: (updated: AWBSerialRange) => void;
+}
+
+function EditAWBDialog({
+  range,
+  vendors,
+  open,
+  onClose,
+  onSave,
+}: EditAWBDialogProps) {
+  const [form, setForm] = useState({
+    fromSerial: range.fromSerial,
+    toSerial: range.toSerial,
+    quantity: String(range.quantity),
+    purchaseDate: range.purchaseDate,
+    vendorId: range.vendorId || "",
+  });
+
+  const handleSave = () => {
+    if (!form.fromSerial.trim() || !form.toSerial.trim()) {
+      toast.error("From and To serial are required");
+      return;
+    }
+    onSave({
+      ...range,
+      fromSerial: form.fromSerial.trim(),
+      toSerial: form.toSerial.trim(),
+      quantity: Number(form.quantity) || range.quantity,
+      purchaseDate: form.purchaseDate,
+      vendorId: form.vendorId || undefined,
+    });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Edit AWB Range — {range.brandName}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs">From Serial</Label>
+              <Input
+                value={form.fromSerial}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, fromSerial: e.target.value }))
+                }
+                className="mt-1 text-sm"
+                data-ocid="inventory.awb.input"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">To Serial</Label>
+              <Input
+                value={form.toSerial}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, toSerial: e.target.value }))
+                }
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Quantity</Label>
+              <Input
+                type="number"
+                value={form.quantity}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, quantity: e.target.value }))
+                }
+                className="mt-1 text-sm"
+              />
+            </div>
+            <div>
+              <Label className="text-xs">Purchase Date</Label>
+              <Input
+                type="date"
+                value={form.purchaseDate}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, purchaseDate: e.target.value }))
+                }
+                className="mt-1 text-sm"
+              />
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs">Vendor (Optional)</Label>
+            <Select
+              value={form.vendorId}
+              onValueChange={(v) => setForm((p) => ({ ...p, vendorId: v }))}
+            >
+              <SelectTrigger className="mt-1">
+                <SelectValue placeholder="Select vendor" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {vendors.map((v) => (
+                  <SelectItem key={v.id} value={v.id}>
+                    {v.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={onClose}
+            data-ocid="inventory.awb.cancel_button"
+          >
+            Cancel
+          </Button>
+          <Button onClick={handleSave} data-ocid="inventory.awb.save_button">
+            Save Changes
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Inventory Page ──────────────────────────────────────────────────────
 export function InventoryPage() {
   const {
     products,
     awbSerials,
     vendors,
     updateProduct,
+    deleteProduct,
     addAWBSerial,
+    updateAWBSerial,
+    deleteAWBSerial,
     activeCompanyId,
   } = useAppStore();
 
@@ -55,6 +359,15 @@ export function InventoryPage() {
   const [awbPurchaseDate, setAwbPurchaseDate] = useState(
     new Date().toISOString().split("T")[0],
   );
+
+  // Edit / Delete product state
+  const [editProduct, setEditProduct] = useState<GeneralProduct | null>(null);
+  const [deleteProductId, setDeleteProductId] = useState<string | null>(null);
+  const [deleteProductName, setDeleteProductName] = useState("");
+
+  // Edit / Delete AWB range state
+  const [editAWBRange, setEditAWBRange] = useState<AWBSerialRange | null>(null);
+  const [deleteAWBId, setDeleteAWBId] = useState<string | null>(null);
 
   const generalProducts = products.filter(
     (p) => p.type === "general",
@@ -237,14 +550,18 @@ export function InventoryPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {generalProducts.map((p) => {
+                {generalProducts.map((p, idx) => {
                   const level = getStockLevel(p.currentStock, p.minStockAlert);
                   const progress = Math.min(
                     100,
                     (p.currentStock / (p.minStockAlert * 3)) * 100,
                   );
                   return (
-                    <TableRow key={p.id} className="hover:bg-muted/20">
+                    <TableRow
+                      key={p.id}
+                      className="hover:bg-muted/20"
+                      data-ocid={`inventory.product.row.${idx + 1}`}
+                    >
                       <TableCell className="text-xs font-semibold">
                         {p.name}
                       </TableCell>
@@ -271,17 +588,43 @@ export function InventoryPage() {
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => {
-                            setSelectedProductId(p.id);
-                            setShowAddStock(true);
-                          }}
-                          className="text-xs h-7"
-                        >
-                          <Plus className="w-3 h-3 mr-1" /> Add
-                        </Button>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedProductId(p.id);
+                              setShowAddStock(true);
+                            }}
+                            className="text-xs h-7"
+                            title="Add Stock"
+                          >
+                            <Plus className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEditProduct(p)}
+                            className="text-xs h-7"
+                            title="Edit Product"
+                            data-ocid={`inventory.product.edit_button.${idx + 1}`}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setDeleteProductId(p.id);
+                              setDeleteProductName(p.name);
+                            }}
+                            className="text-xs h-7 text-destructive hover:text-destructive border-destructive/30 hover:border-destructive"
+                            title="Delete Product"
+                            data-ocid={`inventory.product.delete_button.${idx + 1}`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -291,6 +634,7 @@ export function InventoryPage() {
                     <TableCell
                       colSpan={6}
                       className="text-center py-8 text-muted-foreground text-sm"
+                      data-ocid="inventory.product.empty_state"
                     >
                       No products found
                     </TableCell>
@@ -379,11 +723,15 @@ export function InventoryPage() {
                           <TableHead className="text-xs">
                             First Available
                           </TableHead>
+                          <TableHead className="text-xs">Actions</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {brandSerials.map((range) => (
-                          <TableRow key={range.id}>
+                        {brandSerials.map((range, rIdx) => (
+                          <TableRow
+                            key={range.id}
+                            data-ocid={`inventory.awb.row.${rIdx + 1}`}
+                          >
                             <TableCell className="text-xs font-mono">
                               {range.fromSerial} → {range.toSerial}
                             </TableCell>
@@ -406,6 +754,30 @@ export function InventoryPage() {
                             <TableCell className="text-xs font-mono text-primary">
                               {range.availableSerials[0] || "None"}
                             </TableCell>
+                            <TableCell>
+                              <div className="flex items-center gap-1">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setEditAWBRange(range)}
+                                  className="text-xs h-7"
+                                  title="Edit Range"
+                                  data-ocid={`inventory.awb.edit_button.${rIdx + 1}`}
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => setDeleteAWBId(range.id)}
+                                  className="text-xs h-7 text-destructive hover:text-destructive border-destructive/30 hover:border-destructive"
+                                  title="Delete Range"
+                                  data-ocid={`inventory.awb.delete_button.${rIdx + 1}`}
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -415,7 +787,10 @@ export function InventoryPage() {
               );
             })}
             {courierBrands.length === 0 && (
-              <div className="text-center py-12 text-muted-foreground bg-white rounded-xl border border-border">
+              <div
+                className="text-center py-12 text-muted-foreground bg-white rounded-xl border border-border"
+                data-ocid="inventory.awb.empty_state"
+              >
                 <Truck className="w-10 h-10 mx-auto mb-2 opacity-30" />
                 <p className="text-sm">No courier brands configured</p>
               </div>
@@ -554,6 +929,111 @@ export function InventoryPage() {
               Cancel
             </Button>
             <Button onClick={handleAddAWBRange}>Add Range</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Product Dialog */}
+      {editProduct && (
+        <EditProductDialog
+          product={editProduct}
+          open={!!editProduct}
+          onClose={() => setEditProduct(null)}
+          onSave={(updated) => {
+            updateProduct(updated);
+            setEditProduct(null);
+            toast.success(`${updated.name} updated`);
+          }}
+        />
+      )}
+
+      {/* Delete Product Confirmation */}
+      <Dialog
+        open={!!deleteProductId}
+        onOpenChange={(o) => !o && setDeleteProductId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Product</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Delete <span className="font-semibold">{deleteProductName}</span>?
+            This will remove it from inventory.
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteProductId(null)}
+              data-ocid="inventory.delete_product.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteProductId) {
+                  deleteProduct(deleteProductId);
+                  toast.success(`${deleteProductName} deleted`);
+                }
+                setDeleteProductId(null);
+              }}
+              data-ocid="inventory.delete_product.confirm_button"
+            >
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit AWB Range Dialog */}
+      {editAWBRange && (
+        <EditAWBDialog
+          range={editAWBRange}
+          vendors={vendors}
+          open={!!editAWBRange}
+          onClose={() => setEditAWBRange(null)}
+          onSave={(updated) => {
+            updateAWBSerial(updated);
+            setEditAWBRange(null);
+            toast.success("AWB range updated");
+          }}
+        />
+      )}
+
+      {/* Delete AWB Range Confirmation */}
+      <Dialog
+        open={!!deleteAWBId}
+        onOpenChange={(o) => !o && setDeleteAWBId(null)}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete AWB Range</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to delete this AWB serial range? All available
+            serials in this range will be removed.
+          </p>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteAWBId(null)}
+              data-ocid="inventory.delete_awb.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                if (deleteAWBId) {
+                  deleteAWBSerial(deleteAWBId);
+                  toast.success("AWB range deleted");
+                }
+                setDeleteAWBId(null);
+              }}
+              data-ocid="inventory.delete_awb.confirm_button"
+            >
+              Delete
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,5 +1,5 @@
-import QRCode from "qrcode";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { loadQRCode } from "../utils/barcodeLoader";
 
 interface QRCodeDisplayProps {
   value: string;
@@ -19,17 +19,29 @@ export function QRCodeDisplay({
   className,
 }: QRCodeDisplayProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!canvasRef.current || !value) return;
-    QRCode.toCanvas(canvasRef.current, value, {
-      width: size,
-      errorCorrectionLevel,
-      color: { dark: darkColor, light: lightColor },
-    }).catch(() => {});
+    let cancelled = false;
+    loadQRCode()
+      .then((QRCode) => {
+        if (cancelled || !canvasRef.current) return;
+        return QRCode.toCanvas(canvasRef.current, value, {
+          width: size,
+          errorCorrectionLevel,
+          color: { dark: darkColor, light: lightColor },
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [value, size, errorCorrectionLevel, darkColor, lightColor]);
 
-  if (!value) {
+  if (!value || error) {
     return (
       <div
         className={className}
@@ -46,7 +58,7 @@ export function QRCodeDisplay({
           borderRadius: 4,
         }}
       >
-        No data
+        {error ? "QR unavailable" : "No data"}
       </div>
     );
   }
@@ -63,6 +75,7 @@ export async function generateQRDataUrl(
 ): Promise<string> {
   if (!value) return "";
   try {
+    const QRCode = await loadQRCode();
     return await QRCode.toDataURL(value, {
       width: size,
       margin: 1,
