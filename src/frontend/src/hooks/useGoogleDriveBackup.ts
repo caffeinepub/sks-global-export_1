@@ -75,6 +75,46 @@ const loadGisScript = (): Promise<void> => {
   });
 };
 
+const downloadFromDrive = async (accessToken: string): Promise<string> => {
+  // Search for existing backup file
+  const searchRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=name='${BACKUP_FILE_NAME}'+and+trashed=false&fields=files(id,name,modifiedTime)`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+
+  if (!searchRes.ok) {
+    const errText = await searchRes.text();
+    throw new Error(`Drive search failed (${searchRes.status}): ${errText}`);
+  }
+
+  const searchData = (await searchRes.json()) as {
+    files?: Array<{ id: string; modifiedTime?: string }>;
+  };
+
+  const fileId = searchData.files?.[0]?.id;
+  if (!fileId) {
+    throw new Error("No backup file found on Google Drive");
+  }
+
+  const downloadRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+    {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    },
+  );
+
+  if (!downloadRes.ok) {
+    const errText = await downloadRes.text();
+    throw new Error(
+      `Drive download failed (${downloadRes.status}): ${errText}`,
+    );
+  }
+
+  return await downloadRes.text();
+};
+
 const uploadToDrive = async (
   accessToken: string,
   content: string,
@@ -136,6 +176,8 @@ export function useGoogleDriveBackup() {
     return localStorage.getItem(LAST_BACKUP_GDRIVE_KEY);
   });
   const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
+  const [fetchedContent, setFetchedContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Store access token in memory only
@@ -173,30 +215,38 @@ export function useGoogleDriveBackup() {
   );
 
   // Request a fresh token silently (no popup) or with consent prompt
+  // Always re-initialises the token client so it works after page refresh too
   const requestToken = useCallback(
     (prompt: "" | "consent" = ""): Promise<string> => {
       return new Promise((resolve, reject) => {
-        if (!tokenClientRef.current) {
-          reject(new Error("Token client not initialised"));
+        if (!window.google?.accounts?.oauth2) {
+          reject(
+            new Error(
+              "Google Identity Services not loaded. Check your internet connection.",
+            ),
+          );
           return;
         }
-        // Override callback temporarily
-        tokenClientRef.current = window.google!.accounts.oauth2.initTokenClient(
-          {
-            client_id: getStoredClientId(),
-            scope: SCOPE,
-            callback: (response) => {
-              if (response.error) {
-                reject(new Error(`OAuth error: ${response.error}`));
-                return;
-              }
-              if (response.access_token) {
-                accessTokenRef.current = response.access_token;
-                resolve(response.access_token);
-              }
-            },
+        const clientId = getStoredClientId();
+        if (!clientId) {
+          reject(new Error("No Google Client ID configured."));
+          return;
+        }
+        // Always create a fresh token client with the one-time callback
+        tokenClientRef.current = window.google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: SCOPE,
+          callback: (response) => {
+            if (response.error) {
+              reject(new Error(`OAuth error: ${response.error}`));
+              return;
+            }
+            if (response.access_token) {
+              accessTokenRef.current = response.access_token;
+              resolve(response.access_token);
+            }
           },
-        );
+        });
         tokenClientRef.current.requestAccessToken({ prompt });
       });
     },
@@ -205,8 +255,7 @@ export function useGoogleDriveBackup() {
 
   /**
    * Core backup: always requests a fresh token before uploading.
-   * Google access tokens expire in 1 hour; re-requesting with prompt=""
-   * is silent if the user already granted consent.
+   * Uses prompt="" (silent) first; if that fails tries "consent" popup.
    */
   const backupNow = useCallback(async (): Promise<void> => {
     setIsBackingUp(true);
@@ -218,8 +267,13 @@ export function useGoogleDriveBackup() {
           "Google Identity Services not available. Check your internet connection.",
         );
       }
-      // Always get a fresh token (silent if already consented)
-      const token = await requestToken("");
+      // Try silent first, fall back to consent popup if needed
+      let token: string;
+      try {
+        token = await requestToken("");
+      } catch {
+        token = await requestToken("consent");
+      }
       const data = exportAllData();
       await uploadToDrive(token, data);
       const now = new Date().toISOString();
@@ -232,6 +286,35 @@ export function useGoogleDriveBackup() {
       throw e; // re-throw so callers can handle
     } finally {
       setIsBackingUp(false);
+    }
+  }, [requestToken]);
+
+  const fetchFromDriveNow = useCallback(async (): Promise<string> => {
+    setIsFetching(true);
+    setError(null);
+    try {
+      await loadGisScript();
+      if (!window.google?.accounts?.oauth2) {
+        throw new Error(
+          "Google Identity Services not available. Check your internet connection.",
+        );
+      }
+      // Try silent first, fall back to consent popup
+      let token: string;
+      try {
+        token = await requestToken("");
+      } catch {
+        token = await requestToken("consent");
+      }
+      const content = await downloadFromDrive(token);
+      setFetchedContent(content);
+      return content;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Fetch from Drive failed";
+      setError(msg);
+      throw e;
+    } finally {
+      setIsFetching(false);
     }
   }, [requestToken]);
 
@@ -309,10 +392,13 @@ export function useGoogleDriveBackup() {
     isConnected,
     lastBackupTime,
     isBackingUp,
+    isFetching,
+    fetchedContent,
     error,
     connect,
     disconnect,
     backupNow,
+    fetchFromDriveNow,
     // No auto-interval — manual + on-logout only
     autoIntervalMinutes: 0,
   };

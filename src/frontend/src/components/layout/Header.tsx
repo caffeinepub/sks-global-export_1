@@ -22,16 +22,23 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
   Bell,
+  BookUser,
   Building2,
   ChevronDown,
   Database,
   KeyRound,
   LogOut,
+  MessageCircle,
   Package,
+  Phone,
+  Plus,
+  Search,
   Settings,
+  Trash2,
   Truck,
   User,
 } from "lucide-react";
@@ -39,7 +46,12 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../../hooks/useAppStore";
 import { getTodayStr, hashPassword, verifyPassword } from "../../utils/helpers";
-import { getLastBackupTime } from "../../utils/storage";
+import {
+  getLastBackupTime,
+  getManualContacts,
+  setManualContacts,
+} from "../../utils/storage";
+import type { ManualContact } from "../../utils/storage";
 
 interface HeaderProps {
   currentPage: string;
@@ -88,6 +100,8 @@ export function Header({
     pickups,
     products,
     bills,
+    customers,
+    vendors,
     updateUser,
   } = useAppStore();
 
@@ -99,6 +113,72 @@ export function Header({
   const [confirmPwd, setConfirmPwd] = useState("");
   const [notifOpen, setNotifOpen] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
+  // Quick Contacts state
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [contactSearch, setContactSearch] = useState("");
+  const [manualContacts, setManualContactsState] = useState<ManualContact[]>(
+    () => getManualContacts(),
+  );
+  const [newContactName, setNewContactName] = useState("");
+  const [newContactPhone, setNewContactPhone] = useState("");
+
+  const handleAddManualContact = () => {
+    if (!newContactName.trim() || !newContactPhone.trim()) {
+      toast.error("Name and phone are required");
+      return;
+    }
+    const contact: ManualContact = {
+      id: `mc_${Date.now()}`,
+      name: newContactName.trim(),
+      phone: newContactPhone.trim(),
+    };
+    const updated = [...manualContacts, contact];
+    setManualContacts(updated);
+    setManualContactsState(updated);
+    setNewContactName("");
+    setNewContactPhone("");
+    toast.success("Contact added");
+  };
+
+  const handleDeleteManualContact = (id: string) => {
+    const updated = manualContacts.filter((c) => c.id !== id);
+    setManualContacts(updated);
+    setManualContactsState(updated);
+  };
+
+  const waLink = (phone: string) => {
+    const cleaned = phone.replace(/\D/g, "").replace(/^0/, "");
+    const number = cleaned.startsWith("91") ? cleaned : `91${cleaned}`;
+    return `https://wa.me/${number}`;
+  };
+
+  const filteredCustomers = useMemo(() => {
+    if (!contactSearch) return customers.filter((c) => c.phone);
+    const q = contactSearch.toLowerCase();
+    return customers.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) || c.phone.includes(contactSearch),
+    );
+  }, [customers, contactSearch]);
+
+  const filteredVendors = useMemo(() => {
+    if (!contactSearch) return vendors.filter((v) => v.phone);
+    const q = contactSearch.toLowerCase();
+    return vendors.filter(
+      (v) =>
+        v.name.toLowerCase().includes(q) || v.phone.includes(contactSearch),
+    );
+  }, [vendors, contactSearch]);
+
+  const filteredManual = useMemo(() => {
+    if (!contactSearch) return manualContacts;
+    const q = contactSearch.toLowerCase();
+    return manualContacts.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) || c.phone.includes(contactSearch),
+    );
+  }, [manualContacts, contactSearch]);
 
   // Compute alerts
   const allAlerts = useMemo<AlertItem[]>(() => {
@@ -299,6 +379,263 @@ export function Header({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Quick Contacts */}
+        <Popover
+          open={contactsOpen}
+          onOpenChange={(open) => {
+            setContactsOpen(open);
+            if (open) {
+              setManualContactsState(getManualContacts());
+              setContactSearch("");
+            }
+          }}
+        >
+          <PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="relative"
+              data-ocid="header.contacts.button"
+              title="Quick Contacts"
+            >
+              <BookUser className="w-5 h-5" />
+              {manualContacts.length > 0 && (
+                <Badge className="absolute -top-1 -right-1 h-4 w-4 p-0 text-[10px] flex items-center justify-center bg-emerald-600 text-white">
+                  {manualContacts.length > 9 ? "9+" : manualContacts.length}
+                </Badge>
+              )}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-80 p-0"
+            data-ocid="header.contacts.popover"
+          >
+            <div className="px-4 py-3 border-b border-border">
+              <p className="text-sm font-semibold">Quick Contacts</p>
+              <div className="relative mt-2">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={contactSearch}
+                  onChange={(e) => setContactSearch(e.target.value)}
+                  placeholder="Search contacts..."
+                  className="pl-8 h-8 text-xs"
+                  data-ocid="header.contacts.search_input"
+                />
+              </div>
+            </div>
+
+            <Tabs defaultValue="customers" className="w-full">
+              <TabsList className="w-full rounded-none border-b border-border bg-muted/30 h-9 p-0">
+                <TabsTrigger
+                  value="customers"
+                  className="flex-1 h-full rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                  data-ocid="header.contacts.customers.tab"
+                >
+                  Customers
+                  <Badge
+                    variant="secondary"
+                    className="ml-1.5 text-[10px] h-4 px-1"
+                  >
+                    {filteredCustomers.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="vendors"
+                  className="flex-1 h-full rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                  data-ocid="header.contacts.vendors.tab"
+                >
+                  Vendors
+                  <Badge
+                    variant="secondary"
+                    className="ml-1.5 text-[10px] h-4 px-1"
+                  >
+                    {filteredVendors.length}
+                  </Badge>
+                </TabsTrigger>
+                <TabsTrigger
+                  value="manual"
+                  className="flex-1 h-full rounded-none text-xs data-[state=active]:border-b-2 data-[state=active]:border-primary"
+                  data-ocid="header.contacts.manual.tab"
+                >
+                  Manual
+                  <Badge
+                    variant="secondary"
+                    className="ml-1.5 text-[10px] h-4 px-1"
+                  >
+                    {manualContacts.length}
+                  </Badge>
+                </TabsTrigger>
+              </TabsList>
+
+              {/* Customers Tab */}
+              <TabsContent value="customers" className="m-0">
+                <ScrollArea className="h-60">
+                  {filteredCustomers.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-1">
+                      <Phone className="w-6 h-6 opacity-30" />
+                      <p className="text-xs">No customers found</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {filteredCustomers.slice(0, 50).map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/30"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">
+                              {c.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {c.phone}
+                            </p>
+                          </div>
+                          <a
+                            href={waLink(c.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="WhatsApp"
+                            className="ml-2 flex-shrink-0 text-emerald-600 hover:text-emerald-700"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+
+              {/* Vendors Tab */}
+              <TabsContent value="vendors" className="m-0">
+                <ScrollArea className="h-60">
+                  {filteredVendors.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8 text-muted-foreground gap-1">
+                      <Phone className="w-6 h-6 opacity-30" />
+                      <p className="text-xs">No vendors found</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {filteredVendors.slice(0, 50).map((v) => (
+                        <div
+                          key={v.id}
+                          className="flex items-center justify-between px-4 py-2.5 hover:bg-muted/30"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">
+                              {v.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {v.phone}
+                            </p>
+                          </div>
+                          <a
+                            href={waLink(v.phone)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="WhatsApp"
+                            className="ml-2 flex-shrink-0 text-emerald-600 hover:text-emerald-700"
+                          >
+                            <MessageCircle className="w-4 h-4" />
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+
+              {/* Manual Contacts Tab */}
+              <TabsContent value="manual" className="m-0">
+                {/* Add contact form */}
+                <div className="px-4 py-2.5 border-b border-border bg-muted/20 space-y-2">
+                  <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">
+                    Add Contact
+                  </p>
+                  <div className="flex gap-1.5">
+                    <Input
+                      value={newContactName}
+                      onChange={(e) => setNewContactName(e.target.value)}
+                      placeholder="Name"
+                      className="h-7 text-xs flex-1"
+                      data-ocid="header.contacts.manual.name.input"
+                    />
+                    <Input
+                      value={newContactPhone}
+                      onChange={(e) => setNewContactPhone(e.target.value)}
+                      placeholder="Phone"
+                      className="h-7 text-xs w-28"
+                      onKeyDown={(e) =>
+                        e.key === "Enter" && handleAddManualContact()
+                      }
+                      data-ocid="header.contacts.manual.phone.input"
+                    />
+                    <Button
+                      size="icon"
+                      className="h-7 w-7 flex-shrink-0"
+                      onClick={handleAddManualContact}
+                      data-ocid="header.contacts.manual.add.button"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <ScrollArea className="h-44">
+                  {filteredManual.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-6 text-muted-foreground gap-1">
+                      <User className="w-6 h-6 opacity-30" />
+                      <p className="text-xs">
+                        {manualContacts.length === 0
+                          ? "No manual contacts yet"
+                          : "No matches found"}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-border">
+                      {filteredManual.map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex items-center justify-between px-4 py-2 hover:bg-muted/30"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">
+                              {c.name}
+                            </p>
+                            <p className="text-[11px] text-muted-foreground">
+                              {c.phone}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 ml-2">
+                            <a
+                              href={waLink(c.phone)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              title="WhatsApp"
+                              className="text-emerald-600 hover:text-emerald-700"
+                            >
+                              <MessageCircle className="w-4 h-4" />
+                            </a>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-6 w-6 text-destructive"
+                              onClick={() => handleDeleteManualContact(c.id)}
+                              data-ocid="header.contacts.manual.delete.button"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </ScrollArea>
+              </TabsContent>
+            </Tabs>
+          </PopoverContent>
+        </Popover>
 
         {/* Notifications Bell */}
         <Popover open={notifOpen} onOpenChange={setNotifOpen}>

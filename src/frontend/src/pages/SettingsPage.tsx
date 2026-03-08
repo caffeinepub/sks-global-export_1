@@ -45,13 +45,17 @@ import {
   CloudOff,
   Download,
   Edit,
+  FileSpreadsheet,
   FileText,
+  GitMerge,
   HardDrive,
   Image,
   KeyRound,
   Loader2,
   Plus,
   RefreshCw,
+  RotateCcw,
+  ShieldAlert,
   Trash2,
   Upload,
   Users,
@@ -66,14 +70,24 @@ import {
   useGoogleDriveBackup,
 } from "../hooks/useGoogleDriveBackup";
 import type { AppUser, Company } from "../types";
+import {
+  downloadCSVString,
+  getSampleAWBSerialsCSV,
+  getSampleCategoriesCSV,
+  getSampleCustomersCSV,
+  getSampleProductsCSV,
+  getSampleStockUpdateCSV,
+  getSampleVendorsCSV,
+} from "../utils/excelHelpers";
 import { generateId, hashPassword } from "../utils/helpers";
-import type { BackupSummary } from "../utils/storage";
+import type { BackupSummary, MergeSummary } from "../utils/storage";
 import {
   exportAllData,
   getGSTInvoiceSeq,
   getLastBackupTime,
   getNonGSTInvoiceSeq,
   importAllData,
+  mergeImportData,
   parseBackupSummary,
   setLastBackupTime,
 } from "../utils/storage";
@@ -97,7 +111,7 @@ export function SettingsPage() {
 
   // Google Drive backup
   const gdrive = useGoogleDriveBackup();
-  const [googleClientId, _setGoogleClientId] = useState(getStoredClientId);
+  const [_googleClientId, _setGoogleClientId] = useState(getStoredClientId);
   const [_clientIdSaved, _setClientIdSaved] = useState(!!getStoredClientId());
 
   // Company form
@@ -187,6 +201,36 @@ export function SettingsPage() {
     summary: BackupSummary;
   } | null>(null);
   const [isImporting, setIsImporting] = useState(false);
+
+  // Import mode: "select" | "full" | "merge"
+  const [importMode, setImportMode] = useState<"select" | "full" | "merge">(
+    "select",
+  );
+  // Password verification for full restore
+  const [restorePassword, setRestorePassword] = useState("");
+  const [restorePasswordError, setRestorePasswordError] = useState("");
+  // Full restore delete confirmation step
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Merge result
+  const [mergeResult, setMergeResult] = useState<MergeSummary | null>(null);
+
+  // Drive Sync state
+  const [driveCheckLoading, setDriveCheckLoading] = useState(false);
+  const [driveBackupSummary, setDriveBackupSummary] =
+    useState<BackupSummary | null>(null);
+  const [driveBackupJson, setDriveBackupJson] = useState<string | null>(null);
+  const [driveRestoreDialogOpen, setDriveRestoreDialogOpen] = useState(false);
+  const [driveRestoreMode, setDriveRestoreMode] = useState<
+    "select" | "full" | "merge"
+  >("select");
+  const [driveRestorePassword, setDriveRestorePassword] = useState("");
+  const [driveRestorePasswordError, setDriveRestorePasswordError] =
+    useState("");
+  const [driveShowDeleteConfirm, setDriveShowDeleteConfirm] = useState(false);
+  const [driveRestoring, setDriveRestoring] = useState(false);
+  const [driveMergeResult, setDriveMergeResult] = useState<MergeSummary | null>(
+    null,
+  );
 
   const lastBackup = getLastBackupTime();
 
@@ -366,6 +410,11 @@ export function SettingsPage() {
         try {
           const summary = parseBackupSummary(jsonStr);
           setImportPending({ json: jsonStr, summary });
+          setImportMode("select");
+          setRestorePassword("");
+          setRestorePasswordError("");
+          setShowDeleteConfirm(false);
+          setMergeResult(null);
           setImportDialogOpen(true);
         } catch {
           toast.error(
@@ -396,6 +445,110 @@ export function SettingsPage() {
     }
   };
 
+  const handleMergeImport = () => {
+    if (!importPending) return;
+    setIsImporting(true);
+    try {
+      const result = mergeImportData(importPending.json);
+      setMergeResult(result);
+      setIsImporting(false);
+      const total =
+        result.billsAdded +
+        result.customersAdded +
+        result.invoicesAdded +
+        result.productsAdded;
+      toast.success(`Merge complete — ${total} new records added`);
+    } catch (err) {
+      setIsImporting(false);
+      toast.error(
+        `Merge failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+  };
+
+  const handleFullRestorePasswordCheck = () => {
+    if (!restorePassword) {
+      setRestorePasswordError("Please enter your password");
+      return;
+    }
+    const hashed = btoa(restorePassword);
+    if (!currentUser || currentUser.passwordHash !== hashed) {
+      setRestorePasswordError("Incorrect password. Please try again.");
+      return;
+    }
+    setRestorePasswordError("");
+    setShowDeleteConfirm(true);
+  };
+
+  const handleCheckDrive = async () => {
+    setDriveCheckLoading(true);
+    setDriveBackupSummary(null);
+    setDriveBackupJson(null);
+    try {
+      const content = await gdrive.fetchFromDriveNow();
+      const summary = parseBackupSummary(content);
+      setDriveBackupSummary(summary);
+      setDriveBackupJson(content);
+      toast.success("Drive backup info loaded");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Could not read from Drive",
+      );
+    } finally {
+      setDriveCheckLoading(false);
+    }
+  };
+
+  const handleDriveFullRestorePasswordCheck = () => {
+    if (!driveRestorePassword) {
+      setDriveRestorePasswordError("Please enter your password");
+      return;
+    }
+    const hashed = btoa(driveRestorePassword);
+    if (!currentUser || currentUser.passwordHash !== hashed) {
+      setDriveRestorePasswordError("Incorrect password. Please try again.");
+      return;
+    }
+    setDriveRestorePasswordError("");
+    setDriveShowDeleteConfirm(true);
+  };
+
+  const handleDriveFullRestore = () => {
+    if (!driveBackupJson) return;
+    setDriveRestoring(true);
+    try {
+      importAllData(driveBackupJson);
+      toast.success("Data restored from Google Drive! Reloading…");
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      setDriveRestoring(false);
+      toast.error(
+        `Restore failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+  };
+
+  const handleDriveMerge = () => {
+    if (!driveBackupJson) return;
+    setDriveRestoring(true);
+    try {
+      const result = mergeImportData(driveBackupJson);
+      setDriveMergeResult(result);
+      setDriveRestoring(false);
+      const total =
+        result.billsAdded +
+        result.customersAdded +
+        result.invoicesAdded +
+        result.productsAdded;
+      toast.success(`Merge complete — ${total} new records added from Drive`);
+    } catch (err) {
+      setDriveRestoring(false);
+      toast.error(
+        `Merge failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
+  };
+
   return (
     <div className="p-6 space-y-4">
       <div>
@@ -418,6 +571,13 @@ export function SettingsPage() {
           </TabsTrigger>
           <TabsTrigger value="backup" className="text-xs">
             <HardDrive className="w-3.5 h-3.5 mr-1" /> Backup & Restore
+          </TabsTrigger>
+          <TabsTrigger
+            value="samples"
+            className="text-xs"
+            data-ocid="settings.samples.tab"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 mr-1" /> Sample Files
           </TabsTrigger>
         </TabsList>
 
@@ -932,8 +1092,12 @@ export function SettingsPage() {
                   </p>
                   {gdrive.isConnected && gdrive.lastBackupTime ? (
                     <p className="text-xs text-muted-foreground">
-                      Last backup:{" "}
-                      {new Date(gdrive.lastBackupTime).toLocaleString("en-IN")}
+                      Last backup to Drive:{" "}
+                      <span className="font-semibold text-foreground">
+                        {new Date(gdrive.lastBackupTime).toLocaleString(
+                          "en-IN",
+                        )}
+                      </span>
                     </p>
                   ) : gdrive.isConnected ? (
                     <p className="text-xs text-muted-foreground">
@@ -946,21 +1110,6 @@ export function SettingsPage() {
                   )}
                 </div>
               </div>
-
-              {/* Connected info */}
-              {gdrive.isConnected && (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground bg-blue-50 p-2.5 rounded-lg">
-                  <RefreshCw className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
-                  <span>
-                    Backups saved as{" "}
-                    <span className="font-mono font-semibold">
-                      sks_global_export_backup.json
-                    </span>{" "}
-                    in your Google Drive. A backup prompt also appears before
-                    logout or closing the app.
-                  </span>
-                </div>
-              )}
 
               {/* Error */}
               {gdrive.error && (
@@ -975,9 +1124,13 @@ export function SettingsPage() {
                 {gdrive.isConnected ? (
                   <>
                     <Button
-                      onClick={() => {
-                        gdrive.backupNow();
-                        toast.info("Backing up to Google Drive...");
+                      onClick={async () => {
+                        try {
+                          await gdrive.backupNow();
+                          toast.success("Backed up to Google Drive");
+                        } catch {
+                          toast.error("Backup failed — check connection");
+                        }
                       }}
                       disabled={gdrive.isBackingUp}
                       className="w-full"
@@ -1018,127 +1171,839 @@ export function SettingsPage() {
               </div>
 
               {/* Client ID — pre-configured */}
-              <div className="space-y-2">
-                <label
-                  htmlFor="google-client-id"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Google OAuth Client ID
-                </label>
-                <div className="flex gap-2 items-center p-2.5 bg-green-50 border border-green-200 rounded-lg">
-                  <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                  <p className="text-xs text-green-800 font-medium flex-1 truncate">
-                    Client ID pre-configured — click Connect Google Drive above
-                  </p>
-                </div>
-                <p className="text-xs text-muted-foreground font-mono truncate text-center opacity-60">
-                  {googleClientId}
+              <div className="flex gap-2 items-center p-2.5 bg-green-50 border border-green-200 rounded-lg">
+                <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
+                <p className="text-xs text-green-800 font-medium flex-1 truncate">
+                  OAuth Client ID pre-configured
                 </p>
               </div>
+            </div>
+
+            {/* Google Drive Sync / Restore */}
+            <div className="bg-white rounded-xl border border-blue-200 p-4 shadow-xs space-y-4">
+              <div className="flex items-center gap-3">
+                <RefreshCw className="w-5 h-5 text-blue-600" />
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    Drive Sync &amp; Restore
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Check the last saved backup on Drive and restore or merge
+                    data
+                  </p>
+                </div>
+              </div>
+
+              {/* Drive backup info card */}
+              {driveBackupSummary ? (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+                  <p className="text-xs font-semibold text-blue-800 flex items-center gap-1.5">
+                    <CheckCircle className="w-3.5 h-3.5" /> Last stored backup
+                    on Google Drive
+                  </p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    <span className="text-muted-foreground">Saved on</span>
+                    <span className="font-semibold text-foreground">
+                      {driveBackupSummary.exportedAt !== "unknown"
+                        ? new Date(
+                            driveBackupSummary.exportedAt,
+                          ).toLocaleString("en-IN")
+                        : "Unknown"}
+                    </span>
+                    <span className="text-muted-foreground">Companies</span>
+                    <span className="font-semibold">
+                      {driveBackupSummary.companiesCount}
+                    </span>
+                    <span className="text-muted-foreground">Users</span>
+                    <span className="font-semibold">
+                      {driveBackupSummary.usersCount}
+                    </span>
+                  </div>
+                  {driveBackupSummary.companies.map((c) => (
+                    <div
+                      key={c.id}
+                      className="bg-white border border-blue-100 rounded-lg p-2 text-xs space-y-0.5"
+                    >
+                      <p className="font-semibold">{c.name}</p>
+                      <div className="flex gap-3 text-muted-foreground">
+                        <span>{c.billsCount} bills</span>
+                        <span>{c.invoicesCount} invoices</span>
+                        <span>{c.customersCount} customers</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-3 bg-muted/30 rounded-lg text-xs text-muted-foreground flex items-center gap-2">
+                  <Cloud className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                  Click "Check Drive" to see the last stored backup details
+                </div>
+              )}
+
+              {gdrive.isFetching && (
+                <div className="flex items-center gap-2 text-xs text-blue-700">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Reading from
+                  Google Drive…
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleCheckDrive}
+                  disabled={driveCheckLoading || gdrive.isFetching}
+                  className="w-full border-blue-300 text-blue-700 hover:bg-blue-50"
+                  data-ocid="settings.drive_check.button"
+                >
+                  {driveCheckLoading || gdrive.isFetching ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      Checking…
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw className="w-4 h-4 mr-2" /> Check Drive
+                    </>
+                  )}
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (!driveBackupJson) {
+                      toast.info(
+                        "Click 'Check Drive' first to load backup from Drive",
+                      );
+                      return;
+                    }
+                    setDriveRestoreMode("select");
+                    setDriveRestorePassword("");
+                    setDriveRestorePasswordError("");
+                    setDriveShowDeleteConfirm(false);
+                    setDriveMergeResult(null);
+                    setDriveRestoreDialogOpen(true);
+                  }}
+                  disabled={!driveBackupJson}
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                  data-ocid="settings.drive_sync.button"
+                >
+                  <RotateCcw className="w-4 h-4 mr-2" /> Update / Sync
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                You must click <strong>Check Drive</strong> first before
+                syncing. Make sure Google Drive is connected above.
+              </p>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Sample Files */}
+        <TabsContent value="samples" className="mt-4">
+          <div className="max-w-2xl space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold">Sample Import Files</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                Download these CSV templates to bulk-import data into the
+                system. Fill in your data following the sample rows, then upload
+                using the Import button on the respective pages.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                {
+                  title: "Customers",
+                  desc: "Bulk import registered and walking customers. Fields: Name, Phone, Email, Address, GSTIN, Type.",
+                  filename: "sample_customers.csv",
+                  fn: getSampleCustomersCSV,
+                  color: "bg-blue-50 border-blue-200",
+                  badge: "bg-blue-100 text-blue-700",
+                  where: "Customers → Import",
+                },
+                {
+                  title: "Vendors",
+                  desc: "Bulk import vendor/supplier details. Fields: Name, Phone, Email, Address, GSTIN.",
+                  filename: "sample_vendors.csv",
+                  fn: getSampleVendorsCSV,
+                  color: "bg-green-50 border-green-200",
+                  badge: "bg-green-100 text-green-700",
+                  where: "Vendors → Import",
+                },
+                {
+                  title: "General Products",
+                  desc: "Bulk import products with pricing, GST, and stock. Fields: Name, Category, Unit, MRP, Selling Price, Purchase Price, GST%, HSN, Stock.",
+                  filename: "sample_products.csv",
+                  fn: getSampleProductsCSV,
+                  color: "bg-purple-50 border-purple-200",
+                  badge: "bg-purple-100 text-purple-700",
+                  where: "Products → Bulk Import",
+                },
+                {
+                  title: "Categories",
+                  desc: "Bulk import product categories with parent-child hierarchy. Fields: Name, Type, Parent Category Name.",
+                  filename: "sample_categories.csv",
+                  fn: getSampleCategoriesCSV,
+                  color: "bg-orange-50 border-orange-200",
+                  badge: "bg-orange-100 text-orange-700",
+                  where: "Categories → Import",
+                },
+                {
+                  title: "Stock Update",
+                  desc: "Bulk update product stock quantities. Fields: Product Name, New Stock Quantity, Reason.",
+                  filename: "sample_stock_update.csv",
+                  fn: getSampleStockUpdateCSV,
+                  color: "bg-amber-50 border-amber-200",
+                  badge: "bg-amber-100 text-amber-700",
+                  where: "Inventory → Bulk Stock Update",
+                },
+                {
+                  title: "AWB Serials (Courier)",
+                  desc: "Bulk import courier AWB serial ranges. Fields: Brand Name, Product Type, From Serial, To Serial, Purchase Date.",
+                  filename: "sample_awb_serials.csv",
+                  fn: getSampleAWBSerialsCSV,
+                  color: "bg-teal-50 border-teal-200",
+                  badge: "bg-teal-100 text-teal-700",
+                  where: "Inventory → Bulk Import AWB",
+                },
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className={`rounded-xl border p-4 shadow-xs ${item.color} flex flex-col gap-2`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <FileSpreadsheet className="w-4 h-4 flex-shrink-0 text-muted-foreground" />
+                        <span className="font-semibold text-sm">
+                          {item.title}
+                        </span>
+                        <span
+                          className={`text-xs px-2 py-0.5 rounded-full font-medium ${item.badge}`}
+                        >
+                          CSV
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                        {item.desc}
+                      </p>
+                      <p className="text-xs font-medium mt-1 text-muted-foreground">
+                        Use at:{" "}
+                        <span className="font-semibold text-foreground">
+                          {item.where}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full mt-1"
+                    onClick={() => downloadCSVString(item.filename, item.fn())}
+                    data-ocid="settings.samples.download_button"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1.5" />
+                    Download {item.title} Template
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div className="p-3 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground">
+              <strong>Tip:</strong> Open downloaded CSV files in Excel or Google
+              Sheets. Keep the first row (header) unchanged. Add your data
+              starting from row 2. Save as CSV before uploading.
             </div>
           </div>
         </TabsContent>
       </Tabs>
 
-      {/* Import Backup Confirmation Dialog */}
+      {/* Import Backup Dialog — two options */}
       <Dialog
         open={importDialogOpen}
         onOpenChange={(open) => {
           if (!isImporting) {
             setImportDialogOpen(open);
-            if (!open) setImportPending(null);
+            if (!open) {
+              setImportPending(null);
+              setImportMode("select");
+              setRestorePassword("");
+              setRestorePasswordError("");
+              setShowDeleteConfirm(false);
+              setMergeResult(null);
+            }
           }
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-amber-600" />
-              Confirm Backup Restore
+              Import Backup
             </DialogTitle>
           </DialogHeader>
-          {importPending && (
-            <div className="space-y-3">
-              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <div className="flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-                  <p className="text-xs text-amber-800 font-medium">
-                    This will <strong>replace ALL current data</strong> with the
-                    backup. This cannot be undone.
-                  </p>
-                </div>
-              </div>
 
-              <div className="space-y-2">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  Backup Contents
-                </p>
-                <div className="bg-muted/30 rounded-lg p-3 space-y-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Backup date</span>
-                    <span className="font-medium">
-                      {importPending.summary.exportedAt !== "unknown"
-                        ? new Date(
-                            importPending.summary.exportedAt,
-                          ).toLocaleString("en-IN")
-                        : "Unknown (old backup)"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Companies</span>
-                    <span className="font-medium">
-                      {importPending.summary.companiesCount}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Users</span>
-                    <span className="font-medium">
-                      {importPending.summary.usersCount}
-                    </span>
-                  </div>
+          {/* Backup summary */}
+          {importPending && (
+            <div className="bg-muted/30 rounded-lg p-3 space-y-1.5 text-xs border border-border">
+              <p className="font-semibold text-foreground">
+                Backup File Contents
+              </p>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
+                <span>
+                  Date:{" "}
+                  <span className="font-medium text-foreground">
+                    {importPending.summary.exportedAt !== "unknown"
+                      ? new Date(
+                          importPending.summary.exportedAt,
+                        ).toLocaleString("en-IN")
+                      : "Unknown"}
+                  </span>
+                </span>
+                <span>{importPending.summary.companiesCount} companies</span>
+                <span>{importPending.summary.usersCount} users</span>
+              </div>
+              {importPending.summary.companies.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex gap-3 text-muted-foreground pl-2 border-l-2 border-border"
+                >
+                  <span className="font-medium text-foreground">{c.name}</span>
+                  <span>{c.billsCount} bills</span>
+                  <span>{c.invoicesCount} invoices</span>
+                  <span>{c.customersCount} customers</span>
                 </div>
-                {importPending.summary.companies.map((c) => (
-                  <div
-                    key={c.id}
-                    className="bg-white border border-border rounded-lg p-2.5 text-xs space-y-1"
-                  >
-                    <p className="font-semibold">{c.name}</p>
-                    <div className="flex gap-4 text-muted-foreground">
-                      <span>{c.billsCount} bills</span>
-                      <span>{c.invoicesCount} invoices</span>
-                      <span>{c.customersCount} customers</span>
-                    </div>
-                  </div>
-                ))}
+              ))}
+            </div>
+          )}
+
+          {/* Merge result */}
+          {mergeResult && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-1.5 text-xs">
+              <p className="font-semibold text-green-800 flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4" /> Merge Complete
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-green-700">
+                <span>
+                  Companies added: <strong>{mergeResult.companiesAdded}</strong>
+                </span>
+                <span>
+                  Bills added: <strong>{mergeResult.billsAdded}</strong>
+                </span>
+                <span>
+                  Invoices added: <strong>{mergeResult.invoicesAdded}</strong>
+                </span>
+                <span>
+                  Customers added: <strong>{mergeResult.customersAdded}</strong>
+                </span>
+                <span>
+                  Products added: <strong>{mergeResult.productsAdded}</strong>
+                </span>
+                <span>
+                  Vendors added: <strong>{mergeResult.vendorsAdded}</strong>
+                </span>
               </div>
             </div>
           )}
-          <DialogFooter className="gap-2">
-            <Button
-              variant="outline"
-              onClick={() => {
-                setImportDialogOpen(false);
-                setImportPending(null);
-              }}
-              disabled={isImporting}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleConfirmImport}
-              disabled={isImporting}
-              className="bg-amber-600 hover:bg-amber-700 text-white"
-            >
-              {isImporting ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Restoring…
-                </>
-              ) : (
-                <>
-                  <Upload className="w-4 h-4 mr-2" /> Yes, Restore Backup
-                </>
-              )}
-            </Button>
+
+          {/* Step: select mode */}
+          {importMode === "select" && !mergeResult && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Choose how to import this backup:
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setImportMode("full")}
+                  className="text-left p-4 rounded-xl border-2 border-destructive/30 bg-red-50 hover:bg-red-100 transition-colors"
+                  data-ocid="settings.import.full_restore.button"
+                >
+                  <div className="flex items-start gap-3">
+                    <ShieldAlert className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-sm text-destructive">
+                        Full Restore
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Clears ALL existing data and replaces it with the
+                        backup. Requires password confirmation. Cannot be
+                        undone.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setImportMode("merge")}
+                  className="text-left p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors"
+                  data-ocid="settings.import.merge.button"
+                >
+                  <div className="flex items-start gap-3">
+                    <GitMerge className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-sm text-blue-800">
+                        Add New Data Only
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Keeps all existing records untouched. Only adds records
+                        from the backup that don't already exist (by ID). Safe
+                        to run anytime.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Step: Full Restore — password */}
+          {importMode === "full" && !showDeleteConfirm && (
+            <div className="space-y-3">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-800">
+                  This will permanently delete all existing data. Enter your
+                  current login password to continue.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Your Current Password</Label>
+                <Input
+                  type="password"
+                  value={restorePassword}
+                  onChange={(e) => {
+                    setRestorePassword(e.target.value);
+                    setRestorePasswordError("");
+                  }}
+                  placeholder="Enter your login password"
+                  data-ocid="settings.import.restore_password.input"
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleFullRestorePasswordCheck()
+                  }
+                />
+                {restorePasswordError && (
+                  <p className="text-xs text-red-600">{restorePasswordError}</p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Step: Full Restore — delete confirmation */}
+          {importMode === "full" && showDeleteConfirm && (
+            <div className="space-y-3">
+              <div className="p-4 bg-red-50 border-2 border-red-300 rounded-xl space-y-2">
+                <p className="text-sm font-bold text-red-700 flex items-center gap-2">
+                  <ShieldAlert className="w-5 h-5" /> Final Confirmation
+                </p>
+                <p className="text-xs text-red-700">
+                  Are you sure you want to{" "}
+                  <strong>permanently delete all existing data</strong> and
+                  replace it with the backup? This action{" "}
+                  <strong>cannot be undone</strong>.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Step: Merge — confirm */}
+          {importMode === "merge" && !mergeResult && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+              <GitMerge className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-800">
+                Only new records (not already present by ID) will be added. Your
+                existing data will not be changed or deleted.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 flex-wrap">
+            {mergeResult ? (
+              <Button
+                onClick={() => {
+                  setImportDialogOpen(false);
+                  setImportPending(null);
+                  setImportMode("select");
+                  setMergeResult(null);
+                }}
+              >
+                Done
+              </Button>
+            ) : importMode === "select" ? (
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setImportDialogOpen(false);
+                  setImportPending(null);
+                }}
+                disabled={isImporting}
+              >
+                Cancel
+              </Button>
+            ) : importMode === "full" && !showDeleteConfirm ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setImportMode("select")}
+                  disabled={isImporting}
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={handleFullRestorePasswordCheck}
+                  className="bg-destructive hover:bg-destructive/90 text-white"
+                >
+                  Verify Password
+                </Button>
+              </>
+            ) : importMode === "full" && showDeleteConfirm ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={isImporting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleConfirmImport}
+                  disabled={isImporting}
+                  className="bg-destructive hover:bg-destructive/90 text-white"
+                  data-ocid="settings.import.confirm_delete.button"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      Restoring…
+                    </>
+                  ) : (
+                    <>
+                      <ShieldAlert className="w-4 h-4 mr-2" /> Yes, Delete &amp;
+                      Restore
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : importMode === "merge" ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setImportMode("select")}
+                  disabled={isImporting}
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={handleMergeImport}
+                  disabled={isImporting}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  data-ocid="settings.import.confirm_merge.button"
+                >
+                  {isImporting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Merging…
+                    </>
+                  ) : (
+                    <>
+                      <GitMerge className="w-4 h-4 mr-2" /> Add New Data
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : null}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Drive Restore Dialog */}
+      <Dialog
+        open={driveRestoreDialogOpen}
+        onOpenChange={(open) => {
+          if (!driveRestoring) {
+            setDriveRestoreDialogOpen(open);
+            if (!open) {
+              setDriveRestoreMode("select");
+              setDriveRestorePassword("");
+              setDriveRestorePasswordError("");
+              setDriveShowDeleteConfirm(false);
+              setDriveMergeResult(null);
+            }
+          }
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <RefreshCw className="w-5 h-5 text-blue-600" />
+              Update / Sync from Google Drive
+            </DialogTitle>
+          </DialogHeader>
+
+          {/* Drive backup summary */}
+          {driveBackupSummary && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-1.5 text-xs">
+              <p className="font-semibold text-blue-800">
+                Drive Backup Details
+              </p>
+              <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
+                <span>
+                  Saved:{" "}
+                  <span className="font-medium text-foreground">
+                    {driveBackupSummary.exportedAt !== "unknown"
+                      ? new Date(driveBackupSummary.exportedAt).toLocaleString(
+                          "en-IN",
+                        )
+                      : "Unknown"}
+                  </span>
+                </span>
+                <span>{driveBackupSummary.companiesCount} companies</span>
+                <span>{driveBackupSummary.usersCount} users</span>
+              </div>
+              {driveBackupSummary.companies.map((c) => (
+                <div
+                  key={c.id}
+                  className="flex gap-3 text-muted-foreground pl-2 border-l-2 border-blue-200"
+                >
+                  <span className="font-medium text-foreground">{c.name}</span>
+                  <span>{c.billsCount} bills</span>
+                  <span>{c.invoicesCount} invoices</span>
+                  <span>{c.customersCount} customers</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Merge result */}
+          {driveMergeResult && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-3 space-y-1.5 text-xs">
+              <p className="font-semibold text-green-800 flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4" /> Merge from Drive Complete
+              </p>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-green-700">
+                <span>
+                  Companies added:{" "}
+                  <strong>{driveMergeResult.companiesAdded}</strong>
+                </span>
+                <span>
+                  Bills added: <strong>{driveMergeResult.billsAdded}</strong>
+                </span>
+                <span>
+                  Invoices added:{" "}
+                  <strong>{driveMergeResult.invoicesAdded}</strong>
+                </span>
+                <span>
+                  Customers added:{" "}
+                  <strong>{driveMergeResult.customersAdded}</strong>
+                </span>
+                <span>
+                  Products added:{" "}
+                  <strong>{driveMergeResult.productsAdded}</strong>
+                </span>
+                <span>
+                  Vendors added:{" "}
+                  <strong>{driveMergeResult.vendorsAdded}</strong>
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Select mode */}
+          {driveRestoreMode === "select" && !driveMergeResult && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Choose how to apply the Drive backup to your current data:
+              </p>
+              <div className="grid grid-cols-1 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDriveRestoreMode("full")}
+                  className="text-left p-4 rounded-xl border-2 border-destructive/30 bg-red-50 hover:bg-red-100 transition-colors"
+                  data-ocid="settings.drive_restore.full.button"
+                >
+                  <div className="flex items-start gap-3">
+                    <ShieldAlert className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-sm text-destructive">
+                        Full Restore
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Deletes all existing local data and replaces it entirely
+                        with the Drive backup. Requires password + confirmation.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDriveRestoreMode("merge")}
+                  className="text-left p-4 rounded-xl border-2 border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors"
+                  data-ocid="settings.drive_restore.merge.button"
+                >
+                  <div className="flex items-start gap-3">
+                    <GitMerge className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-sm text-blue-800">
+                        Add New Data Only
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Keeps all existing records. Only adds data from Drive
+                        that doesn't already exist locally. Safe and
+                        non-destructive.
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Full restore — password step */}
+          {driveRestoreMode === "full" && !driveShowDeleteConfirm && (
+            <div className="space-y-3">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-red-800">
+                  All existing local data will be permanently deleted. Enter
+                  your current login password to continue.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Your Current Password</Label>
+                <Input
+                  type="password"
+                  value={driveRestorePassword}
+                  onChange={(e) => {
+                    setDriveRestorePassword(e.target.value);
+                    setDriveRestorePasswordError("");
+                  }}
+                  placeholder="Enter your login password"
+                  data-ocid="settings.drive_restore.password.input"
+                  onKeyDown={(e) =>
+                    e.key === "Enter" && handleDriveFullRestorePasswordCheck()
+                  }
+                />
+                {driveRestorePasswordError && (
+                  <p className="text-xs text-red-600">
+                    {driveRestorePasswordError}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Full restore — delete confirmation step */}
+          {driveRestoreMode === "full" && driveShowDeleteConfirm && (
+            <div className="p-4 bg-red-50 border-2 border-red-300 rounded-xl space-y-2">
+              <p className="text-sm font-bold text-red-700 flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5" /> Final Confirmation
+              </p>
+              <p className="text-xs text-red-700">
+                Are you sure you want to{" "}
+                <strong>permanently delete all existing data</strong> and
+                replace it with the Google Drive backup? This action{" "}
+                <strong>cannot be undone</strong>.
+              </p>
+            </div>
+          )}
+
+          {/* Merge — confirm step */}
+          {driveRestoreMode === "merge" && !driveMergeResult && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-start gap-2">
+              <GitMerge className="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-800">
+                Only records from Drive that are not already present locally (by
+                ID) will be added. No existing data will be changed.
+              </p>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2 flex-wrap">
+            {driveMergeResult ? (
+              <Button
+                onClick={() => {
+                  setDriveRestoreDialogOpen(false);
+                  setDriveMergeResult(null);
+                  setDriveRestoreMode("select");
+                }}
+              >
+                Done
+              </Button>
+            ) : driveRestoreMode === "select" ? (
+              <Button
+                variant="outline"
+                onClick={() => setDriveRestoreDialogOpen(false)}
+                disabled={driveRestoring}
+              >
+                Cancel
+              </Button>
+            ) : driveRestoreMode === "full" && !driveShowDeleteConfirm ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setDriveRestoreMode("select")}
+                  disabled={driveRestoring}
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={handleDriveFullRestorePasswordCheck}
+                  className="bg-destructive hover:bg-destructive/90 text-white"
+                >
+                  Verify Password
+                </Button>
+              </>
+            ) : driveRestoreMode === "full" && driveShowDeleteConfirm ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setDriveShowDeleteConfirm(false)}
+                  disabled={driveRestoring}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleDriveFullRestore}
+                  disabled={driveRestoring}
+                  className="bg-destructive hover:bg-destructive/90 text-white"
+                  data-ocid="settings.drive_restore.confirm_delete.button"
+                >
+                  {driveRestoring ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />{" "}
+                      Restoring…
+                    </>
+                  ) : (
+                    <>
+                      <ShieldAlert className="w-4 h-4 mr-2" /> Yes, Delete &amp;
+                      Restore from Drive
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : driveRestoreMode === "merge" ? (
+              <>
+                <Button
+                  variant="outline"
+                  onClick={() => setDriveRestoreMode("select")}
+                  disabled={driveRestoring}
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={handleDriveMerge}
+                  disabled={driveRestoring}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  data-ocid="settings.drive_restore.confirm_merge.button"
+                >
+                  {driveRestoring ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Merging…
+                    </>
+                  ) : (
+                    <>
+                      <GitMerge className="w-4 h-4 mr-2" /> Add New Data from
+                      Drive
+                    </>
+                  )}
+                </Button>
+              </>
+            ) : null}
           </DialogFooter>
         </DialogContent>
       </Dialog>

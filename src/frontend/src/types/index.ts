@@ -40,6 +40,21 @@ export interface PricingSlab {
   price: number;
 }
 
+// ─── Named Pricing Tiers (Retail / Super Retail / Wholesale / Super Wholesale) ─
+export type PricingTierName =
+  | "retail"
+  | "super_retail"
+  | "wholesale"
+  | "super_wholesale";
+
+export interface PricingTier {
+  name: PricingTierName;
+  minQty: number;
+  maxQty: number | null; // null = unlimited
+  mrp: number;
+  sellingPrice: number;
+}
+
 export interface GeneralProduct {
   id: string;
   companyId: string;
@@ -47,6 +62,7 @@ export interface GeneralProduct {
   name: string;
   category: string;
   unit: string;
+  mrp?: number; // maximum retail price
   subUnit1?: { name: string; conversionRate: number };
   subUnit2?: { name: string; conversionRate: number };
   subUnit3?: { name: string; conversionRate: number };
@@ -59,6 +75,7 @@ export interface GeneralProduct {
   isActive: boolean;
   usePricingSlabs?: boolean;
   pricingSlabs?: PricingSlab[];
+  pricingTiers?: PricingTier[]; // named tier pricing (retail/super_retail/wholesale/super_wholesale)
 }
 
 // Individual product under a courier brand (each brand can have many products)
@@ -178,6 +195,7 @@ export interface Customer {
   email?: string;
   address?: string;
   gstin?: string;
+  locationLink?: string;
   totalPurchases: number;
   isActive: boolean;
   tariffAssignments?: CustomerTariffAssignment[];
@@ -468,10 +486,20 @@ export interface Category {
 }
 
 // ─── Product Units ────────────────────────────────────────────────────────────
+export interface ProductSubUnit {
+  name: string;
+  conversionRate: number; // how many of the base unit make 1 of this sub-unit
+  mrp?: number;
+  sellingPrice?: number;
+}
+
 export interface ProductUnit {
   id: string;
   name: string; // e.g. "Piece"
   symbol: string; // e.g. "pcs"
-  subUnit1?: { name: string; conversionRate: number }; // e.g. {name: "Box", conversionRate: 12}
-  subUnit2?: { name: string; conversionRate: number }; // e.g. {name: "Carton", conversionRate: 144}
+  mrp?: number; // MRP for the main unit
+  sellingPrice?: number; // Selling price for the main unit
+  subUnit1?: ProductSubUnit; // e.g. {name: "Box", conversionRate: 12}
+  subUnit2?: ProductSubUnit; // e.g. {name: "Carton", conversionRate: 144}
+  subUnit3?: ProductSubUnit; // e.g. {name: "Master Carton", conversionRate: 1440}
 }

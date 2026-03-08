@@ -39,11 +39,16 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Copy,
   Download,
   Edit,
   ExternalLink,
   Eye,
+  FileDown,
+  FileUp,
   IndianRupee,
+  MapPin,
+  MessageCircle,
   Plus,
   Search,
   Star,
@@ -53,7 +58,8 @@ import {
   UserCheck,
   X,
 } from "lucide-react";
-import { useMemo, useReducer, useState } from "react";
+import type React from "react";
+import { useMemo, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import type {
@@ -61,9 +67,16 @@ import type {
   Customer,
   CustomerTariffAssignment,
 } from "../types";
+import {
+  downloadCSVString,
+  exportToCSV,
+  getSampleCustomersCSV,
+  parseCSV,
+} from "../utils/excelHelpers";
 import { validateGSTINFormat, verifyGSTIN } from "../utils/gstApi";
 import { formatCurrency, formatDate, generateId } from "../utils/helpers";
 import {
+  SHARED_DATA_ID,
   getCustomerTariffMap,
   getTariffs,
   setCustomerTariffMap,
@@ -80,13 +93,13 @@ interface CustomerTariffDialogProps {
 
 function CustomerTariffDialog({
   customer,
-  activeCompanyId,
+  activeCompanyId: _activeCompanyId, // kept for prop compat but not used for storage
   onClose,
 }: CustomerTariffDialogProps) {
   const [allTariffs, setAllTariffs] = useState<CourierTariff[]>(() =>
-    getTariffs(activeCompanyId),
+    getTariffs(SHARED_DATA_ID),
   );
-  const tariffMap = getCustomerTariffMap(activeCompanyId);
+  const tariffMap = getCustomerTariffMap(SHARED_DATA_ID);
   const existingAssignments: CustomerTariffAssignment[] =
     tariffMap[customer.id] ?? [];
 
@@ -190,7 +203,7 @@ function CustomerTariffDialog({
         .filter((z) => !existing.has(`DTDC|Express|${z.zone}`))
         .map((z, _i) => ({
           id: generateId(),
-          companyId: activeCompanyId,
+          companyId: SHARED_DATA_ID,
           brandId: DTDC_BRAND_ID,
           brandName: "DTDC",
           productType: "Express",
@@ -207,7 +220,7 @@ function CustomerTariffDialog({
         .filter((z) => !existing.has(`DTDC|Cargo Air|${z.zone}`))
         .map((z) => ({
           id: generateId(),
-          companyId: activeCompanyId,
+          companyId: SHARED_DATA_ID,
           brandId: DTDC_BRAND_ID,
           brandName: "DTDC",
           productType: "Cargo Air",
@@ -224,7 +237,7 @@ function CustomerTariffDialog({
         .filter((z) => !existing.has(`DTDC|Cargo Surface|${z.zone}`))
         .map((z) => ({
           id: generateId(),
-          companyId: activeCompanyId,
+          companyId: SHARED_DATA_ID,
           brandId: DTDC_BRAND_ID,
           brandName: "DTDC",
           productType: "Cargo Surface",
@@ -243,7 +256,7 @@ function CustomerTariffDialog({
       return;
     }
     const updated = [...allTariffs, ...toAdd];
-    setTariffs(activeCompanyId, updated);
+    setTariffs(SHARED_DATA_ID, updated);
     setAllTariffs(updated);
     toast.success(`Loaded ${toAdd.length} DTDC default tariff rates`);
   };
@@ -270,7 +283,7 @@ function CustomerTariffDialog({
       }
     }
     const updated = { ...tariffMap, [customer.id]: assignments };
-    setCustomerTariffMap(activeCompanyId, updated);
+    setCustomerTariffMap(SHARED_DATA_ID, updated);
     toast.success(
       `Saved ${assignments.length} custom rate${assignments.length !== 1 ? "s" : ""} for ${customer.name}`,
     );
@@ -551,8 +564,24 @@ export function CustomersPage() {
   const [tariffCustomer, setTariffCustomer] = useState<Customer | null>(null);
   const [, forceRefresh] = useReducer((x: number) => x + 1, 0);
 
-  // Load tariff map to show badges — reads from localStorage on each render
-  const tariffMap = getCustomerTariffMap(activeCompanyId);
+  // Import state
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  interface ImportCustomerRow {
+    name: string;
+    phone: string;
+    email: string;
+    address: string;
+    gstin: string;
+    customerType: "registered" | "walking";
+    error?: string;
+    isDuplicate?: boolean;
+  }
+  const [importRows, setImportRows] = useState<ImportCustomerRow[]>([]);
+  const [importFileName, setImportFileName] = useState("");
+
+  // Load tariff map to show badges — reads from shared storage
+  const tariffMap = getCustomerTariffMap(SHARED_DATA_ID);
 
   // Form state
   const [name, setName] = useState("");
@@ -560,6 +589,7 @@ export function CustomersPage() {
   const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [gstin, setGstin] = useState("");
+  const [locationLink, setLocationLink] = useState("");
   const [customerType, setCustomerType] = useState<"registered" | "walking">(
     "registered",
   );
@@ -576,6 +606,7 @@ export function CustomersPage() {
     setEmail("");
     setAddress("");
     setGstin("");
+    setLocationLink("");
     setCustomerType("registered");
     setEditCustomer(null);
     setGstStatus("idle");
@@ -635,6 +666,7 @@ export function CustomersPage() {
     setEmail(c.email || "");
     setAddress(c.address || "");
     setGstin(c.gstin || "");
+    setLocationLink(c.locationLink || "");
     setCustomerType(c.customerType);
     setShowForm(true);
   };
@@ -653,6 +685,7 @@ export function CustomersPage() {
       email: email || undefined,
       address: address || undefined,
       gstin: gstin || undefined,
+      locationLink: locationLink || undefined,
       totalPurchases: editCustomer?.totalPurchases || 0,
       isActive: true,
     };
@@ -676,6 +709,107 @@ export function CustomersPage() {
   const getCustomerBills = (customerId: string) =>
     bills.filter((b) => b.customerId === customerId);
 
+  const handleExportCustomers = () => {
+    const registeredCustomers = customers.filter(
+      (c) => c.customerType === "registered",
+    );
+    if (registeredCustomers.length === 0) {
+      toast.info("No registered customers to export");
+      return;
+    }
+    exportToCSV(
+      "customers_export.csv",
+      ["Name", "Phone", "Email", "Address", "GSTIN", "Customer Type"],
+      registeredCustomers.map((c) => [
+        c.name,
+        c.phone,
+        c.email || "",
+        c.address || "",
+        c.gstin || "",
+        c.customerType,
+      ]),
+    );
+    toast.success(`Exported ${registeredCustomers.length} customers`);
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCSV(text);
+      if (rows.length < 2) {
+        toast.error("CSV must have a header row and at least one data row");
+        return;
+      }
+      const existingPhones = new Set(customers.map((c) => c.phone));
+      const parsed: ImportCustomerRow[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const [
+          name = "",
+          phone = "",
+          email = "",
+          address = "",
+          gstin = "",
+          typeRaw = "registered",
+        ] = rows[i];
+        const customerType: "registered" | "walking" = typeRaw
+          .toLowerCase()
+          .includes("walk")
+          ? "walking"
+          : "registered";
+        const error = !name.trim()
+          ? "Name is required"
+          : !phone.trim()
+            ? "Phone is required"
+            : undefined;
+        const isDuplicate = !!phone.trim() && existingPhones.has(phone.trim());
+        parsed.push({
+          name: name.trim(),
+          phone: phone.trim(),
+          email: email.trim(),
+          address: address.trim(),
+          gstin: gstin.trim(),
+          customerType,
+          error,
+          isDuplicate,
+        });
+      }
+      setImportRows(parsed);
+      setShowImportDialog(true);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleConfirmImport = () => {
+    const valid = importRows.filter((r) => !r.error && !r.isDuplicate);
+    if (valid.length === 0) {
+      toast.error("No new valid rows to import");
+      return;
+    }
+    for (const row of valid) {
+      addCustomer({
+        id: generateId(),
+        companyId: activeCompanyId,
+        customerType: row.customerType,
+        name: row.name,
+        phone: row.phone,
+        email: row.email || undefined,
+        address: row.address || undefined,
+        gstin: row.gstin || undefined,
+        totalPurchases: 0,
+        isActive: true,
+      });
+    }
+    toast.success(`Imported ${valid.length} customers`);
+    setShowImportDialog(false);
+    setImportRows([]);
+    setImportFileName("");
+  };
+
   return (
     <div className="p-6 space-y-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
@@ -685,13 +819,36 @@ export function CustomersPage() {
             {filteredCustomers.length} customers
           </p>
         </div>
-        <Button
-          onClick={openAdd}
-          size="sm"
-          data-ocid="customers.primary_button"
-        >
-          <Plus className="w-4 h-4 mr-1" /> Add Customer
-        </Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCustomers}
+            data-ocid="customers.export.button"
+          >
+            <FileDown className="w-4 h-4 mr-1" /> Export
+          </Button>
+          <label className="cursor-pointer">
+            <span className="inline-flex items-center gap-1.5 text-xs border border-input bg-background hover:bg-accent hover:text-accent-foreground px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer">
+              <FileUp className="w-3.5 h-3.5" /> Import
+            </span>
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleImportFileChange}
+              data-ocid="customers.import.upload_button"
+            />
+          </label>
+          <Button
+            onClick={openAdd}
+            size="sm"
+            data-ocid="customers.primary_button"
+          >
+            <Plus className="w-4 h-4 mr-1" /> Add Customer
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -814,13 +971,14 @@ export function CustomersPage() {
                         {formatCurrency(c.totalPurchases)}
                       </TableCell>
                       <TableCell>
-                        <div className="flex gap-1">
+                        <div className="flex gap-1 flex-wrap">
                           <Button
                             variant="ghost"
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => setViewCustomer(c)}
                             data-ocid={`customers.edit_button.${idx + 1}`}
+                            title="View details"
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </Button>
@@ -829,9 +987,44 @@ export function CustomersPage() {
                             size="icon"
                             className="h-7 w-7"
                             onClick={() => openEdit(c)}
+                            title="Edit customer"
                           >
                             <Edit className="w-3.5 h-3.5" />
                           </Button>
+                          {c.locationLink && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-green-600"
+                                title="Copy location link"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(
+                                    c.locationLink!,
+                                  );
+                                  toast.success("Location link copied");
+                                }}
+                                data-ocid={`customers.copy_location.button.${idx + 1}`}
+                              >
+                                <Copy className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7 text-emerald-600"
+                                title="Share location via WhatsApp"
+                                onClick={() => {
+                                  window.open(
+                                    `https://wa.me/?text=${encodeURIComponent(c.locationLink!)}`,
+                                    "_blank",
+                                  );
+                                }}
+                                data-ocid={`customers.whatsapp_location.button.${idx + 1}`}
+                              >
+                                <MessageCircle className="w-3.5 h-3.5" />
+                              </Button>
+                            </>
+                          )}
                           {c.customerType === "registered" && (
                             <Button
                               variant="ghost"
@@ -855,6 +1048,7 @@ export function CustomersPage() {
                             className="h-7 w-7 text-destructive"
                             onClick={() => setDeleteId(c.id)}
                             data-ocid={`customers.delete_button.${idx + 1}`}
+                            title="Delete customer"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
@@ -1021,6 +1215,20 @@ export function CustomersPage() {
                 rows={2}
               />
             </div>
+            <div>
+              <Label className="text-xs flex items-center gap-1.5">
+                <MapPin className="w-3 h-3 text-blue-500" />
+                Location Link (Google Maps / Apple Maps)
+              </Label>
+              <Input
+                type="url"
+                value={locationLink}
+                onChange={(e) => setLocationLink(e.target.value)}
+                placeholder="https://maps.google.com/..."
+                className="mt-1 text-sm"
+                data-ocid="customers.location_link.input"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button
@@ -1074,6 +1282,52 @@ export function CustomersPage() {
                   <div className="col-span-2">
                     <p className="text-muted-foreground text-xs">Address</p>
                     <p>{viewCustomer.address}</p>
+                  </div>
+                )}
+                {viewCustomer.locationLink && (
+                  <div className="col-span-2">
+                    <p className="text-muted-foreground text-xs">
+                      Location Link
+                    </p>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <a
+                        href={viewCustomer.locationLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 text-sm underline truncate max-w-xs flex items-center gap-1"
+                      >
+                        <MapPin className="w-3 h-3 flex-shrink-0" />
+                        Open Location
+                      </a>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-green-600"
+                        title="Copy location link"
+                        onClick={() => {
+                          navigator.clipboard.writeText(
+                            viewCustomer.locationLink!,
+                          );
+                          toast.success("Location link copied");
+                        }}
+                      >
+                        <Copy className="w-3 h-3" />
+                      </Button>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-6 w-6 text-emerald-600"
+                        title="Share via WhatsApp"
+                        onClick={() => {
+                          window.open(
+                            `https://wa.me/?text=${encodeURIComponent(viewCustomer.locationLink!)}`,
+                            "_blank",
+                          );
+                        }}
+                      >
+                        <MessageCircle className="w-3 h-3" />
+                      </Button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1215,6 +1469,152 @@ export function CustomersPage() {
           }}
         />
       )}
+
+      {/* Import Customers Dialog */}
+      <Dialog
+        open={showImportDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowImportDialog(false);
+            setImportRows([]);
+            setImportFileName("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-3xl max-h-[85vh] flex flex-col"
+          data-ocid="customers.import.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Import Customers — {importFileName}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto space-y-3">
+            <div className="flex gap-3 text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+              <span>
+                <strong className="text-green-600">
+                  {importRows.filter((r) => !r.error && !r.isDuplicate).length}
+                </strong>{" "}
+                new •{" "}
+                <strong className="text-amber-600">
+                  {importRows.filter((r) => r.isDuplicate).length}
+                </strong>{" "}
+                duplicates (skipped) •{" "}
+                <strong className="text-destructive">
+                  {importRows.filter((r) => !!r.error).length}
+                </strong>{" "}
+                errors
+              </span>
+              <button
+                type="button"
+                className="ml-auto text-xs text-primary underline"
+                onClick={() =>
+                  downloadCSVString(
+                    "customers_sample.csv",
+                    getSampleCustomersCSV(),
+                  )
+                }
+              >
+                <Download className="w-3.5 h-3.5 inline mr-0.5" />
+                Download Sample
+              </button>
+            </div>
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="overflow-auto max-h-64">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/20">
+                      <TableHead className="text-xs">#</TableHead>
+                      <TableHead className="text-xs">Name</TableHead>
+                      <TableHead className="text-xs">Phone</TableHead>
+                      <TableHead className="text-xs">Email</TableHead>
+                      <TableHead className="text-xs">GSTIN</TableHead>
+                      <TableHead className="text-xs">Type</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importRows.map((row, idx) => (
+                      <TableRow
+                        // biome-ignore lint/suspicious/noArrayIndexKey: preview list
+                        key={idx}
+                        className={
+                          row.error
+                            ? "bg-red-50"
+                            : row.isDuplicate
+                              ? "bg-amber-50"
+                              : "hover:bg-muted/10"
+                        }
+                        data-ocid={`customers.import.row.${idx + 1}`}
+                      >
+                        <TableCell className="text-xs text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {row.name || (
+                            <span className="text-destructive italic">
+                              missing
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs">{row.phone}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {row.email || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-mono">
+                          {row.gstin || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {row.customerType}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {row.error ? (
+                            <span className="text-destructive font-medium">
+                              ✗ {row.error}
+                            </span>
+                          ) : row.isDuplicate ? (
+                            <span className="text-amber-600 font-medium">
+                              ⚠ Duplicate
+                            </span>
+                          ) : (
+                            <span className="text-green-600 font-medium">
+                              ✓ New
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowImportDialog(false);
+                setImportRows([]);
+                setImportFileName("");
+              }}
+              data-ocid="customers.import.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmImport}
+              disabled={
+                importRows.filter((r) => !r.error && !r.isDuplicate).length ===
+                0
+              }
+              data-ocid="customers.import.submit_button"
+            >
+              Import{" "}
+              {importRows.filter((r) => !r.error && !r.isDuplicate).length}{" "}
+              Customers
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

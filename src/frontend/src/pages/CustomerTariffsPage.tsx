@@ -58,6 +58,7 @@ import type {
   CustomerTariffAssignment,
 } from "../types";
 import {
+  SHARED_DATA_ID,
   getCustomerTariffMap,
   getTariffs,
   setCustomerTariffMap,
@@ -103,7 +104,7 @@ interface AddDialogProps {
 }
 
 function AddAssignmentDialog({
-  activeCompanyId,
+  activeCompanyId: _activeCompanyId,
   registeredCustomers,
   tariffs,
   onSave,
@@ -145,7 +146,7 @@ function AddAssignmentDialog({
     };
 
     // Check if this tariffId already exists for the customer
-    const existing = getCustomerTariffMap(activeCompanyId);
+    const existing = getCustomerTariffMap(SHARED_DATA_ID);
     const customerAssignments = existing[customerId] ?? [];
     const alreadyExists = customerAssignments.some(
       (a) => a.tariffId === tariffId,
@@ -394,18 +395,19 @@ export function CustomerTariffsPage() {
     [customers],
   );
 
-  // Local state for tariff map — reloads when activeCompanyId changes
+  // Local state for tariff map — always reads from shared storage
   const [tariffMap, setLocalTariffMap] = useState<
     Record<string, CustomerTariffAssignment[]>
-  >(() => getCustomerTariffMap(activeCompanyId));
+  >(() => getCustomerTariffMap(SHARED_DATA_ID));
 
   const [tariffs, setLocalTariffs] = useState<CourierTariff[]>(() =>
-    getTariffs(activeCompanyId),
+    getTariffs(SHARED_DATA_ID),
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload tariff map when company switches (shared data)
   useEffect(() => {
-    setLocalTariffMap(getCustomerTariffMap(activeCompanyId));
-    setLocalTariffs(getTariffs(activeCompanyId));
+    setLocalTariffMap(getCustomerTariffMap(SHARED_DATA_ID));
+    setLocalTariffs(getTariffs(SHARED_DATA_ID));
   }, [activeCompanyId]);
 
   // Filters
@@ -478,7 +480,7 @@ export function CustomerTariffsPage() {
   // ── Save helpers ─────────────────────────────────────────────────────────────
 
   const persistMap = (updated: Record<string, CustomerTariffAssignment[]>) => {
-    setCustomerTariffMap(activeCompanyId, updated);
+    setCustomerTariffMap(SHARED_DATA_ID, updated);
     setLocalTariffMap(updated);
   };
 

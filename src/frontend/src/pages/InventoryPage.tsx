@@ -31,6 +31,7 @@ import {
   Package,
   Pencil,
   Plus,
+  RefreshCw,
   Trash2,
   Truck,
   Upload,
@@ -40,6 +41,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import type { AWBSerialRange, CourierBrand, GeneralProduct } from "../types";
+import {
+  downloadCSVString,
+  getSampleAWBSerialsCSV,
+  getSampleStockUpdateCSV,
+  parseCSV,
+} from "../utils/excelHelpers";
 import { formatDate, generateId } from "../utils/helpers";
 
 // ─── Edit General Product Dialog ─────────────────────────────────────────────
@@ -387,18 +394,95 @@ export function InventoryPage() {
   const [bulkAWBRows, setBulkAWBRows] = useState<BulkAWBRow[]>([]);
   const [bulkAWBFileName, setBulkAWBFileName] = useState("");
 
+  // ── Bulk Stock Update ──────────────────────────────────────────────────────
+  const [showBulkStockUpdate, setShowBulkStockUpdate] = useState(false);
+  interface BulkStockRow {
+    productName: string;
+    newStock: number;
+    reason: string;
+    productFound?: boolean;
+    productId?: string;
+    currentStock?: number;
+    error?: string;
+  }
+  const [bulkStockRows, setBulkStockRows] = useState<BulkStockRow[]>([]);
+  const [bulkStockFileName, setBulkStockFileName] = useState("");
+
   const handleBulkAWBTemplateDownload = () => {
-    const today = new Date().toISOString().split("T")[0];
-    const csv = `brandName,productTypeName,fromSerial,toSerial,purchaseDate\nDTDC,D Express,123456001,123456010,${today}\nBlueDart,Priority,AB001,AB010,${today}\n`;
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "awb_import_template.csv";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadCSVString("awb_import_template.csv", getSampleAWBSerialsCSV());
+  };
+
+  const handleBulkStockTemplateDownload = () => {
+    downloadCSVString("stock_update_template.csv", getSampleStockUpdateCSV());
+  };
+
+  const handleBulkStockFileChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkStockFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCSV(text);
+      if (rows.length < 2) {
+        toast.error("CSV must have a header row and at least one data row");
+        return;
+      }
+      const generalProds = products.filter(
+        (p) => p.type === "general",
+      ) as GeneralProduct[];
+      const parsed: BulkStockRow[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const [productName = "", newStockStr = "0", reason = ""] = rows[i];
+        if (!productName.trim()) continue;
+        const matchedProd = generalProds.find(
+          (p) => p.name.toLowerCase() === productName.toLowerCase().trim(),
+        );
+        const newStock = Number(newStockStr) || 0;
+        const error = !productName.trim()
+          ? "Product name is required"
+          : Number.isNaN(Number(newStockStr))
+            ? "Invalid stock quantity"
+            : undefined;
+        parsed.push({
+          productName: productName.trim(),
+          newStock,
+          reason: reason.trim(),
+          productFound: !!matchedProd,
+          productId: matchedProd?.id,
+          currentStock: matchedProd?.currentStock,
+          error,
+        });
+      }
+      setBulkStockRows(parsed);
+      setShowBulkStockUpdate(true);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleBulkStockImport = () => {
+    const valid = bulkStockRows.filter(
+      (r) => !r.error && r.productFound && r.productId,
+    );
+    if (valid.length === 0) {
+      toast.error("No valid matching products found");
+      return;
+    }
+    const generalProds = products.filter(
+      (p) => p.type === "general",
+    ) as GeneralProduct[];
+    for (const row of valid) {
+      const prod = generalProds.find((p) => p.id === row.productId);
+      if (!prod) continue;
+      updateProduct({ ...prod, currentStock: row.newStock });
+    }
+    toast.success(`Updated stock for ${valid.length} products`);
+    setShowBulkStockUpdate(false);
+    setBulkStockRows([]);
+    setBulkStockFileName("");
   };
 
   const handleBulkAWBFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -660,7 +744,7 @@ export function InventoryPage() {
             Track stock levels and AWB serials
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <Button
             size="sm"
             variant="outline"
@@ -673,6 +757,18 @@ export function InventoryPage() {
           >
             <Upload className="w-4 h-4 mr-1" /> Bulk Import AWB
           </Button>
+          <label className="cursor-pointer">
+            <span className="inline-flex items-center gap-1.5 text-xs border border-input bg-background hover:bg-accent hover:text-accent-foreground px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer">
+              <RefreshCw className="w-3.5 h-3.5" /> Bulk Stock Update
+            </span>
+            <input
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleBulkStockFileChange}
+              data-ocid="inventory.bulk_stock.upload_button"
+            />
+          </label>
           <Button
             size="sm"
             variant="outline"
@@ -1434,6 +1530,150 @@ export function InventoryPage() {
               data-ocid="inventory.bulk_awb.submit_button"
             >
               Import {bulkAWBRows.filter((r) => !r.error).length} AWB Ranges
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Stock Update Dialog */}
+      <Dialog
+        open={showBulkStockUpdate}
+        onOpenChange={(o) => {
+          if (!o) {
+            setShowBulkStockUpdate(false);
+            setBulkStockRows([]);
+            setBulkStockFileName("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-3xl max-h-[85vh] flex flex-col"
+          data-ocid="inventory.bulk_stock.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              Bulk Stock Update
+              {bulkStockFileName ? ` — ${bulkStockFileName}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto space-y-3">
+            <div className="flex gap-3 items-center text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+              <span>
+                <strong className="text-green-600">
+                  {
+                    bulkStockRows.filter((r) => !r.error && r.productFound)
+                      .length
+                  }
+                </strong>{" "}
+                matched •{" "}
+                <strong className="text-amber-600">
+                  {
+                    bulkStockRows.filter((r) => !r.error && !r.productFound)
+                      .length
+                  }
+                </strong>{" "}
+                not found •{" "}
+                <strong className="text-destructive">
+                  {bulkStockRows.filter((r) => !!r.error).length}
+                </strong>{" "}
+                errors
+              </span>
+              <button
+                type="button"
+                className="ml-auto text-xs text-primary underline"
+                onClick={handleBulkStockTemplateDownload}
+              >
+                <Download className="w-3.5 h-3.5 inline mr-0.5" />
+                Download Sample
+              </button>
+            </div>
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="overflow-auto max-h-64">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/20">
+                      <TableHead className="text-xs">#</TableHead>
+                      <TableHead className="text-xs">Product Name</TableHead>
+                      <TableHead className="text-xs">Current Stock</TableHead>
+                      <TableHead className="text-xs">New Stock</TableHead>
+                      <TableHead className="text-xs">Reason</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {bulkStockRows.map((row, idx) => (
+                      <TableRow
+                        // biome-ignore lint/suspicious/noArrayIndexKey: preview list
+                        key={idx}
+                        className={
+                          row.error
+                            ? "bg-red-50"
+                            : !row.productFound
+                              ? "bg-amber-50"
+                              : "hover:bg-muted/10"
+                        }
+                        data-ocid={`inventory.bulk_stock.row.${idx + 1}`}
+                      >
+                        <TableCell className="text-xs text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {row.productName}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {row.productFound ? row.currentStock : "—"}
+                        </TableCell>
+                        <TableCell className="text-xs font-bold">
+                          {row.newStock}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {row.reason || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {row.error ? (
+                            <span className="text-destructive font-medium">
+                              ✗ {row.error}
+                            </span>
+                          ) : !row.productFound ? (
+                            <span className="text-amber-600 font-medium">
+                              ⚠ Not Found
+                            </span>
+                          ) : (
+                            <span className="text-green-600 font-medium">
+                              ✓ Matched
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBulkStockUpdate(false);
+                setBulkStockRows([]);
+                setBulkStockFileName("");
+              }}
+              data-ocid="inventory.bulk_stock.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkStockImport}
+              disabled={
+                bulkStockRows.filter((r) => !r.error && r.productFound)
+                  .length === 0
+              }
+              data-ocid="inventory.bulk_stock.submit_button"
+            >
+              Update{" "}
+              {bulkStockRows.filter((r) => !r.error && r.productFound).length}{" "}
+              Products
             </Button>
           </DialogFooter>
         </DialogContent>

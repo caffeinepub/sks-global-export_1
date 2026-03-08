@@ -17,6 +17,7 @@ import type {
   Vendor,
 } from "../types";
 import {
+  SHARED_DATA_ID,
   getAWBSerials,
   getActiveCompanyId,
   getActiveUser,
@@ -167,19 +168,21 @@ import { verifyPassword } from "../utils/helpers";
 export const useAppStore = create<AppState>((set, get) => {
   const loadCompanyData = (companyId: string) => {
     if (!companyId) return;
+    // Transactional data is always shared (SHARED_DATA_ID)
+    // Only settings (invoice sequences, prefixes) are per-company
     set({
-      bills: getBills(companyId),
-      invoices: getInvoices(companyId),
-      products: getProducts(companyId),
-      customers: getCustomers(companyId),
-      vendors: getVendors(companyId),
-      pickups: getPickups(companyId),
-      purchaseInvoices: getPurchaseInvoices(companyId),
-      awbSerials: getAWBSerials(companyId),
-      settings: getSettings(companyId),
-      expenses: getExpenses(companyId),
-      designOrders: getDesignOrders(companyId),
-      designPricing: getDesignPricing(companyId),
+      bills: getBills(SHARED_DATA_ID),
+      invoices: getInvoices(SHARED_DATA_ID),
+      products: getProducts(SHARED_DATA_ID),
+      customers: getCustomers(SHARED_DATA_ID),
+      vendors: getVendors(SHARED_DATA_ID),
+      pickups: getPickups(SHARED_DATA_ID),
+      purchaseInvoices: getPurchaseInvoices(SHARED_DATA_ID),
+      awbSerials: getAWBSerials(SHARED_DATA_ID),
+      settings: getSettings(companyId), // per-company: invoice sequences, prefixes
+      expenses: getExpenses(SHARED_DATA_ID),
+      designOrders: getDesignOrders(SHARED_DATA_ID),
+      designPricing: getDesignPricing(SHARED_DATA_ID),
     });
   };
 
@@ -240,8 +243,12 @@ export const useAppStore = create<AppState>((set, get) => {
       setActiveCompanyId(companyId);
       const comps = getCompanies();
       const company = comps.find((c) => c.id === companyId) ?? null;
-      set({ activeCompanyId: companyId, activeCompany: company });
-      loadCompanyData(companyId);
+      // Update company identity + per-company settings; shared data stays as-is
+      set({
+        activeCompanyId: companyId,
+        activeCompany: company,
+        settings: getSettings(companyId),
+      });
     },
 
     addCompany: (company: Company) => {
@@ -291,160 +298,150 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ users });
     },
 
-    // Products
-    products: savedCompanyId ? getProducts(savedCompanyId) : [],
+    // Products — shared across all companies
+    products: getProducts(SHARED_DATA_ID),
     loadProducts: () => {
-      const cid = get().activeCompanyId;
-      set({ products: getProducts(cid) });
+      set({ products: getProducts(SHARED_DATA_ID) });
     },
 
     addProduct: (product: AnyProduct) => {
-      const cid = get().activeCompanyId;
-      const products = [...getProducts(cid), product];
-      setProducts(cid, products);
+      const products = [...getProducts(SHARED_DATA_ID), product];
+      setProducts(SHARED_DATA_ID, products);
       set({ products });
     },
 
     updateProduct: (product: AnyProduct) => {
-      const cid = get().activeCompanyId;
-      const products = getProducts(cid).map((p) =>
+      const products = getProducts(SHARED_DATA_ID).map((p) =>
         p.id === product.id ? product : p,
       );
-      setProducts(cid, products);
+      setProducts(SHARED_DATA_ID, products);
       set({ products });
     },
 
     deleteProduct: (productId: string) => {
-      const cid = get().activeCompanyId;
-      const products = getProducts(cid).filter((p) => p.id !== productId);
-      setProducts(cid, products);
+      const products = getProducts(SHARED_DATA_ID).filter(
+        (p) => p.id !== productId,
+      );
+      setProducts(SHARED_DATA_ID, products);
       set({ products });
     },
 
-    // Customers
-    customers: savedCompanyId ? getCustomers(savedCompanyId) : [],
+    // Customers — shared across all companies
+    customers: getCustomers(SHARED_DATA_ID),
     loadCustomers: () => {
-      const cid = get().activeCompanyId;
-      set({ customers: getCustomers(cid) });
+      set({ customers: getCustomers(SHARED_DATA_ID) });
     },
 
     addCustomer: (customer: Customer) => {
-      const cid = get().activeCompanyId;
-      const customers = [...getCustomers(cid), customer];
-      setCustomers(cid, customers);
+      const customers = [...getCustomers(SHARED_DATA_ID), customer];
+      setCustomers(SHARED_DATA_ID, customers);
       set({ customers });
     },
 
     updateCustomer: (customer: Customer) => {
-      const cid = get().activeCompanyId;
-      const customers = getCustomers(cid).map((c) =>
+      const customers = getCustomers(SHARED_DATA_ID).map((c) =>
         c.id === customer.id ? customer : c,
       );
-      setCustomers(cid, customers);
+      setCustomers(SHARED_DATA_ID, customers);
       set({ customers });
     },
 
     deleteCustomer: (customerId: string) => {
-      const cid = get().activeCompanyId;
-      const customers = getCustomers(cid).filter((c) => c.id !== customerId);
-      setCustomers(cid, customers);
+      const customers = getCustomers(SHARED_DATA_ID).filter(
+        (c) => c.id !== customerId,
+      );
+      setCustomers(SHARED_DATA_ID, customers);
       set({ customers });
     },
 
-    // Vendors
-    vendors: savedCompanyId ? getVendors(savedCompanyId) : [],
+    // Vendors — shared across all companies
+    vendors: getVendors(SHARED_DATA_ID),
     loadVendors: () => {
-      const cid = get().activeCompanyId;
-      set({ vendors: getVendors(cid) });
+      set({ vendors: getVendors(SHARED_DATA_ID) });
     },
 
     addVendor: (vendor: Vendor) => {
-      const cid = get().activeCompanyId;
-      const vendors = [...getVendors(cid), vendor];
-      setVendors(cid, vendors);
+      const vendors = [...getVendors(SHARED_DATA_ID), vendor];
+      setVendors(SHARED_DATA_ID, vendors);
       set({ vendors });
     },
 
     updateVendor: (vendor: Vendor) => {
-      const cid = get().activeCompanyId;
-      const vendors = getVendors(cid).map((v) =>
+      const vendors = getVendors(SHARED_DATA_ID).map((v) =>
         v.id === vendor.id ? vendor : v,
       );
-      setVendors(cid, vendors);
+      setVendors(SHARED_DATA_ID, vendors);
       set({ vendors });
     },
 
     deleteVendor: (vendorId: string) => {
-      const cid = get().activeCompanyId;
-      const vendors = getVendors(cid).filter((v) => v.id !== vendorId);
-      setVendors(cid, vendors);
+      const vendors = getVendors(SHARED_DATA_ID).filter(
+        (v) => v.id !== vendorId,
+      );
+      setVendors(SHARED_DATA_ID, vendors);
       set({ vendors });
     },
 
-    // Bills
-    bills: savedCompanyId ? getBills(savedCompanyId) : [],
+    // Bills — shared across all companies
+    bills: getBills(SHARED_DATA_ID),
     loadBills: () => {
-      const cid = get().activeCompanyId;
-      set({ bills: getBills(cid) });
+      set({ bills: getBills(SHARED_DATA_ID) });
     },
 
     addBill: (bill: Bill) => {
-      const cid = get().activeCompanyId;
-      const bills = [...getBills(cid), bill];
-      setBills(cid, bills);
+      const bills = [...getBills(SHARED_DATA_ID), bill];
+      setBills(SHARED_DATA_ID, bills);
       set({ bills });
     },
 
     updateBill: (bill: Bill) => {
-      const cid = get().activeCompanyId;
-      const bills = getBills(cid).map((b) => (b.id === bill.id ? bill : b));
-      setBills(cid, bills);
+      const bills = getBills(SHARED_DATA_ID).map((b) =>
+        b.id === bill.id ? bill : b,
+      );
+      setBills(SHARED_DATA_ID, bills);
       set({ bills });
     },
 
     deleteBill: (billId: string) => {
-      const cid = get().activeCompanyId;
-      const bills = getBills(cid).filter((b) => b.id !== billId);
-      setBills(cid, bills);
+      const bills = getBills(SHARED_DATA_ID).filter((b) => b.id !== billId);
+      setBills(SHARED_DATA_ID, bills);
       set({ bills });
     },
 
-    // Invoices
-    invoices: savedCompanyId ? getInvoices(savedCompanyId) : [],
+    // Invoices — shared across all companies
+    invoices: getInvoices(SHARED_DATA_ID),
     loadInvoices: () => {
-      const cid = get().activeCompanyId;
-      set({ invoices: getInvoices(cid) });
+      set({ invoices: getInvoices(SHARED_DATA_ID) });
     },
 
     addInvoice: (invoice: Invoice) => {
-      const cid = get().activeCompanyId;
-      const invoices = [...getInvoices(cid), invoice];
-      setInvoices(cid, invoices);
+      const invoices = [...getInvoices(SHARED_DATA_ID), invoice];
+      setInvoices(SHARED_DATA_ID, invoices);
       set({ invoices });
     },
 
     updateInvoice: (invoice: Invoice) => {
-      const cid = get().activeCompanyId;
-      const invoices = getInvoices(cid).map((inv) =>
+      const invoices = getInvoices(SHARED_DATA_ID).map((inv) =>
         inv.id === invoice.id ? invoice : inv,
       );
-      setInvoices(cid, invoices);
+      setInvoices(SHARED_DATA_ID, invoices);
       set({ invoices });
     },
 
     deleteInvoice: (invoiceId: string) => {
-      const cid = get().activeCompanyId;
       // Find the invoice being deleted to get its associated bill IDs
-      const invoiceToDelete = getInvoices(cid).find(
+      const invoiceToDelete = getInvoices(SHARED_DATA_ID).find(
         (inv) => inv.id === invoiceId,
       );
       // Remove the invoice
-      const invoices = getInvoices(cid).filter((inv) => inv.id !== invoiceId);
-      setInvoices(cid, invoices);
+      const invoices = getInvoices(SHARED_DATA_ID).filter(
+        (inv) => inv.id !== invoiceId,
+      );
+      setInvoices(SHARED_DATA_ID, invoices);
       set({ invoices });
       // Revert associated bills back to un-invoiced state (preserve billed products)
       if (invoiceToDelete?.billIds?.length) {
-        const bills = getBills(cid).map((b) => {
+        const bills = getBills(SHARED_DATA_ID).map((b) => {
           if (invoiceToDelete.billIds.includes(b.id)) {
             // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { invoiceId: _removed, ...rest } = b;
@@ -452,91 +449,84 @@ export const useAppStore = create<AppState>((set, get) => {
           }
           return b;
         });
-        setBills(cid, bills);
+        setBills(SHARED_DATA_ID, bills);
         set({ bills });
       }
     },
 
-    // Purchase Invoices
-    purchaseInvoices: savedCompanyId ? getPurchaseInvoices(savedCompanyId) : [],
+    // Purchase Invoices — shared across all companies
+    purchaseInvoices: getPurchaseInvoices(SHARED_DATA_ID),
     loadPurchaseInvoices: () => {
-      const cid = get().activeCompanyId;
-      set({ purchaseInvoices: getPurchaseInvoices(cid) });
+      set({ purchaseInvoices: getPurchaseInvoices(SHARED_DATA_ID) });
     },
 
     addPurchaseInvoice: (inv: PurchaseInvoice) => {
-      const cid = get().activeCompanyId;
-      const purchaseInvoices = [...getPurchaseInvoices(cid), inv];
-      setPurchaseInvoices(cid, purchaseInvoices);
+      const purchaseInvoices = [...getPurchaseInvoices(SHARED_DATA_ID), inv];
+      setPurchaseInvoices(SHARED_DATA_ID, purchaseInvoices);
       set({ purchaseInvoices });
     },
 
     updatePurchaseInvoice: (inv: PurchaseInvoice) => {
-      const cid = get().activeCompanyId;
-      const purchaseInvoices = getPurchaseInvoices(cid).map((i) =>
+      const purchaseInvoices = getPurchaseInvoices(SHARED_DATA_ID).map((i) =>
         i.id === inv.id ? inv : i,
       );
-      setPurchaseInvoices(cid, purchaseInvoices);
+      setPurchaseInvoices(SHARED_DATA_ID, purchaseInvoices);
       set({ purchaseInvoices });
     },
 
-    // Pickups
-    pickups: savedCompanyId ? getPickups(savedCompanyId) : [],
+    // Pickups — shared across all companies
+    pickups: getPickups(SHARED_DATA_ID),
     loadPickups: () => {
-      const cid = get().activeCompanyId;
-      set({ pickups: getPickups(cid) });
+      set({ pickups: getPickups(SHARED_DATA_ID) });
     },
 
     addPickup: (pickup: CourierPickup) => {
-      const cid = get().activeCompanyId;
-      const pickups = [...getPickups(cid), pickup];
-      setPickups(cid, pickups);
+      const pickups = [...getPickups(SHARED_DATA_ID), pickup];
+      setPickups(SHARED_DATA_ID, pickups);
       set({ pickups });
     },
 
     updatePickup: (pickup: CourierPickup) => {
-      const cid = get().activeCompanyId;
-      const pickups = getPickups(cid).map((p) =>
+      const pickups = getPickups(SHARED_DATA_ID).map((p) =>
         p.id === pickup.id ? pickup : p,
       );
-      setPickups(cid, pickups);
+      setPickups(SHARED_DATA_ID, pickups);
       set({ pickups });
     },
 
     deletePickup: (pickupId: string) => {
-      const cid = get().activeCompanyId;
-      const pickups = getPickups(cid).filter((p) => p.id !== pickupId);
-      setPickups(cid, pickups);
+      const pickups = getPickups(SHARED_DATA_ID).filter(
+        (p) => p.id !== pickupId,
+      );
+      setPickups(SHARED_DATA_ID, pickups);
       set({ pickups });
     },
 
-    // AWB Serials
-    awbSerials: savedCompanyId ? getAWBSerials(savedCompanyId) : [],
+    // AWB Serials — shared across all companies
+    awbSerials: getAWBSerials(SHARED_DATA_ID),
     loadAWBSerials: () => {
-      const cid = get().activeCompanyId;
-      set({ awbSerials: getAWBSerials(cid) });
+      set({ awbSerials: getAWBSerials(SHARED_DATA_ID) });
     },
 
     addAWBSerial: (serial: AWBSerialRange) => {
-      const cid = get().activeCompanyId;
-      const awbSerials = [...getAWBSerials(cid), serial];
-      setAWBSerials(cid, awbSerials);
+      const awbSerials = [...getAWBSerials(SHARED_DATA_ID), serial];
+      setAWBSerials(SHARED_DATA_ID, awbSerials);
       set({ awbSerials });
     },
 
     updateAWBSerial: (serial: AWBSerialRange) => {
-      const cid = get().activeCompanyId;
-      const awbSerials = getAWBSerials(cid).map((s) =>
+      const awbSerials = getAWBSerials(SHARED_DATA_ID).map((s) =>
         s.id === serial.id ? serial : s,
       );
-      setAWBSerials(cid, awbSerials);
+      setAWBSerials(SHARED_DATA_ID, awbSerials);
       set({ awbSerials });
     },
 
     deleteAWBSerial: (serialId: string) => {
-      const cid = get().activeCompanyId;
-      const awbSerials = getAWBSerials(cid).filter((s) => s.id !== serialId);
-      setAWBSerials(cid, awbSerials);
+      const awbSerials = getAWBSerials(SHARED_DATA_ID).filter(
+        (s) => s.id !== serialId,
+      );
+      setAWBSerials(SHARED_DATA_ID, awbSerials);
       set({ awbSerials });
     },
 
@@ -553,92 +543,86 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ settings });
     },
 
-    // Expenses
-    expenses: savedCompanyId ? getExpenses(savedCompanyId) : [],
+    // Expenses — shared across all companies
+    expenses: getExpenses(SHARED_DATA_ID),
     loadExpenses: () => {
-      const cid = get().activeCompanyId;
-      set({ expenses: getExpenses(cid) });
+      set({ expenses: getExpenses(SHARED_DATA_ID) });
     },
 
     addExpense: (expense: Expense) => {
-      const cid = get().activeCompanyId;
-      const expenses = [...getExpenses(cid), expense];
-      setExpenses(cid, expenses);
+      const expenses = [...getExpenses(SHARED_DATA_ID), expense];
+      setExpenses(SHARED_DATA_ID, expenses);
       set({ expenses });
     },
 
     updateExpense: (expense: Expense) => {
-      const cid = get().activeCompanyId;
-      const expenses = getExpenses(cid).map((e) =>
+      const expenses = getExpenses(SHARED_DATA_ID).map((e) =>
         e.id === expense.id ? expense : e,
       );
-      setExpenses(cid, expenses);
+      setExpenses(SHARED_DATA_ID, expenses);
       set({ expenses });
     },
 
     deleteExpense: (expenseId: string) => {
-      const cid = get().activeCompanyId;
-      const expenses = getExpenses(cid).filter((e) => e.id !== expenseId);
-      setExpenses(cid, expenses);
+      const expenses = getExpenses(SHARED_DATA_ID).filter(
+        (e) => e.id !== expenseId,
+      );
+      setExpenses(SHARED_DATA_ID, expenses);
       set({ expenses });
     },
 
-    // Design Orders
-    designOrders: savedCompanyId ? getDesignOrders(savedCompanyId) : [],
+    // Design Orders — shared across all companies
+    designOrders: getDesignOrders(SHARED_DATA_ID),
     loadDesignOrders: () => {
-      const cid = get().activeCompanyId;
-      set({ designOrders: getDesignOrders(cid) });
+      set({ designOrders: getDesignOrders(SHARED_DATA_ID) });
     },
     addDesignOrder: (order: DesignOrder) => {
-      const cid = get().activeCompanyId;
-      const designOrders = [...getDesignOrders(cid), order];
-      setDesignOrders(cid, designOrders);
+      const designOrders = [...getDesignOrders(SHARED_DATA_ID), order];
+      setDesignOrders(SHARED_DATA_ID, designOrders);
       set({ designOrders });
     },
     updateDesignOrder: (id: string, updates: Partial<DesignOrder>) => {
-      const cid = get().activeCompanyId;
-      const designOrders = getDesignOrders(cid).map((o) =>
+      const designOrders = getDesignOrders(SHARED_DATA_ID).map((o) =>
         o.id === id
           ? { ...o, ...updates, updatedAt: new Date().toISOString() }
           : o,
       );
-      setDesignOrders(cid, designOrders);
+      setDesignOrders(SHARED_DATA_ID, designOrders);
       set({ designOrders });
     },
     deleteDesignOrder: (id: string) => {
-      const cid = get().activeCompanyId;
-      const designOrders = getDesignOrders(cid).filter((o) => o.id !== id);
-      setDesignOrders(cid, designOrders);
+      const designOrders = getDesignOrders(SHARED_DATA_ID).filter(
+        (o) => o.id !== id,
+      );
+      setDesignOrders(SHARED_DATA_ID, designOrders);
       set({ designOrders });
     },
 
-    // Design Pricing
-    designPricing: savedCompanyId ? getDesignPricing(savedCompanyId) : [],
+    // Design Pricing — shared across all companies
+    designPricing: getDesignPricing(SHARED_DATA_ID),
     loadDesignPricing: () => {
-      const cid = get().activeCompanyId;
-      set({ designPricing: getDesignPricing(cid) });
+      set({ designPricing: getDesignPricing(SHARED_DATA_ID) });
     },
     addDesignPricing: (item: DesignPricingMaster) => {
-      const cid = get().activeCompanyId;
-      const designPricing = [...getDesignPricing(cid), item];
-      setDesignPricing(cid, designPricing);
+      const designPricing = [...getDesignPricing(SHARED_DATA_ID), item];
+      setDesignPricing(SHARED_DATA_ID, designPricing);
       set({ designPricing });
     },
     updateDesignPricing: (
       id: string,
       updates: Partial<DesignPricingMaster>,
     ) => {
-      const cid = get().activeCompanyId;
-      const designPricing = getDesignPricing(cid).map((p) =>
+      const designPricing = getDesignPricing(SHARED_DATA_ID).map((p) =>
         p.id === id ? { ...p, ...updates } : p,
       );
-      setDesignPricing(cid, designPricing);
+      setDesignPricing(SHARED_DATA_ID, designPricing);
       set({ designPricing });
     },
     deleteDesignPricing: (id: string) => {
-      const cid = get().activeCompanyId;
-      const designPricing = getDesignPricing(cid).filter((p) => p.id !== id);
-      setDesignPricing(cid, designPricing);
+      const designPricing = getDesignPricing(SHARED_DATA_ID).filter(
+        (p) => p.id !== id,
+      );
+      setDesignPricing(SHARED_DATA_ID, designPricing);
       set({ designPricing });
     },
 

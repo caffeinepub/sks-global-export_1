@@ -21,6 +21,13 @@ import type {
 } from "../types";
 import { emitSaved, emitSaving } from "./saveEvents";
 
+/**
+ * All transactional data (bills, products, customers, etc.) is shared
+ * across all companies. Only company profile / invoice sequences are per-company.
+ * Using "shared" as the fixed company-id for storage keys.
+ */
+export const SHARED_DATA_ID = "shared";
+
 // Keys
 export const KEYS = {
   COMPANIES: "sks_companies",
@@ -277,6 +284,12 @@ const DEFAULT_UNITS: ProductUnit[] = [
   },
   { id: "unit-sheet", name: "Sheet", symbol: "sht" },
   {
+    id: "unit-ream",
+    name: "Ream",
+    symbol: "ream",
+    subUnit1: { name: "Sheet", conversionRate: 500 },
+  },
+  {
     id: "unit-kg",
     name: "Kilogram",
     symbol: "kg",
@@ -289,6 +302,8 @@ const DEFAULT_UNITS: ProductUnit[] = [
     subUnit1: { name: "Centimeter", conversionRate: 100 },
   },
   { id: "unit-set", name: "Set", symbol: "set" },
+  { id: "unit-pack", name: "Pack", symbol: "pk" },
+  { id: "unit-roll", name: "Roll", symbol: "roll" },
 ];
 
 export const getUnits = (): ProductUnit[] => {
@@ -403,6 +418,338 @@ export const exportAllData = (): string => {
   }
 
   return JSON.stringify(allData, null, 2);
+};
+
+// ─── Merge Summary ────────────────────────────────────────────────────────────
+export interface MergeSummary {
+  companiesAdded: number;
+  billsAdded: number;
+  invoicesAdded: number;
+  customersAdded: number;
+  vendorsAdded: number;
+  productsAdded: number;
+  purchaseInvoicesAdded: number;
+  expensesAdded: number;
+}
+
+/**
+ * Merge import — non-destructive.
+ * Only adds records that don't already exist locally (compared by ID).
+ * Existing records are never overwritten or deleted.
+ */
+export const mergeImportData = (jsonString: string): MergeSummary => {
+  const data = JSON.parse(jsonString) as Record<string, unknown>;
+
+  if (!data.companies || !Array.isArray(data.companies)) {
+    throw new Error("Invalid backup file: missing companies array");
+  }
+
+  const summary: MergeSummary = {
+    companiesAdded: 0,
+    billsAdded: 0,
+    invoicesAdded: 0,
+    customersAdded: 0,
+    vendorsAdded: 0,
+    productsAdded: 0,
+    purchaseInvoicesAdded: 0,
+    expensesAdded: 0,
+  };
+
+  const incomingCompanies = data.companies as Company[];
+  const localCompanies = getCompanies();
+  const localCompanyIds = new Set(localCompanies.map((c) => c.id));
+
+  // Merge companies (add only new ones)
+  const newCompanies = incomingCompanies.filter(
+    (c) => !localCompanyIds.has(c.id),
+  );
+  if (newCompanies.length > 0) {
+    setCompanies([...localCompanies, ...newCompanies]);
+    summary.companiesAdded = newCompanies.length;
+  }
+
+  // Merge categories
+  const incomingCats = Array.isArray(data.categories)
+    ? (data.categories as Category[])
+    : [];
+  if (incomingCats.length > 0) {
+    const localCats = getCategories();
+    const localCatIds = new Set(localCats.map((c) => c.id));
+    const newCats = incomingCats.filter((c) => !localCatIds.has(c.id));
+    if (newCats.length > 0) {
+      localStorage.setItem(
+        "sks_categories",
+        JSON.stringify([...localCats, ...newCats]),
+      );
+    }
+  }
+
+  // Merge units
+  const incomingUnits = Array.isArray(data.units)
+    ? (data.units as ProductUnit[])
+    : [];
+  if (incomingUnits.length > 0) {
+    const localUnits = getUnits();
+    const localUnitIds = new Set(localUnits.map((u) => u.id));
+    const newUnits = incomingUnits.filter((u) => !localUnitIds.has(u.id));
+    if (newUnits.length > 0) {
+      localStorage.setItem(
+        "sks_units",
+        JSON.stringify([...localUnits, ...newUnits]),
+      );
+    }
+  }
+
+  // All companies from backup — merge per-company data
+  // (includes both newly added companies and existing ones for data merge)
+  for (const company of incomingCompanies) {
+    const cid = company.id;
+
+    const mergeArray = <T extends { id: string }>(
+      getter: (id: string) => T[],
+      setter: (id: string, d: T[]) => void,
+      key: string,
+    ): number => {
+      const incoming = Array.isArray(data[key]) ? (data[key] as T[]) : [];
+      if (incoming.length === 0) return 0;
+      const local = getter(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incoming.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setter(cid, [...local, ...newItems]);
+      return newItems.length;
+    };
+
+    summary.billsAdded += mergeArray(getBills, setBills, `bills_${cid}`);
+    summary.invoicesAdded += mergeArray(
+      getInvoices,
+      setInvoices,
+      `invoices_${cid}`,
+    );
+    summary.customersAdded += mergeArray(
+      getCustomers,
+      setCustomers,
+      `customers_${cid}`,
+    );
+    summary.vendorsAdded += mergeArray(
+      getVendors,
+      setVendors,
+      `vendors_${cid}`,
+    );
+    summary.productsAdded += mergeArray(
+      getProducts,
+      setProducts,
+      `products_${cid}`,
+    );
+    summary.purchaseInvoicesAdded += mergeArray(
+      getPurchaseInvoices,
+      setPurchaseInvoices,
+      `purchaseInvoices_${cid}`,
+    );
+    summary.expensesAdded += mergeArray(
+      getExpenses,
+      setExpenses,
+      `expenses_${cid}`,
+    );
+
+    // Merge courier brands
+    const incomingBrands = Array.isArray(data[`courierBrands_${cid}`])
+      ? (data[`courierBrands_${cid}`] as CourierBrand[])
+      : [];
+    if (incomingBrands.length > 0) {
+      const local = getCourierBrands(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingBrands.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setCourierBrands(cid, [...local, ...newItems]);
+    }
+
+    // Merge tariffs
+    const incomingTariffs = Array.isArray(data[`tariffs_${cid}`])
+      ? (data[`tariffs_${cid}`] as CourierTariff[])
+      : [];
+    if (incomingTariffs.length > 0) {
+      const local = getTariffs(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingTariffs.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setTariffs(cid, [...local, ...newItems]);
+    }
+  }
+
+  return summary;
+};
+
+// ─── Manual Contacts (global, not per-company) ────────────────────────────────
+export interface ManualContact {
+  id: string;
+  name: string;
+  phone: string;
+}
+
+export const getManualContacts = (): ManualContact[] =>
+  get<ManualContact[]>("sks_manual_contacts", []);
+
+export const setManualContacts = (contacts: ManualContact[]): void =>
+  set("sks_manual_contacts", contacts);
+
+// ─── Migration: move per-company data into shared key ─────────────────────────
+/**
+ * One-time migration: if shared data is empty but per-company data exists,
+ * merge all companies' data into the shared key.
+ * Safe to call repeatedly — only runs when shared data is empty.
+ */
+export const migrateToSharedData = (): void => {
+  const companies = getCompanies();
+  if (companies.length === 0) return;
+
+  // Check if shared data already has content
+  const sharedBills = localStorage.getItem(KEYS.bills(SHARED_DATA_ID));
+  if (sharedBills && JSON.parse(sharedBills).length > 0) return; // already migrated
+
+  // Merge all per-company transactional data into shared key
+  const mergedBills: Bill[] = [];
+  const mergedInvoices: Invoice[] = [];
+  const mergedProducts: AnyProduct[] = [];
+  const mergedCustomers: Customer[] = [];
+  const mergedVendors: Vendor[] = [];
+  const mergedBrands: CourierBrand[] = [];
+  const mergedAWB: AWBSerialRange[] = [];
+  const mergedPickups: CourierPickup[] = [];
+  const mergedPurchase: PurchaseInvoice[] = [];
+  const mergedTariffs: CourierTariff[] = [];
+  const mergedCostTariffs: CourierTariff[] = [];
+  const mergedExpenses: Expense[] = [];
+  const mergedOrders: DesignOrder[] = [];
+  const mergedPricing: DesignPricingMaster[] = [];
+  const mergedCustomerTariffs: Record<string, CustomerTariffAssignment[]> = {};
+
+  const seenBillIds = new Set<string>();
+  const seenInvoiceIds = new Set<string>();
+  const seenProductIds = new Set<string>();
+  const seenCustomerIds = new Set<string>();
+  const seenVendorIds = new Set<string>();
+  const seenBrandIds = new Set<string>();
+  const seenAWBIds = new Set<string>();
+  const seenPickupIds = new Set<string>();
+  const seenPurchaseIds = new Set<string>();
+  const seenTariffIds = new Set<string>();
+  const seenCostTariffIds = new Set<string>();
+  const seenExpenseIds = new Set<string>();
+  const seenOrderIds = new Set<string>();
+  const seenPricingIds = new Set<string>();
+
+  for (const company of companies) {
+    const cid = company.id;
+    for (const b of getBills(cid)) {
+      if (!seenBillIds.has(b.id)) {
+        mergedBills.push(b);
+        seenBillIds.add(b.id);
+      }
+    }
+    for (const inv of getInvoices(cid)) {
+      if (!seenInvoiceIds.has(inv.id)) {
+        mergedInvoices.push(inv);
+        seenInvoiceIds.add(inv.id);
+      }
+    }
+    for (const p of getProducts(cid)) {
+      if (!seenProductIds.has(p.id)) {
+        mergedProducts.push(p);
+        seenProductIds.add(p.id);
+      }
+    }
+    for (const c of getCustomers(cid)) {
+      if (!seenCustomerIds.has(c.id)) {
+        mergedCustomers.push(c);
+        seenCustomerIds.add(c.id);
+      }
+    }
+    for (const v of getVendors(cid)) {
+      if (!seenVendorIds.has(v.id)) {
+        mergedVendors.push(v);
+        seenVendorIds.add(v.id);
+      }
+    }
+    for (const br of getCourierBrands(cid)) {
+      if (!seenBrandIds.has(br.id)) {
+        mergedBrands.push(br);
+        seenBrandIds.add(br.id);
+      }
+    }
+    for (const a of getAWBSerials(cid)) {
+      if (!seenAWBIds.has(a.id)) {
+        mergedAWB.push(a);
+        seenAWBIds.add(a.id);
+      }
+    }
+    for (const pu of getPickups(cid)) {
+      if (!seenPickupIds.has(pu.id)) {
+        mergedPickups.push(pu);
+        seenPickupIds.add(pu.id);
+      }
+    }
+    for (const pi of getPurchaseInvoices(cid)) {
+      if (!seenPurchaseIds.has(pi.id)) {
+        mergedPurchase.push(pi);
+        seenPurchaseIds.add(pi.id);
+      }
+    }
+    for (const t of getTariffs(cid)) {
+      if (!seenTariffIds.has(t.id)) {
+        mergedTariffs.push(t);
+        seenTariffIds.add(t.id);
+      }
+    }
+    for (const ct of getCostTariffs(cid)) {
+      if (!seenCostTariffIds.has(ct.id)) {
+        mergedCostTariffs.push(ct);
+        seenCostTariffIds.add(ct.id);
+      }
+    }
+    for (const ex of getExpenses(cid)) {
+      if (!seenExpenseIds.has(ex.id)) {
+        mergedExpenses.push(ex);
+        seenExpenseIds.add(ex.id);
+      }
+    }
+    for (const o of getDesignOrders(cid)) {
+      if (!seenOrderIds.has(o.id)) {
+        mergedOrders.push(o);
+        seenOrderIds.add(o.id);
+      }
+    }
+    for (const dp of getDesignPricing(cid)) {
+      if (!seenPricingIds.has(dp.id)) {
+        mergedPricing.push(dp);
+        seenPricingIds.add(dp.id);
+      }
+    }
+    const ctm = getCustomerTariffMap(cid);
+    for (const [custId, assignments] of Object.entries(ctm)) {
+      if (!mergedCustomerTariffs[custId]) {
+        mergedCustomerTariffs[custId] = assignments;
+      }
+    }
+  }
+
+  // Write merged data to shared key
+  if (mergedBills.length > 0) setBills(SHARED_DATA_ID, mergedBills);
+  if (mergedInvoices.length > 0) setInvoices(SHARED_DATA_ID, mergedInvoices);
+  if (mergedProducts.length > 0) setProducts(SHARED_DATA_ID, mergedProducts);
+  if (mergedCustomers.length > 0) setCustomers(SHARED_DATA_ID, mergedCustomers);
+  if (mergedVendors.length > 0) setVendors(SHARED_DATA_ID, mergedVendors);
+  if (mergedBrands.length > 0) setCourierBrands(SHARED_DATA_ID, mergedBrands);
+  if (mergedAWB.length > 0) setAWBSerials(SHARED_DATA_ID, mergedAWB);
+  if (mergedPickups.length > 0) setPickups(SHARED_DATA_ID, mergedPickups);
+  if (mergedPurchase.length > 0)
+    setPurchaseInvoices(SHARED_DATA_ID, mergedPurchase);
+  if (mergedTariffs.length > 0) setTariffs(SHARED_DATA_ID, mergedTariffs);
+  if (mergedCostTariffs.length > 0)
+    setCostTariffs(SHARED_DATA_ID, mergedCostTariffs);
+  if (mergedExpenses.length > 0) setExpenses(SHARED_DATA_ID, mergedExpenses);
+  if (mergedOrders.length > 0) setDesignOrders(SHARED_DATA_ID, mergedOrders);
+  if (mergedPricing.length > 0) setDesignPricing(SHARED_DATA_ID, mergedPricing);
+  if (Object.keys(mergedCustomerTariffs).length > 0) {
+    setCustomerTariffMap(SHARED_DATA_ID, mergedCustomerTariffs);
+  }
 };
 
 // Import all data from JSON — restores EVERY key including sequences and globals

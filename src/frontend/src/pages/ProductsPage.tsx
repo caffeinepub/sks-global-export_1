@@ -61,10 +61,18 @@ import type {
   CourierProduct,
   GeneralProduct,
   PricingSlab,
+  PricingTier,
+  PricingTierName,
   ProductUnit,
   ServiceProduct,
   XeroxProduct,
 } from "../types";
+import {
+  downloadCSVString,
+  exportToCSV,
+  getSampleProductsCSV,
+  parseCSV,
+} from "../utils/excelHelpers";
 import { formatCurrency, generateId } from "../utils/helpers";
 import {
   getCategories,
@@ -381,8 +389,18 @@ export function ProductsPage() {
   const [unitFormSymbol, setUnitFormSymbol] = useState("");
   const [unitFormSub1Name, setUnitFormSub1Name] = useState("");
   const [unitFormSub1Rate, setUnitFormSub1Rate] = useState("");
+  const [unitFormSub1MRP, setUnitFormSub1MRP] = useState("");
+  const [unitFormSub1Price, setUnitFormSub1Price] = useState("");
   const [unitFormSub2Name, setUnitFormSub2Name] = useState("");
   const [unitFormSub2Rate, setUnitFormSub2Rate] = useState("");
+  const [unitFormSub2MRP, setUnitFormSub2MRP] = useState("");
+  const [unitFormSub2Price, setUnitFormSub2Price] = useState("");
+  const [unitFormSub3Name, setUnitFormSub3Name] = useState("");
+  const [unitFormSub3Rate, setUnitFormSub3Rate] = useState("");
+  const [unitFormSub3MRP, setUnitFormSub3MRP] = useState("");
+  const [unitFormSub3Price, setUnitFormSub3Price] = useState("");
+  const [unitFormMRP, setUnitFormMRP] = useState("");
+  const [unitFormPrice, setUnitFormPrice] = useState("");
 
   // ── Bulk Product Import ────────────────────────────────────────────────────
   const [showBulkImport, setShowBulkImport] = useState(false);
@@ -550,6 +568,34 @@ export function ProductsPage() {
     Array<PricingSlab & { _key: string }>
   >([]);
 
+  // Named pricing tiers: Retail / Super Retail / Wholesale / Super Wholesale
+  const TIER_LABELS: Record<PricingTierName, string> = {
+    retail: "Retail",
+    super_retail: "Super Retail",
+    wholesale: "Wholesale",
+    super_wholesale: "Super Wholesale",
+  };
+  type TierForm = {
+    minQty: string;
+    maxQty: string;
+    mrp: string;
+    sellingPrice: string;
+  };
+  const defaultTierForm = (): TierForm => ({
+    minQty: "1",
+    maxQty: "",
+    mrp: "",
+    sellingPrice: "",
+  });
+  const [pricingTiers, setPricingTiers] = useState<
+    Record<PricingTierName, TierForm>
+  >({
+    retail: defaultTierForm(),
+    super_retail: defaultTierForm(),
+    wholesale: defaultTierForm(),
+    super_wholesale: defaultTierForm(),
+  });
+
   const resetForm = () => {
     setName("");
     setCategory("");
@@ -578,6 +624,12 @@ export function ProductsPage() {
     setSacCode("");
     setUsePricingSlabs(false);
     setPricingSlabs([]);
+    setPricingTiers({
+      retail: defaultTierForm(),
+      super_retail: defaultTierForm(),
+      wholesale: defaultTierForm(),
+      super_wholesale: defaultTierForm(),
+    });
     setEditProduct(null);
   };
 
@@ -606,6 +658,24 @@ export function ProductsPage() {
       setPricingSlabs(
         (p.pricingSlabs ?? []).map((s, i) => ({ ...s, _key: String(i) })),
       );
+      // Load pricing tiers if any
+      const tiers: Record<PricingTierName, TierForm> = {
+        retail: defaultTierForm(),
+        super_retail: defaultTierForm(),
+        wholesale: defaultTierForm(),
+        super_wholesale: defaultTierForm(),
+      };
+      if (p.pricingTiers) {
+        for (const t of p.pricingTiers) {
+          tiers[t.name] = {
+            minQty: String(t.minQty),
+            maxQty: t.maxQty !== null ? String(t.maxQty) : "",
+            mrp: String(t.mrp),
+            sellingPrice: String(t.sellingPrice),
+          };
+        }
+      }
+      setPricingTiers(tiers);
     } else if (product.type === "courier_awb") {
       const p = product as CourierBrand;
       setBrandName(p.brandName);
@@ -653,6 +723,31 @@ export function ProductsPage() {
         toast.error("Name and price required");
         return;
       }
+      // Build pricing tiers from form state
+      const activeTiers: PricingTier[] = (
+        [
+          "retail",
+          "super_retail",
+          "wholesale",
+          "super_wholesale",
+        ] as PricingTierName[]
+      )
+        .filter(
+          (name) =>
+            pricingTiers[name].mrp !== "" ||
+            pricingTiers[name].sellingPrice !== "",
+        )
+        .map((name) => ({
+          name,
+          minQty: Number(pricingTiers[name].minQty) || 1,
+          maxQty:
+            pricingTiers[name].maxQty !== ""
+              ? Number(pricingTiers[name].maxQty)
+              : null,
+          mrp: Number(pricingTiers[name].mrp) || 0,
+          sellingPrice: Number(pricingTiers[name].sellingPrice) || 0,
+        }));
+
       product = {
         id,
         companyId: activeCompanyId,
@@ -671,6 +766,7 @@ export function ProductsPage() {
         pricingSlabs: usePricingSlabs
           ? pricingSlabs.map(({ _key: _k, ...s }) => s)
           : [],
+        pricingTiers: activeTiers.length > 0 ? activeTiers : undefined,
       } as GeneralProduct;
     } else if (formType === "courier_awb") {
       if (!brandName) {
@@ -882,7 +978,58 @@ export function ProductsPage() {
         <TabsContent value="general" className="mt-4">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-semibold">General Products</h3>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  exportToCSV(
+                    "products_export.csv",
+                    [
+                      "Name",
+                      "Category",
+                      "Unit",
+                      "MRP",
+                      "Selling Price",
+                      "Purchase Price",
+                      "GST Rate (%)",
+                      "HSN Code",
+                      "Current Stock",
+                      "Min Stock Alert",
+                      "Status",
+                      "Pricing Tiers",
+                    ],
+                    (
+                      products.filter(
+                        (p) => p.type === "general",
+                      ) as GeneralProduct[]
+                    ).map((p) => [
+                      p.name,
+                      p.category,
+                      p.unit,
+                      p.mrp ?? "",
+                      p.sellingPrice,
+                      p.purchasePrice,
+                      p.gstRate,
+                      p.hsnCode,
+                      p.currentStock,
+                      p.minStockAlert,
+                      p.isActive ? "Active" : "Inactive",
+                      p.pricingTiers
+                        ? p.pricingTiers
+                            .map(
+                              (t) =>
+                                `${t.name}:${t.minQty}-${t.maxQty ?? "∞"}@₹${t.sellingPrice}`,
+                            )
+                            .join("; ")
+                        : "",
+                    ]),
+                  );
+                }}
+                data-ocid="products.general.export_button"
+              >
+                <Download className="w-4 h-4 mr-1" /> Export
+              </Button>
               <Button
                 size="sm"
                 variant="outline"
@@ -1368,10 +1515,20 @@ export function ProductsPage() {
                 setEditUnit(null);
                 setUnitFormName("");
                 setUnitFormSymbol("");
+                setUnitFormMRP("");
+                setUnitFormPrice("");
                 setUnitFormSub1Name("");
                 setUnitFormSub1Rate("");
+                setUnitFormSub1MRP("");
+                setUnitFormSub1Price("");
                 setUnitFormSub2Name("");
                 setUnitFormSub2Rate("");
+                setUnitFormSub2MRP("");
+                setUnitFormSub2Price("");
+                setUnitFormSub3Name("");
+                setUnitFormSub3Rate("");
+                setUnitFormSub3MRP("");
+                setUnitFormSub3Price("");
                 setShowUnitForm(true);
               }}
               data-ocid="products.units.primary_button"
@@ -1385,8 +1542,8 @@ export function ProductsPage() {
                 <TableRow className="bg-muted/30">
                   <TableHead className="text-xs">Name</TableHead>
                   <TableHead className="text-xs">Symbol</TableHead>
-                  <TableHead className="text-xs">Sub-Unit 1</TableHead>
-                  <TableHead className="text-xs">Sub-Unit 2</TableHead>
+                  <TableHead className="text-xs">MRP / Price</TableHead>
+                  <TableHead className="text-xs">Sub-Units</TableHead>
                   <TableHead className="text-xs">Actions</TableHead>
                 </TableRow>
               </TableHeader>
@@ -1400,14 +1557,14 @@ export function ProductsPage() {
                       {u.symbol}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {u.subUnit1
-                        ? `${u.subUnit1.name} (÷${u.subUnit1.conversionRate})`
-                        : "—"}
+                      {u.mrp ? `MRP ₹${u.mrp}` : "—"}
+                      {u.sellingPrice ? ` / ₹${u.sellingPrice}` : ""}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
-                      {u.subUnit2
-                        ? `${u.subUnit2.name} (÷${u.subUnit2.conversionRate})`
-                        : "—"}
+                      {[u.subUnit1, u.subUnit2, u.subUnit3]
+                        .filter(Boolean)
+                        .map((s) => `${s!.name} (÷${s!.conversionRate})`)
+                        .join(", ") || "—"}
                     </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
@@ -1419,16 +1576,50 @@ export function ProductsPage() {
                             setEditUnit(u);
                             setUnitFormName(u.name);
                             setUnitFormSymbol(u.symbol);
+                            setUnitFormMRP(u.mrp ? String(u.mrp) : "");
+                            setUnitFormPrice(
+                              u.sellingPrice ? String(u.sellingPrice) : "",
+                            );
                             setUnitFormSub1Name(u.subUnit1?.name ?? "");
                             setUnitFormSub1Rate(
                               u.subUnit1
                                 ? String(u.subUnit1.conversionRate)
                                 : "",
                             );
+                            setUnitFormSub1MRP(
+                              u.subUnit1?.mrp ? String(u.subUnit1.mrp) : "",
+                            );
+                            setUnitFormSub1Price(
+                              u.subUnit1?.sellingPrice
+                                ? String(u.subUnit1.sellingPrice)
+                                : "",
+                            );
                             setUnitFormSub2Name(u.subUnit2?.name ?? "");
                             setUnitFormSub2Rate(
                               u.subUnit2
                                 ? String(u.subUnit2.conversionRate)
+                                : "",
+                            );
+                            setUnitFormSub2MRP(
+                              u.subUnit2?.mrp ? String(u.subUnit2.mrp) : "",
+                            );
+                            setUnitFormSub2Price(
+                              u.subUnit2?.sellingPrice
+                                ? String(u.subUnit2.sellingPrice)
+                                : "",
+                            );
+                            setUnitFormSub3Name(u.subUnit3?.name ?? "");
+                            setUnitFormSub3Rate(
+                              u.subUnit3
+                                ? String(u.subUnit3.conversionRate)
+                                : "",
+                            );
+                            setUnitFormSub3MRP(
+                              u.subUnit3?.mrp ? String(u.subUnit3.mrp) : "",
+                            );
+                            setUnitFormSub3Price(
+                              u.subUnit3?.sellingPrice
+                                ? String(u.subUnit3.sellingPrice)
                                 : "",
                             );
                             setShowUnitForm(true);
@@ -1711,114 +1902,126 @@ export function ProductsPage() {
                     />
                   </div>
                 </div>
-                {/* Pricing Slabs */}
+                {/* Named Pricing Tiers */}
                 <div className="col-span-2 border border-border rounded-lg p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold">
-                      Quantity-Based Pricing
-                    </Label>
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        checked={usePricingSlabs}
-                        onCheckedChange={setUsePricingSlabs}
-                        className="h-4 w-8"
-                      />
-                      <span className="text-xs text-muted-foreground">
-                        {usePricingSlabs ? "Enabled" : "Disabled"}
-                      </span>
-                    </div>
+                  <Label className="text-xs font-semibold">
+                    Pricing Tiers (Retail / Wholesale)
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Base Selling Price (above) applies when no tier matches.
+                    Fill any tier to enable quantity-based pricing.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="bg-muted/40">
+                          <th className="text-left px-2 py-1.5 font-semibold border border-border">
+                            Tier
+                          </th>
+                          <th className="text-left px-2 py-1.5 font-semibold border border-border">
+                            Min Qty
+                          </th>
+                          <th className="text-left px-2 py-1.5 font-semibold border border-border">
+                            Max Qty
+                          </th>
+                          <th className="text-left px-2 py-1.5 font-semibold border border-border">
+                            MRP (₹)
+                          </th>
+                          <th className="text-left px-2 py-1.5 font-semibold border border-border">
+                            Selling Price (₹)
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(
+                          [
+                            "retail",
+                            "super_retail",
+                            "wholesale",
+                            "super_wholesale",
+                          ] as PricingTierName[]
+                        ).map((tierName) => (
+                          <tr key={tierName} className="hover:bg-muted/20">
+                            <td className="px-2 py-1.5 border border-border font-medium text-primary">
+                              {TIER_LABELS[tierName]}
+                            </td>
+                            <td className="px-2 py-1.5 border border-border">
+                              <Input
+                                type="number"
+                                value={pricingTiers[tierName].minQty}
+                                onChange={(e) =>
+                                  setPricingTiers((prev) => ({
+                                    ...prev,
+                                    [tierName]: {
+                                      ...prev[tierName],
+                                      minQty: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="1"
+                                className="h-7 text-xs w-20"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 border border-border">
+                              <Input
+                                type="number"
+                                value={pricingTiers[tierName].maxQty}
+                                onChange={(e) =>
+                                  setPricingTiers((prev) => ({
+                                    ...prev,
+                                    [tierName]: {
+                                      ...prev[tierName],
+                                      maxQty: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="∞"
+                                className="h-7 text-xs w-20"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 border border-border">
+                              <Input
+                                type="number"
+                                value={pricingTiers[tierName].mrp}
+                                onChange={(e) =>
+                                  setPricingTiers((prev) => ({
+                                    ...prev,
+                                    [tierName]: {
+                                      ...prev[tierName],
+                                      mrp: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="0.00"
+                                className="h-7 text-xs w-24"
+                              />
+                            </td>
+                            <td className="px-2 py-1.5 border border-border">
+                              <Input
+                                type="number"
+                                value={pricingTiers[tierName].sellingPrice}
+                                onChange={(e) =>
+                                  setPricingTiers((prev) => ({
+                                    ...prev,
+                                    [tierName]: {
+                                      ...prev[tierName],
+                                      sellingPrice: e.target.value,
+                                    },
+                                  }))
+                                }
+                                placeholder="0.00"
+                                className="h-7 text-xs w-24"
+                              />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                  {usePricingSlabs && (
-                    <div className="space-y-2 mt-2">
-                      <p className="text-xs text-muted-foreground">
-                        Base price (above) is used when no slab matches. Add
-                        slabs for volume pricing.
-                      </p>
-                      {pricingSlabs.map((slab, si) => (
-                        <div
-                          key={slab._key}
-                          className="flex items-center gap-2"
-                        >
-                          <div className="flex-1 grid grid-cols-3 gap-1">
-                            <Input
-                              type="number"
-                              value={slab.minQty}
-                              onChange={(e) => {
-                                const updated = [...pricingSlabs];
-                                updated[si] = {
-                                  ...updated[si],
-                                  minQty: Number(e.target.value),
-                                };
-                                setPricingSlabs(updated);
-                              }}
-                              placeholder="Min Qty"
-                              className="text-xs h-7"
-                            />
-                            <Input
-                              type="number"
-                              value={slab.maxQty ?? ""}
-                              onChange={(e) => {
-                                const updated = [...pricingSlabs];
-                                updated[si] = {
-                                  ...updated[si],
-                                  maxQty:
-                                    e.target.value === ""
-                                      ? null
-                                      : Number(e.target.value),
-                                };
-                                setPricingSlabs(updated);
-                              }}
-                              placeholder="Max (blank=∞)"
-                              className="text-xs h-7"
-                            />
-                            <Input
-                              type="number"
-                              value={slab.price}
-                              onChange={(e) => {
-                                const updated = [...pricingSlabs];
-                                updated[si] = {
-                                  ...updated[si],
-                                  price: Number(e.target.value),
-                                };
-                                setPricingSlabs(updated);
-                              }}
-                              placeholder="Price/unit"
-                              className="text-xs h-7"
-                            />
-                          </div>
-                          <button
-                            type="button"
-                            className="text-destructive"
-                            onClick={() =>
-                              setPricingSlabs(
-                                pricingSlabs.filter((_, i) => i !== si),
-                              )
-                            }
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      ))}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-7 text-xs w-full"
-                        onClick={() =>
-                          setPricingSlabs([
-                            ...pricingSlabs,
-                            {
-                              minQty: 1,
-                              maxQty: null,
-                              price: 0,
-                              _key: String(Date.now()),
-                            },
-                          ])
-                        }
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Add Slab
-                      </Button>
-                    </div>
-                  )}
+                  <p className="text-xs text-muted-foreground italic">
+                    In POS billing, the matching tier is auto-applied based on
+                    quantity entered.
+                  </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={isActive} onCheckedChange={setIsActive} />
@@ -2324,7 +2527,7 @@ export function ProductsPage() {
           <DialogHeader>
             <DialogTitle>{editUnit ? "Edit Unit" : "Add Unit"}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-xs">Unit Name*</Label>
@@ -2344,63 +2547,127 @@ export function ProductsPage() {
                   className="mt-1 text-sm"
                 />
               </div>
-            </div>
-            <div className="border border-border rounded-lg p-3 space-y-2">
-              <Label className="text-xs font-semibold">
-                Sub-Unit 1 (optional)
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Name</Label>
-                  <Input
-                    value={unitFormSub1Name}
-                    onChange={(e) => setUnitFormSub1Name(e.target.value)}
-                    placeholder="e.g. Box"
-                    className="mt-1 text-sm h-8"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">
-                    How many {unitFormName || "units"} per sub-unit?
-                  </Label>
-                  <Input
-                    type="number"
-                    value={unitFormSub1Rate}
-                    onChange={(e) => setUnitFormSub1Rate(e.target.value)}
-                    placeholder="e.g. 12"
-                    className="mt-1 text-sm h-8"
-                  />
-                </div>
+              <div>
+                <Label className="text-xs">MRP (₹)</Label>
+                <Input
+                  type="number"
+                  value={unitFormMRP}
+                  onChange={(e) => setUnitFormMRP(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Selling Price (₹)</Label>
+                <Input
+                  type="number"
+                  value={unitFormPrice}
+                  onChange={(e) => setUnitFormPrice(e.target.value)}
+                  placeholder="0.00"
+                  className="mt-1 text-sm"
+                />
               </div>
             </div>
-            <div className="border border-border rounded-lg p-3 space-y-2">
-              <Label className="text-xs font-semibold">
-                Sub-Unit 2 (optional)
-              </Label>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <Label className="text-xs text-muted-foreground">Name</Label>
-                  <Input
-                    value={unitFormSub2Name}
-                    onChange={(e) => setUnitFormSub2Name(e.target.value)}
-                    placeholder="e.g. Carton"
-                    className="mt-1 text-sm h-8"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs text-muted-foreground">
-                    How many {unitFormName || "units"} per sub-unit?
-                  </Label>
-                  <Input
-                    type="number"
-                    value={unitFormSub2Rate}
-                    onChange={(e) => setUnitFormSub2Rate(e.target.value)}
-                    placeholder="e.g. 144"
-                    className="mt-1 text-sm h-8"
-                  />
+            {[
+              {
+                label: "Sub-Unit 1",
+                name: unitFormSub1Name,
+                setName: setUnitFormSub1Name,
+                rate: unitFormSub1Rate,
+                setRate: setUnitFormSub1Rate,
+                mrp: unitFormSub1MRP,
+                setMRP: setUnitFormSub1MRP,
+                price: unitFormSub1Price,
+                setPrice: setUnitFormSub1Price,
+                placeholder: "e.g. Box",
+                ratePlaceholder: "e.g. 12",
+              },
+              {
+                label: "Sub-Unit 2",
+                name: unitFormSub2Name,
+                setName: setUnitFormSub2Name,
+                rate: unitFormSub2Rate,
+                setRate: setUnitFormSub2Rate,
+                mrp: unitFormSub2MRP,
+                setMRP: setUnitFormSub2MRP,
+                price: unitFormSub2Price,
+                setPrice: setUnitFormSub2Price,
+                placeholder: "e.g. Carton",
+                ratePlaceholder: "e.g. 144",
+              },
+              {
+                label: "Sub-Unit 3",
+                name: unitFormSub3Name,
+                setName: setUnitFormSub3Name,
+                rate: unitFormSub3Rate,
+                setRate: setUnitFormSub3Rate,
+                mrp: unitFormSub3MRP,
+                setMRP: setUnitFormSub3MRP,
+                price: unitFormSub3Price,
+                setPrice: setUnitFormSub3Price,
+                placeholder: "e.g. Master Carton",
+                ratePlaceholder: "e.g. 1440",
+              },
+            ].map((sub) => (
+              <div
+                key={sub.label}
+                className="border border-border rounded-lg p-3 space-y-2"
+              >
+                <Label className="text-xs font-semibold">
+                  {sub.label} (optional)
+                </Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      Name
+                    </Label>
+                    <Input
+                      value={sub.name}
+                      onChange={(e) => sub.setName(e.target.value)}
+                      placeholder={sub.placeholder}
+                      className="mt-1 text-sm h-8"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      ÷ qty (how many {unitFormName || "units"} = 1{" "}
+                      {sub.label.toLowerCase()}?)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={sub.rate}
+                      onChange={(e) => sub.setRate(e.target.value)}
+                      placeholder={sub.ratePlaceholder}
+                      className="mt-1 text-sm h-8"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      MRP (₹)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={sub.mrp}
+                      onChange={(e) => sub.setMRP(e.target.value)}
+                      placeholder="0.00"
+                      className="mt-1 text-sm h-8"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">
+                      Selling Price (₹)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={sub.price}
+                      onChange={(e) => sub.setPrice(e.target.value)}
+                      placeholder="0.00"
+                      className="mt-1 text-sm h-8"
+                    />
+                  </div>
                 </div>
               </div>
-            </div>
+            ))}
           </div>
           <DialogFooter>
             <Button
@@ -2422,11 +2689,21 @@ export function ProductsPage() {
                   id: editUnit?.id ?? generateId(),
                   name: unitFormName.trim(),
                   symbol: unitFormSymbol.trim(),
+                  mrp: unitFormMRP ? Number(unitFormMRP) : undefined,
+                  sellingPrice: unitFormPrice
+                    ? Number(unitFormPrice)
+                    : undefined,
                   subUnit1:
                     unitFormSub1Name.trim() && unitFormSub1Rate
                       ? {
                           name: unitFormSub1Name.trim(),
                           conversionRate: Number(unitFormSub1Rate),
+                          mrp: unitFormSub1MRP
+                            ? Number(unitFormSub1MRP)
+                            : undefined,
+                          sellingPrice: unitFormSub1Price
+                            ? Number(unitFormSub1Price)
+                            : undefined,
                         }
                       : undefined,
                   subUnit2:
@@ -2434,6 +2711,25 @@ export function ProductsPage() {
                       ? {
                           name: unitFormSub2Name.trim(),
                           conversionRate: Number(unitFormSub2Rate),
+                          mrp: unitFormSub2MRP
+                            ? Number(unitFormSub2MRP)
+                            : undefined,
+                          sellingPrice: unitFormSub2Price
+                            ? Number(unitFormSub2Price)
+                            : undefined,
+                        }
+                      : undefined,
+                  subUnit3:
+                    unitFormSub3Name.trim() && unitFormSub3Rate
+                      ? {
+                          name: unitFormSub3Name.trim(),
+                          conversionRate: Number(unitFormSub3Rate),
+                          mrp: unitFormSub3MRP
+                            ? Number(unitFormSub3MRP)
+                            : undefined,
+                          sellingPrice: unitFormSub3Price
+                            ? Number(unitFormSub3Price)
+                            : undefined,
                         }
                       : undefined,
                 };

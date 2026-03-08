@@ -27,16 +27,34 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
   ChevronDown,
   ChevronRight,
+  Download,
   Edit,
+  FileDown,
+  FileUp,
   Layers,
   Plus,
   Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import type React from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import type { Category } from "../types";
+import {
+  downloadCSVString,
+  exportToCSV,
+  getSampleCategoriesCSV,
+  parseCSV,
+} from "../utils/excelHelpers";
 import { generateId } from "../utils/helpers";
 import { getCategories, setCategories } from "../utils/storage";
 
@@ -67,6 +85,19 @@ export function CategoriesPage() {
   const [editCat, setEditCat] = useState<Category | null>(null);
   const [form, setForm] = useState<CategoryFormState>(DEFAULT_FORM);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+
+  // Import state
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  interface ImportCategoryRow {
+    name: string;
+    type: Category["type"];
+    parentName: string;
+    error?: string;
+    isDuplicate?: boolean;
+  }
+  const [importRows, setImportRows] = useState<ImportCategoryRow[]>([]);
+  const [importFileName, setImportFileName] = useState("");
 
   const save = (cats: Category[]) => {
     setCategories(cats);
@@ -144,6 +175,93 @@ export function CategoriesPage() {
     setDeleteId(null);
   };
 
+  const handleExportCategories = () => {
+    if (categories.length === 0) {
+      toast.info("No categories to export");
+      return;
+    }
+    exportToCSV(
+      "categories_export.csv",
+      ["Name", "Type", "Parent Category Name"],
+      categories.map((c) => {
+        const parent = c.parentId
+          ? categories.find((p) => p.id === c.parentId)?.name || ""
+          : "";
+        return [c.name, c.type, parent];
+      }),
+    );
+    toast.success(`Exported ${categories.length} categories`);
+  };
+
+  const handleImportFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const rows = parseCSV(text);
+      if (rows.length < 2) {
+        toast.error("CSV must have a header row and at least one data row");
+        return;
+      }
+      const existingNames = new Set(
+        categories.map((c) => c.name.toLowerCase()),
+      );
+      const parsed: ImportCategoryRow[] = [];
+      for (let i = 1; i < rows.length; i++) {
+        const [name = "", typeRaw = "General", parentName = ""] = rows[i];
+        const validTypes: Category["type"][] = ["General", "Courier", "Both"];
+        const type: Category["type"] = validTypes.includes(
+          typeRaw as Category["type"],
+        )
+          ? (typeRaw as Category["type"])
+          : "General";
+        const error = !name.trim() ? "Name is required" : undefined;
+        const isDuplicate =
+          !!name.trim() && existingNames.has(name.toLowerCase().trim());
+        parsed.push({
+          name: name.trim(),
+          type,
+          parentName: parentName.trim(),
+          error,
+          isDuplicate,
+        });
+      }
+      setImportRows(parsed);
+      setShowImportDialog(true);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleConfirmImport = () => {
+    const valid = importRows.filter((r) => !r.error && !r.isDuplicate);
+    if (valid.length === 0) {
+      toast.error("No new valid rows to import");
+      return;
+    }
+    const newCats = [...categories];
+    for (const row of valid) {
+      const parent = row.parentName
+        ? newCats.find(
+            (c) => c.name.toLowerCase() === row.parentName.toLowerCase(),
+          )
+        : null;
+      newCats.push({
+        id: generateId(),
+        name: row.name,
+        type: row.type,
+        parentId: parent?.id ?? null,
+      });
+    }
+    save(newCats);
+    toast.success(`Imported ${valid.length} categories`);
+    setShowImportDialog(false);
+    setImportRows([]);
+    setImportFileName("");
+  };
+
   return (
     <div className="p-6 space-y-4">
       {/* Header */}
@@ -158,9 +276,35 @@ export function CategoriesPage() {
             {categories.filter((c) => c.parentId !== null).length} subcategories
           </p>
         </div>
-        <Button onClick={() => openAdd(null)} data-ocid="categories.add_button">
-          <Plus className="w-4 h-4 mr-1" /> Add Category
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportCategories}
+            data-ocid="categories.export.button"
+          >
+            <FileDown className="w-4 h-4 mr-1" /> Export
+          </Button>
+          <label className="cursor-pointer">
+            <span className="inline-flex items-center gap-1.5 text-xs border border-input bg-background hover:bg-accent hover:text-accent-foreground px-3 py-1.5 rounded-md font-medium transition-colors cursor-pointer">
+              <FileUp className="w-3.5 h-3.5" /> Import
+            </span>
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".csv"
+              className="hidden"
+              onChange={handleImportFileChange}
+              data-ocid="categories.import.upload_button"
+            />
+          </label>
+          <Button
+            onClick={() => openAdd(null)}
+            data-ocid="categories.add_button"
+          >
+            <Plus className="w-4 h-4 mr-1" /> Add Category
+          </Button>
+        </div>
       </div>
 
       {/* Category tree */}
@@ -426,6 +570,144 @@ export function CategoriesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Import Categories Dialog */}
+      <Dialog
+        open={showImportDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowImportDialog(false);
+            setImportRows([]);
+            setImportFileName("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-2xl max-h-[85vh] flex flex-col"
+          data-ocid="categories.import.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Import Categories — {importFileName}</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto space-y-3">
+            <div className="flex gap-3 text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+              <span>
+                <strong className="text-green-600">
+                  {importRows.filter((r) => !r.error && !r.isDuplicate).length}
+                </strong>{" "}
+                new •{" "}
+                <strong className="text-amber-600">
+                  {importRows.filter((r) => r.isDuplicate).length}
+                </strong>{" "}
+                duplicates (skipped) •{" "}
+                <strong className="text-destructive">
+                  {importRows.filter((r) => !!r.error).length}
+                </strong>{" "}
+                errors
+              </span>
+              <button
+                type="button"
+                className="ml-auto text-xs text-primary underline"
+                onClick={() =>
+                  downloadCSVString(
+                    "categories_sample.csv",
+                    getSampleCategoriesCSV(),
+                  )
+                }
+              >
+                <Download className="w-3.5 h-3.5 inline mr-0.5" />
+                Download Sample
+              </button>
+            </div>
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="overflow-auto max-h-64">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-muted/20">
+                      <TableHead className="text-xs">#</TableHead>
+                      <TableHead className="text-xs">Name</TableHead>
+                      <TableHead className="text-xs">Type</TableHead>
+                      <TableHead className="text-xs">Parent</TableHead>
+                      <TableHead className="text-xs">Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {importRows.map((row, idx) => (
+                      <TableRow
+                        // biome-ignore lint/suspicious/noArrayIndexKey: preview list
+                        key={idx}
+                        className={
+                          row.error
+                            ? "bg-red-50"
+                            : row.isDuplicate
+                              ? "bg-amber-50"
+                              : "hover:bg-muted/10"
+                        }
+                        data-ocid={`categories.import.row.${idx + 1}`}
+                      >
+                        <TableCell className="text-xs text-muted-foreground">
+                          {idx + 1}
+                        </TableCell>
+                        <TableCell className="text-xs font-medium">
+                          {row.name || (
+                            <span className="text-destructive italic">
+                              missing
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs">{row.type}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {row.parentName || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {row.error ? (
+                            <span className="text-destructive font-medium">
+                              ✗ {row.error}
+                            </span>
+                          ) : row.isDuplicate ? (
+                            <span className="text-amber-600 font-medium">
+                              ⚠ Duplicate
+                            </span>
+                          ) : (
+                            <span className="text-green-600 font-medium">
+                              ✓ New
+                            </span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowImportDialog(false);
+                setImportRows([]);
+                setImportFileName("");
+              }}
+              data-ocid="categories.import.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmImport}
+              disabled={
+                importRows.filter((r) => !r.error && !r.isDuplicate).length ===
+                0
+              }
+              data-ocid="categories.import.submit_button"
+            >
+              Import{" "}
+              {importRows.filter((r) => !r.error && !r.isDuplicate).length}{" "}
+              Categories
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

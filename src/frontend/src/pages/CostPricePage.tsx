@@ -53,7 +53,11 @@ import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import type { CourierBrand, CourierTariff, TariffWeightSlab } from "../types";
 import { generateId } from "../utils/helpers";
-import { getCostTariffs, setCostTariffs } from "../utils/storage";
+import {
+  SHARED_DATA_ID,
+  getCostTariffs,
+  setCostTariffs,
+} from "../utils/storage";
 
 const ZONE_OPTIONS = [
   "Within City",
@@ -180,7 +184,7 @@ export function CostPricePage() {
   ) as CourierBrand[];
 
   const [tariffs, setLocalTariffs] = useState<CourierTariff[]>(() =>
-    getCostTariffs(activeCompanyId),
+    getCostTariffs(SHARED_DATA_ID),
   );
 
   const [filterBrand, setFilterBrand] = useState("all");
@@ -194,13 +198,14 @@ export function CostPricePage() {
   const [form, setForm] = useState<TariffFormState>(emptyForm());
   const [deleteTarget, setDeleteTarget] = useState<CourierTariff | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reload cost tariffs when company switches (shared data)
   useEffect(() => {
-    setLocalTariffs(getCostTariffs(activeCompanyId));
+    setLocalTariffs(getCostTariffs(SHARED_DATA_ID));
   }, [activeCompanyId]);
 
   const saveTariffs = (updated: CourierTariff[]) => {
     setLocalTariffs(updated);
-    setCostTariffs(activeCompanyId, updated);
+    setCostTariffs(SHARED_DATA_ID, updated);
   };
 
   // ── Filters ────────────────────────────────────────────────────────────────

@@ -61,6 +61,7 @@ import {
   formatPincodeAddress,
 } from "../utils/pincodeApi";
 import {
+  SHARED_DATA_ID,
   getCustomerTariffMap,
   getTariffs,
   incrementSKSDailyCounter,
@@ -79,6 +80,21 @@ function resolveSlabPrice(
     (s) => qty >= s.minQty && (s.maxQty === null || qty <= s.maxQty),
   );
   return match ? match.price : basePrice;
+}
+
+// ─── Pricing Tier Resolver ─────────────────────────────────────────────────────
+
+function resolveTierPrice(
+  tiers: import("../types").PricingTier[] | undefined,
+  qty: number,
+  basePrice: number,
+): { price: number; tierName?: string } {
+  if (!tiers || tiers.length === 0) return { price: basePrice };
+  const match = tiers.find(
+    (t) => qty >= t.minQty && (t.maxQty === null || qty <= t.maxQty),
+  );
+  if (match) return { price: match.sellingPrice, tierName: match.name };
+  return { price: basePrice };
 }
 
 // ─── Generic Tariff Price Calculator ─────────────────────────────────────────
@@ -317,16 +333,16 @@ export function POSBillingPage({
     date: string;
   } | null>(null);
 
-  // Load tariffs for dynamic pricing
-  const tariffs = getTariffs(activeCompanyId);
+  // Load tariffs for dynamic pricing (shared across all companies)
+  const tariffs = getTariffs(SHARED_DATA_ID);
 
   // Brands with at least one active tariff entry
   const brandsWithTariffs = new Set(
     tariffs.filter((t) => t.isActive).map((t) => t.brandName.toLowerCase()),
   );
 
-  // Load customer-specific tariff overrides
-  const customerTariffMap = getCustomerTariffMap(activeCompanyId);
+  // Load customer-specific tariff overrides (shared across all companies)
+  const customerTariffMap = getCustomerTariffMap(SHARED_DATA_ID);
   const customerTariffAssignments = selectedCustomer
     ? (customerTariffMap[selectedCustomer.id] ?? [])
     : [];
@@ -805,10 +821,25 @@ export function POSBillingPage({
     const existing = billItems.find((i) => i.productId === product.id);
     if (existing) {
       const newQty = existing.quantity + 1;
-      const resolvedPrice =
-        product.usePricingSlabs && product.pricingSlabs?.length
-          ? resolveSlabPrice(product.pricingSlabs, newQty, product.sellingPrice)
-          : existing.unitPrice;
+      let resolvedPrice: number;
+      let tierLabel: string | undefined;
+      if (product.pricingTiers?.length) {
+        const r = resolveTierPrice(
+          product.pricingTiers,
+          newQty,
+          product.sellingPrice,
+        );
+        resolvedPrice = r.price;
+        tierLabel = r.tierName;
+      } else if (product.usePricingSlabs && product.pricingSlabs?.length) {
+        resolvedPrice = resolveSlabPrice(
+          product.pricingSlabs,
+          newQty,
+          product.sellingPrice,
+        );
+      } else {
+        resolvedPrice = existing.unitPrice;
+      }
       setBillItems(
         billItems.map((i) =>
           i.productId === product.id
@@ -817,15 +848,31 @@ export function POSBillingPage({
                 quantity: newQty,
                 unitPrice: resolvedPrice,
                 totalPrice: newQty * resolvedPrice - (i.discountAmount || 0),
+                ...(tierLabel ? { tierLabel } : {}),
               }
             : i,
         ),
       );
     } else {
-      const resolvedPrice =
-        product.usePricingSlabs && product.pricingSlabs?.length
-          ? resolveSlabPrice(product.pricingSlabs, 1, product.sellingPrice)
-          : product.sellingPrice;
+      let resolvedPrice: number;
+      let tierLabel: string | undefined;
+      if (product.pricingTiers?.length) {
+        const r = resolveTierPrice(
+          product.pricingTiers,
+          1,
+          product.sellingPrice,
+        );
+        resolvedPrice = r.price;
+        tierLabel = r.tierName;
+      } else if (product.usePricingSlabs && product.pricingSlabs?.length) {
+        resolvedPrice = resolveSlabPrice(
+          product.pricingSlabs,
+          1,
+          product.sellingPrice,
+        );
+      } else {
+        resolvedPrice = product.sellingPrice;
+      }
       const item: BillItem = {
         id: generateId(),
         productId: product.id,
@@ -836,6 +883,7 @@ export function POSBillingPage({
         unitPrice: resolvedPrice,
         totalPrice: resolvedPrice,
         gstRate: product.gstRate,
+        ...(tierLabel ? { tierLabel } : {}),
       };
       setBillItems([...billItems, item]);
     }
@@ -883,13 +931,18 @@ export function POSBillingPage({
     setBillItems(
       billItems.map((i) => {
         if (i.id !== itemId) return i;
-        // Re-resolve slab price if applicable
+        // Re-resolve tier/slab price if applicable
         let unitPrice = i.unitPrice;
+        let tierLabel: string | undefined = undefined;
         const prod = products.find((p) => p.id === i.productId);
         if (prod) {
           if (prod.type === "general") {
             const gp = prod as GeneralProduct;
-            if (gp.usePricingSlabs && gp.pricingSlabs?.length) {
+            if (gp.pricingTiers?.length) {
+              const r = resolveTierPrice(gp.pricingTiers, qty, gp.sellingPrice);
+              unitPrice = r.price;
+              tierLabel = r.tierName;
+            } else if (gp.usePricingSlabs && gp.pricingSlabs?.length) {
               unitPrice = resolveSlabPrice(
                 gp.pricingSlabs,
                 qty,
@@ -916,6 +969,7 @@ export function POSBillingPage({
           ...i,
           quantity: qty,
           unitPrice,
+          ...(tierLabel !== undefined ? { tierLabel } : {}),
           discountAmount:
             i.discountType === "percent" ? discAmt : i.discountAmount,
           totalPrice:
@@ -2740,6 +2794,26 @@ export function POSBillingPage({
                           </Badge>
                         )}
                         {(() => {
+                          // Show tier badge if a named tier is active
+                          if (
+                            (item as BillItem & { tierLabel?: string })
+                              .tierLabel
+                          ) {
+                            const tLabel = (
+                              item as BillItem & { tierLabel?: string }
+                            ).tierLabel!;
+                            const TLABELS: Record<string, string> = {
+                              retail: "Retail",
+                              super_retail: "Super Retail",
+                              wholesale: "Wholesale",
+                              super_wholesale: "Super Wholesale",
+                            };
+                            return (
+                              <Badge className="text-xs bg-blue-100 text-blue-700 border-blue-200 border">
+                                {TLABELS[tLabel] ?? tLabel} ×{item.quantity}
+                              </Badge>
+                            );
+                          }
                           const prod = products.find(
                             (p) => p.id === item.productId,
                           );

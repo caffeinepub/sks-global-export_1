@@ -29,7 +29,7 @@ import { SettingsPage } from "./pages/SettingsPage";
 import { TariffManagementPage } from "./pages/TariffManagementPage";
 import { VendorsPage } from "./pages/VendorsPage";
 import { seedInitialData } from "./utils/seedData";
-import { getLastBackupTime } from "./utils/storage";
+import { getLastBackupTime, migrateToSharedData } from "./utils/storage";
 
 // Simple page store
 interface PageStore {
@@ -196,8 +196,9 @@ function AppLayout() {
 }
 
 export default function App() {
-  // Seed initial data
+  // Migrate per-company data to shared key, then seed initial data
   useEffect(() => {
+    migrateToSharedData();
     seedInitialData();
   }, []);
 
