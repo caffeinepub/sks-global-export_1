@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -27,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import {
   Table,
   TableBody,
@@ -39,11 +39,13 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  Copy,
   Download,
   Eye,
   FileImage,
   FileSpreadsheet,
   FileText,
+  Mail,
   Pencil,
   Printer,
   Search,
@@ -51,7 +53,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { PaymentQRCode } from "../components/PaymentQRCode";
 import { buildUpiUrl } from "../components/PaymentQRCode";
@@ -2220,6 +2222,302 @@ function TemplateSwitcher({ selected, onChange }: TemplateSwitcherProps) {
 }
 
 // ──────────────────────────────────────────────
+// EmailInvoiceDialog
+// ──────────────────────────────────────────────
+
+type EmailTemplate = "standard" | "friendly" | "reminder";
+
+interface EmailInvoiceDialogProps {
+  invoice: Invoice | null;
+  onClose: () => void;
+}
+
+function EmailInvoiceDialog({ invoice, onClose }: EmailInvoiceDialogProps) {
+  const { customers, activeCompany } = useAppStore();
+
+  const customer = useMemo(
+    () => customers.find((c) => c.id === invoice?.customerId),
+    [customers, invoice?.customerId],
+  );
+
+  const buildTemplate = (tmpl: EmailTemplate, inv: Invoice): string => {
+    const customerName = inv.customerName || "Valued Customer";
+    const invoiceNo = inv.invoiceNo;
+    const date = formatDate(inv.date);
+    const total = formatCurrency(inv.total);
+    const paymentStatus =
+      inv.paymentStatus.charAt(0).toUpperCase() + inv.paymentStatus.slice(1);
+    const companyName = activeCompany?.name || "SKS Global Export";
+    const companyPhone = activeCompany?.phone || "";
+    const companyEmail = activeCompany?.email || "";
+
+    switch (tmpl) {
+      case "standard":
+        return `Dear ${customerName},
+
+Please find attached the invoice ${invoiceNo} dated ${date} for your records.
+
+Invoice Details:
+- Invoice No: ${invoiceNo}
+- Date: ${date}
+- Amount: ${total}
+- Status: ${paymentStatus}
+
+Please process the payment at your earliest convenience.
+
+For any queries, please feel free to contact us.
+
+Thank you for your business.
+
+Best regards,
+${companyName}${companyPhone ? `\n${companyPhone}` : ""}${companyEmail ? `\n${companyEmail}` : ""}`;
+
+      case "friendly":
+        return `Hi ${customerName},
+
+Hope you're doing well! I'm sending across invoice ${invoiceNo} for ${total}.
+
+Quick summary:
+• Invoice No: ${invoiceNo}
+• Date: ${date}
+• Total Amount: ${total}
+• Payment Status: ${paymentStatus}
+
+Let me know if you have any questions. Always happy to help!
+
+Thanks,
+${companyName}`;
+
+      case "reminder":
+        return `Dear ${customerName},
+
+This is a friendly reminder regarding invoice ${invoiceNo} dated ${date}.
+
+Outstanding Amount: ${total}
+Invoice No: ${invoiceNo}
+Due Status: ${paymentStatus}
+
+We would appreciate prompt payment to keep our records updated.
+
+If you have already processed the payment, please disregard this message.
+
+Regards,
+${companyName}${companyPhone ? `\n${companyPhone}` : ""}`;
+    }
+  };
+
+  const [selectedTemplate, setSelectedTemplate] =
+    useState<EmailTemplate>("standard");
+  const [toEmail, setToEmail] = useState(customer?.email || "");
+  const [ccEmail, setCcEmail] = useState("");
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+
+  // Reset form fields when the invoice changes
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally reset only when invoice id changes
+  useEffect(() => {
+    if (!invoice) return;
+    setToEmail(customer?.email || "");
+    setCcEmail("");
+    setSubject(
+      `Invoice ${invoice.invoiceNo} from ${activeCompany?.name || "SKS Global Export"}`,
+    );
+    setMessage(buildTemplate("standard", invoice));
+    setSelectedTemplate("standard");
+  }, [invoice?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleTemplateChange = (tmpl: EmailTemplate) => {
+    setSelectedTemplate(tmpl);
+    if (invoice) {
+      setMessage(buildTemplate(tmpl, invoice));
+    }
+  };
+
+  const handleOpenInEmailApp = () => {
+    if (!invoice) return;
+    const mailtoUrl = `mailto:${encodeURIComponent(toEmail)}?${ccEmail ? `cc=${encodeURIComponent(ccEmail)}&` : ""}subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+    window.open(mailtoUrl, "_blank");
+  };
+
+  const handleCopyMessage = () => {
+    const content = `Subject: ${subject}\n\n${message}`;
+    navigator.clipboard
+      .writeText(content)
+      .then(() => toast.success("Message copied to clipboard"))
+      .catch(() => toast.error("Failed to copy to clipboard"));
+  };
+
+  if (!invoice) return null;
+
+  const templateButtons: { key: EmailTemplate; label: string }[] = [
+    { key: "standard", label: "Standard" },
+    { key: "friendly", label: "Friendly" },
+    { key: "reminder", label: "Reminder" },
+  ];
+
+  return (
+    <Dialog open={!!invoice} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="max-w-2xl max-h-[92vh] flex flex-col overflow-hidden"
+        data-ocid="invoice.email.dialog"
+      >
+        <DialogHeader className="pb-2 border-b border-border shrink-0">
+          <DialogTitle className="flex items-center gap-2">
+            <Mail className="w-4 h-4 text-primary" />
+            Send Invoice via Email
+          </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Invoice{" "}
+            <span className="font-mono font-semibold text-foreground">
+              {invoice.invoiceNo}
+            </span>{" "}
+            · {formatCurrency(invoice.total)}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto py-3 space-y-4 min-h-0">
+          {/* Info banner */}
+          <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2.5 text-xs text-blue-700">
+            <Mail className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>
+              Email will open in your default email client (Gmail, Outlook,
+              etc.). <strong>Download the PDF separately</strong> to attach it
+              to the email.
+            </span>
+          </div>
+
+          {/* Template selector */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+              Message Template
+            </Label>
+            <div
+              className="flex gap-2"
+              data-ocid="invoice.email.template.select"
+            >
+              {templateButtons.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => handleTemplateChange(t.key)}
+                  className={`flex-1 py-1.5 px-3 rounded-md text-xs font-medium border transition-all ${
+                    selectedTemplate === t.key
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-background text-foreground border-border hover:border-primary/50 hover:bg-primary/5"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* To field */}
+          <div className="space-y-1.5">
+            <Label htmlFor="email-to" className="text-sm font-medium">
+              To <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="email-to"
+              type="email"
+              placeholder="customer@example.com"
+              value={toEmail}
+              onChange={(e) => setToEmail(e.target.value)}
+              data-ocid="invoice.email.to.input"
+            />
+          </div>
+
+          {/* CC field */}
+          <div className="space-y-1.5">
+            <Label htmlFor="email-cc" className="text-sm font-medium">
+              CC{" "}
+              <span className="text-xs font-normal text-muted-foreground">
+                (optional)
+              </span>
+            </Label>
+            <Input
+              id="email-cc"
+              type="email"
+              placeholder="cc@example.com"
+              value={ccEmail}
+              onChange={(e) => setCcEmail(e.target.value)}
+              data-ocid="invoice.email.cc.input"
+            />
+          </div>
+
+          {/* Subject field */}
+          <div className="space-y-1.5">
+            <Label htmlFor="email-subject" className="text-sm font-medium">
+              Subject
+            </Label>
+            <Input
+              id="email-subject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              data-ocid="invoice.email.subject.input"
+            />
+          </div>
+
+          {/* Message body */}
+          <div className="space-y-1.5">
+            <Label htmlFor="email-message" className="text-sm font-medium">
+              Message
+            </Label>
+            <Textarea
+              id="email-message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={12}
+              className="font-mono text-xs leading-relaxed resize-none"
+              data-ocid="invoice.email.message.textarea"
+            />
+          </div>
+
+          {/* Attachment note */}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-muted/40 rounded-lg px-3 py-2 border border-dashed border-border">
+            <span className="text-base">📎</span>
+            <span>
+              Invoice PDF will be attached when downloaded separately using the
+              PDF button.
+            </span>
+          </div>
+        </div>
+
+        <DialogFooter className="pt-3 border-t border-border shrink-0 flex flex-col sm:flex-row gap-2">
+          <div className="flex-1 text-xs text-muted-foreground self-center hidden sm:block">
+            Opens your default email app (Gmail, Outlook, etc.)
+          </div>
+          <div className="flex gap-2 flex-wrap justify-end">
+            <Button
+              variant="ghost"
+              onClick={onClose}
+              data-ocid="invoice.email.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={handleCopyMessage}
+              data-ocid="invoice.email.copy.button"
+            >
+              <Copy className="w-4 h-4 mr-1.5" />
+              Copy Message
+            </Button>
+            <Button
+              onClick={handleOpenInEmailApp}
+              data-ocid="invoice.email.send.button"
+            >
+              <Mail className="w-4 h-4 mr-1.5" />
+              Open in Email App
+            </Button>
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ──────────────────────────────────────────────
 // InvoiceViewDialog
 // ──────────────────────────────────────────────
 
@@ -2242,6 +2540,7 @@ function InvoiceViewDialog({
   const [downloading, setDownloading] = useState<"pdf" | "jpeg" | "png" | null>(
     null,
   );
+  const [showEmailDialog, setShowEmailDialog] = useState(false);
 
   const [selectedTemplate, setSelectedTemplate] = useState<InvoiceTemplateKey>(
     () => (settings?.invoiceTemplate ?? "default") as InvoiceTemplateKey,
@@ -2493,9 +2792,25 @@ ${html}
                 <Share2 className="w-4 h-4 mr-2" />
                 WhatsApp
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => setShowEmailDialog(true)}
+                data-ocid="invoice.email.button"
+              >
+                <Mail className="w-4 h-4 mr-2" />
+                Email
+              </Button>
             </>
           )}
         </div>
+
+        {/* Email Dialog (nested inside view dialog) */}
+        {showEmailDialog && invoice && (
+          <EmailInvoiceDialog
+            invoice={invoice}
+            onClose={() => setShowEmailDialog(false)}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );
@@ -3036,6 +3351,7 @@ function InvoiceHistoryTab() {
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
   const [editInvoice, setEditInvoice] = useState<Invoice | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Invoice | null>(null);
+  const [emailInvoice, setEmailInvoice] = useState<Invoice | null>(null);
 
   // Edit form state
   const [editPaymentStatus, setEditPaymentStatus] = useState("");
@@ -3249,6 +3565,16 @@ function InvoiceHistoryTab() {
                           variant="ghost"
                           size="icon"
                           className="h-7 w-7"
+                          title="Send Email"
+                          onClick={() => setEmailInvoice(inv)}
+                          data-ocid="invoice.email.button"
+                        >
+                          <Mail className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
                           title="Download Excel"
                           onClick={() => handleExportExcel(inv)}
                         >
@@ -3384,6 +3710,12 @@ function InvoiceHistoryTab() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Email Invoice Dialog */}
+      <EmailInvoiceDialog
+        invoice={emailInvoice}
+        onClose={() => setEmailInvoice(null)}
+      />
     </div>
   );
 }

@@ -1,5 +1,32 @@
 // Type declarations for packages used via CDN/dynamic import without npm types
 
+// html2canvas ships its own types in newer versions but may be missing in some environments
+declare module "html2canvas" {
+  interface Options {
+    scale?: number;
+    useCORS?: boolean;
+    backgroundColor?: string | null;
+    logging?: boolean;
+    allowTaint?: boolean;
+    foreignObjectRendering?: boolean;
+    imageTimeout?: number;
+    width?: number;
+    height?: number;
+    x?: number;
+    y?: number;
+    scrollX?: number;
+    scrollY?: number;
+    windowWidth?: number;
+    windowHeight?: number;
+    onclone?: (doc: Document, element: HTMLElement) => void;
+  }
+  function html2canvas(
+    element: HTMLElement,
+    options?: Options,
+  ): Promise<HTMLCanvasElement>;
+  export default html2canvas;
+}
+
 declare module "qrcode" {
   interface QRCodeOptions {
     width?: number;
