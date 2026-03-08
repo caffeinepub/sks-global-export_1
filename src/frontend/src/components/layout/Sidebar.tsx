@@ -10,6 +10,7 @@ import {
   FileText,
   Layers,
   LayoutDashboard,
+  MapPin,
   Package,
   Palette,
   Receipt,
@@ -52,6 +53,7 @@ const navItems: NavItem[] = [
     path: "inventory",
     children: [
       { label: "Products", icon: Box, path: "products" },
+      { label: "Categories", icon: Layers, path: "categories" },
       { label: "Stock", icon: Boxes, path: "inventory" },
       { label: "Purchase Invoices", icon: Receipt, path: "purchase-invoices" },
     ],
@@ -59,6 +61,7 @@ const navItems: NavItem[] = [
   { label: "Customers", icon: Users, path: "customers" },
   { label: "Vendors", icon: UserCheck, path: "vendors" },
   { label: "Schedule Pickup", icon: Truck, path: "pickups" },
+  { label: "Courier Tracking", icon: MapPin, path: "courier-tracking" },
   { label: "Tariff Rates", icon: Tag, path: "tariffs" },
   { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
   { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },

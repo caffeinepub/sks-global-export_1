@@ -381,17 +381,28 @@ export function TariffManagementPage() {
     }));
   };
 
-  // When brand is selected in form, auto-set transport mode from brand
+  // When brand is selected in form, auto-set transport mode and product type from brand
   const handleBrandChange = (brandId: string) => {
     const brand = courierBrands.find((b) => b.id === brandId);
+    const cpList = brand?.courierProducts ?? [];
+    const firstProduct = cpList.find((p) => p.isActive) ?? cpList[0];
     setForm((prev) => ({
       ...prev,
       brandId,
       brandName: brand?.brandName ?? "",
       transportMode:
         (brand?.transportModes as "Air" | "Surface" | "Both") ?? "Both",
+      // Auto-populate product type from brand's first courier product if available
+      productType: firstProduct?.productType ?? prev.productType,
     }));
   };
+
+  // Get courier product types for the currently selected brand
+  const selectedBrandForForm = courierBrands.find((b) => b.id === form.brandId);
+  const brandCourierProductTypes: string[] =
+    selectedBrandForForm?.courierProducts
+      ?.filter((p) => p.isActive)
+      .map((p) => p.productType) ?? [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -711,23 +722,68 @@ export function TariffManagementPage() {
 
               <div className="space-y-1.5">
                 <Label>Product Type</Label>
-                <Input
-                  value={form.productType}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      productType: e.target.value,
-                    }))
-                  }
-                  placeholder="e.g. Express"
-                  list="product-type-suggestions"
-                  data-ocid="tariff.product_type.input"
-                />
-                <datalist id="product-type-suggestions">
-                  {PRODUCT_TYPE_SUGGESTIONS.map((s) => (
-                    <option key={s} value={s} />
-                  ))}
-                </datalist>
+                {brandCourierProductTypes.length > 0 ? (
+                  <>
+                    <Select
+                      value={form.productType}
+                      onValueChange={(v) =>
+                        setForm((prev) => ({ ...prev, productType: v }))
+                      }
+                    >
+                      <SelectTrigger data-ocid="tariff.product_type.select">
+                        <SelectValue placeholder="Select product type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {brandCourierProductTypes.map((pt) => (
+                          <SelectItem key={pt} value={pt}>
+                            {pt}
+                          </SelectItem>
+                        ))}
+                        <SelectItem value="__custom__">
+                          + Enter custom…
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {form.productType === "__custom__" && (
+                      <Input
+                        value=""
+                        onChange={(e) =>
+                          setForm((prev) => ({
+                            ...prev,
+                            productType: e.target.value,
+                          }))
+                        }
+                        placeholder="Type product name"
+                        data-ocid="tariff.product_type.input"
+                        autoFocus
+                      />
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Input
+                      value={form.productType}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          productType: e.target.value,
+                        }))
+                      }
+                      placeholder="e.g. Express"
+                      list="product-type-suggestions"
+                      data-ocid="tariff.product_type.input"
+                    />
+                    <datalist id="product-type-suggestions">
+                      {PRODUCT_TYPE_SUGGESTIONS.map((s) => (
+                        <option key={s} value={s} />
+                      ))}
+                    </datalist>
+                    <p className="text-xs text-muted-foreground">
+                      Add product types under this brand in Products → Courier
+                      Brands to get a dropdown here.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 

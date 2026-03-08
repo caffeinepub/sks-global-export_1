@@ -44,6 +44,7 @@ import type {
   CourierTariff,
   Customer,
   GeneralProduct,
+  PricingSlab,
   ServiceProduct,
   XeroxProduct,
 } from "../types";
@@ -65,6 +66,20 @@ import {
   incrementSKSDailyCounter,
   setSettings,
 } from "../utils/storage";
+
+// ─── Pricing Slab Resolver ────────────────────────────────────────────────────
+
+function resolveSlabPrice(
+  slabs: PricingSlab[],
+  qty: number,
+  basePrice: number,
+): number {
+  if (!slabs || slabs.length === 0) return basePrice;
+  const match = slabs.find(
+    (s) => qty >= s.minQty && (s.maxQty === null || qty <= s.maxQty),
+  );
+  return match ? match.price : basePrice;
+}
 
 // ─── Generic Tariff Price Calculator ─────────────────────────────────────────
 
@@ -585,7 +600,9 @@ export function POSBillingPage({
         ? "International"
         : "Domestic"
       : (autoMode ??
-        (courierForm.serviceMode || selectedBrand.serviceModes[0]));
+        (courierForm.serviceMode ||
+          (selectedBrand.serviceModes ?? [])[0] ||
+          ""));
     const chargeableWt = calcChargeableWeight(
       courierForm.weight,
       courierForm.length,
@@ -787,19 +804,28 @@ export function POSBillingPage({
   const addGeneralProduct = (product: GeneralProduct) => {
     const existing = billItems.find((i) => i.productId === product.id);
     if (existing) {
+      const newQty = existing.quantity + 1;
+      const resolvedPrice =
+        product.usePricingSlabs && product.pricingSlabs?.length
+          ? resolveSlabPrice(product.pricingSlabs, newQty, product.sellingPrice)
+          : existing.unitPrice;
       setBillItems(
         billItems.map((i) =>
           i.productId === product.id
             ? {
                 ...i,
-                quantity: i.quantity + 1,
-                totalPrice:
-                  (i.quantity + 1) * i.unitPrice - (i.discountAmount || 0),
+                quantity: newQty,
+                unitPrice: resolvedPrice,
+                totalPrice: newQty * resolvedPrice - (i.discountAmount || 0),
               }
             : i,
         ),
       );
     } else {
+      const resolvedPrice =
+        product.usePricingSlabs && product.pricingSlabs?.length
+          ? resolveSlabPrice(product.pricingSlabs, 1, product.sellingPrice)
+          : product.sellingPrice;
       const item: BillItem = {
         id: generateId(),
         productId: product.id,
@@ -807,8 +833,8 @@ export function POSBillingPage({
         productName: product.name,
         quantity: 1,
         unit: product.unit,
-        unitPrice: product.sellingPrice,
-        totalPrice: product.sellingPrice,
+        unitPrice: resolvedPrice,
+        totalPrice: resolvedPrice,
         gstRate: product.gstRate,
       };
       setBillItems([...billItems, item]);
@@ -816,6 +842,10 @@ export function POSBillingPage({
   };
 
   const addXeroxProduct = (product: XeroxProduct) => {
+    const resolvedPrice =
+      product.usePricingSlabs && product.pricingSlabs?.length
+        ? resolveSlabPrice(product.pricingSlabs, 1, product.pricePerPage)
+        : product.pricePerPage;
     const item: BillItem = {
       id: generateId(),
       productId: product.id,
@@ -823,8 +853,8 @@ export function POSBillingPage({
       productName: product.name,
       quantity: 1,
       unit: "Page",
-      unitPrice: product.pricePerPage,
-      totalPrice: product.pricePerPage,
+      unitPrice: resolvedPrice,
+      totalPrice: resolvedPrice,
       gstRate: product.gstRate,
     };
     setBillItems([...billItems, item]);
@@ -853,7 +883,31 @@ export function POSBillingPage({
     setBillItems(
       billItems.map((i) => {
         if (i.id !== itemId) return i;
-        const rawTotal = qty * i.unitPrice;
+        // Re-resolve slab price if applicable
+        let unitPrice = i.unitPrice;
+        const prod = products.find((p) => p.id === i.productId);
+        if (prod) {
+          if (prod.type === "general") {
+            const gp = prod as GeneralProduct;
+            if (gp.usePricingSlabs && gp.pricingSlabs?.length) {
+              unitPrice = resolveSlabPrice(
+                gp.pricingSlabs,
+                qty,
+                gp.sellingPrice,
+              );
+            }
+          } else if (prod.type === "xerox") {
+            const xp = prod as XeroxProduct;
+            if (xp.usePricingSlabs && xp.pricingSlabs?.length) {
+              unitPrice = resolveSlabPrice(
+                xp.pricingSlabs,
+                qty,
+                xp.pricePerPage,
+              );
+            }
+          }
+        }
+        const rawTotal = qty * unitPrice;
         const discAmt =
           i.discountType === "percent"
             ? Math.round(rawTotal * ((i.discountValue || 0) / 100) * 100) / 100
@@ -861,6 +915,7 @@ export function POSBillingPage({
         return {
           ...i,
           quantity: qty,
+          unitPrice,
           discountAmount:
             i.discountType === "percent" ? discAmt : i.discountAmount,
           totalPrice:
@@ -1439,7 +1494,7 @@ export function POSBillingPage({
                                 ? "Air"
                                 : tm === "Surface"
                                   ? "Surface"
-                                  : brand.serviceModes[0] || "";
+                                  : (brand.serviceModes ?? [])[0] || "";
                             const senderName =
                               selectedCustomer?.name || walkingName || "";
                             const senderPhone =
@@ -1633,7 +1688,8 @@ export function POSBillingPage({
                                             ? "Air"
                                             : tm === "Surface"
                                               ? "Surface"
-                                              : cp.serviceModes[0] || "";
+                                              : (cp.serviceModes ?? [])[0] ||
+                                                "";
                                         setCourierForm((prev) => ({
                                           ...prev,
                                           productType: cp.productType,
@@ -2191,7 +2247,7 @@ export function POSBillingPage({
                                       <SelectItem value="Surface">
                                         🚛 Surface
                                       </SelectItem>
-                                      {selectedBrand.serviceModes
+                                      {(selectedBrand.serviceModes ?? [])
                                         .filter(
                                           (m) => m !== "Air" && m !== "Surface",
                                         )
@@ -2253,12 +2309,35 @@ export function POSBillingPage({
                                   </div>
                                   <Switch
                                     checked={courierForm.useTariff}
-                                    onCheckedChange={(checked) =>
+                                    onCheckedChange={(checked) => {
+                                      // When turning on, auto-set product type to first available if current value doesn't exist
+                                      const firstPT =
+                                        availableProductTypes[0] ?? "";
+                                      const currentPTValid =
+                                        availableProductTypes.includes(
+                                          courierForm.tariffProductType,
+                                        );
+                                      const firstZone =
+                                        brandTariffs.find(
+                                          (t) =>
+                                            t.productType ===
+                                            (currentPTValid
+                                              ? courierForm.tariffProductType
+                                              : firstPT),
+                                        )?.zone ?? courierForm.tariffZone;
                                       setCourierForm((p) => ({
                                         ...p,
                                         useTariff: checked,
-                                      }))
-                                    }
+                                        tariffProductType:
+                                          checked && !currentPTValid
+                                            ? firstPT
+                                            : p.tariffProductType,
+                                        tariffZone:
+                                          checked && !currentPTValid
+                                            ? firstZone
+                                            : p.tariffZone,
+                                      }));
+                                    }}
                                     data-ocid="courier.tariff.toggle"
                                   />
                                 </div>
@@ -2660,6 +2739,40 @@ export function POSBillingPage({
                             {item.serviceMode}
                           </Badge>
                         )}
+                        {(() => {
+                          const prod = products.find(
+                            (p) => p.id === item.productId,
+                          );
+                          if (!prod) return null;
+                          let isSlabActive = false;
+                          if (prod.type === "general") {
+                            const gp = prod as GeneralProduct;
+                            if (gp.usePricingSlabs && gp.pricingSlabs?.length) {
+                              const slabPrice = resolveSlabPrice(
+                                gp.pricingSlabs,
+                                item.quantity,
+                                gp.sellingPrice,
+                              );
+                              isSlabActive = slabPrice !== gp.sellingPrice;
+                            }
+                          } else if (prod.type === "xerox") {
+                            const xp = prod as XeroxProduct;
+                            if (xp.usePricingSlabs && xp.pricingSlabs?.length) {
+                              const slabPrice = resolveSlabPrice(
+                                xp.pricingSlabs,
+                                item.quantity,
+                                xp.pricePerPage,
+                              );
+                              isSlabActive = slabPrice !== xp.pricePerPage;
+                            }
+                          }
+                          if (!isSlabActive) return null;
+                          return (
+                            <Badge className="text-xs bg-amber-100 text-amber-700 border-amber-200 border">
+                              Slab ×{item.quantity}
+                            </Badge>
+                          );
+                        })()}
                       </div>
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
                         <div className="flex items-center gap-1">
@@ -2697,9 +2810,49 @@ export function POSBillingPage({
                             {item.unit}
                           </span>
                         </div>
-                        <span className="text-xs text-muted-foreground">
-                          @ {formatCurrency(item.unitPrice)}
-                        </span>
+                        {item.productType === "courier_awb" ? (
+                          <div className="flex items-center gap-1">
+                            <span className="text-xs text-muted-foreground">
+                              @
+                            </span>
+                            <Input
+                              type="number"
+                              value={item.unitPrice}
+                              onChange={(e) => {
+                                const newPrice = Math.max(
+                                  0,
+                                  Number(e.target.value),
+                                );
+                                setBillItems(
+                                  billItems.map((i) =>
+                                    i.id !== item.id
+                                      ? i
+                                      : {
+                                          ...i,
+                                          unitPrice: newPrice,
+                                          totalPrice: Math.max(
+                                            0,
+                                            newPrice * i.quantity -
+                                              (i.discountAmount || 0),
+                                          ),
+                                        },
+                                  ),
+                                );
+                              }}
+                              className="w-24 h-6 text-xs p-1 text-right"
+                              min="0"
+                              step="0.01"
+                              data-ocid="pos.courier.price.input"
+                            />
+                            <span className="text-xs text-muted-foreground">
+                              ₹
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">
+                            @ {formatCurrency(item.unitPrice)}
+                          </span>
+                        )}
                       </div>
 
                       {/* Per-item discount row */}

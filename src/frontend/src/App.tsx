@@ -9,7 +9,9 @@ import { Sidebar } from "./components/layout/Sidebar";
 import { useAppStore } from "./hooks/useAppStore";
 import { AdminPage } from "./pages/AdminPage";
 import { BillsPage } from "./pages/BillsPage";
+import { CategoriesPage } from "./pages/CategoriesPage";
 import { CostPricePage } from "./pages/CostPricePage";
+import { CourierTrackingPage } from "./pages/CourierTrackingPage";
 import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
@@ -123,6 +125,8 @@ function AppLayout() {
         return <InvoicesPage />;
       case "products":
         return <ProductsPage />;
+      case "categories":
+        return <CategoriesPage />;
       case "inventory":
         return <InventoryPage />;
       case "purchase-invoices":
@@ -133,6 +137,8 @@ function AppLayout() {
         return <VendorsPage />;
       case "pickups":
         return <PickupsPage />;
+      case "courier-tracking":
+        return <CourierTrackingPage />;
       case "reports":
         return <ReportsPage />;
       case "settings":

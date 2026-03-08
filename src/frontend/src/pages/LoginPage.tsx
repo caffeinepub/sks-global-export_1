@@ -113,42 +113,6 @@ export function LoginPage() {
                 )}
               </Button>
             </form>
-
-            {/* Demo credentials */}
-            <div className="mt-4 p-3 bg-muted rounded-lg">
-              <p className="text-xs font-medium text-muted-foreground mb-2">
-                Demo Credentials:{" "}
-                <span className="text-primary">(click to fill)</span>
-              </p>
-              <div className="space-y-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsername("admin");
-                    setPassword("admin123");
-                  }}
-                  className="w-full flex justify-between text-xs hover:bg-primary/10 px-2 py-1 rounded cursor-pointer transition-colors"
-                >
-                  <span className="text-muted-foreground">Admin:</span>
-                  <span className="font-mono text-foreground">
-                    admin / admin123
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUsername("operator");
-                    setPassword("op123");
-                  }}
-                  className="w-full flex justify-between text-xs hover:bg-primary/10 px-2 py-1 rounded cursor-pointer transition-colors"
-                >
-                  <span className="text-muted-foreground">Operator:</span>
-                  <span className="font-mono text-foreground">
-                    operator / op123
-                  </span>
-                </button>
-              </div>
-            </div>
           </CardContent>
         </Card>
 

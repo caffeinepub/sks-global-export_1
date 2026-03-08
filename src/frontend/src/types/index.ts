@@ -33,6 +33,13 @@ export interface AppUser {
 
 export type ProductType = "general" | "courier_awb" | "xerox" | "service";
 
+// ─── Pricing Slabs (multi-tier quantity-based pricing) ────────────────────────
+export interface PricingSlab {
+  minQty: number;
+  maxQty: number | null; // null means "and above" (unlimited)
+  price: number;
+}
+
 export interface GeneralProduct {
   id: string;
   companyId: string;
@@ -50,6 +57,8 @@ export interface GeneralProduct {
   currentStock: number;
   minStockAlert: number;
   isActive: boolean;
+  usePricingSlabs?: boolean;
+  pricingSlabs?: PricingSlab[];
 }
 
 // Individual product under a courier brand (each brand can have many products)
@@ -71,6 +80,8 @@ export interface CourierProduct {
   sellingPrice: number;
   gstRate: number;
   isActive: boolean;
+  usePricingSlabs?: boolean;
+  pricingSlabs?: PricingSlab[];
 }
 
 export interface CourierBrand {
@@ -128,6 +139,8 @@ export interface XeroxProduct {
   pricePerPage: number;
   gstRate: number;
   isActive: boolean;
+  usePricingSlabs?: boolean;
+  pricingSlabs?: PricingSlab[];
 }
 
 export interface ServiceProduct {
@@ -211,7 +224,10 @@ export interface BillItem {
     | "in_transit"
     | "out_for_delivery"
     | "delivered"
-    | "rto";
+    | "rto"
+    | "exception"
+    | "hold";
+  trackingNotes?: Array<{ date: string; note: string; status: string }>;
   // Courier slip fields
   senderName?: string;
   senderPhone?: string;
@@ -440,4 +456,22 @@ export interface DesignPricingMaster {
   basePrice: number;
   gstRate: number;
   isActive: boolean;
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+export interface Category {
+  id: string;
+  name: string;
+  type: "General" | "Courier" | "Both";
+  parentId: string | null; // null = top-level category
+  color?: string;
+}
+
+// ─── Product Units ────────────────────────────────────────────────────────────
+export interface ProductUnit {
+  id: string;
+  name: string; // e.g. "Piece"
+  symbol: string; // e.g. "pcs"
+  subUnit1?: { name: string; conversionRate: number }; // e.g. {name: "Box", conversionRate: 12}
+  subUnit2?: { name: string; conversionRate: number }; // e.g. {name: "Carton", conversionRate: 144}
 }

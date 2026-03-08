@@ -27,12 +27,15 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
+  Download,
   Package,
   Pencil,
   Plus,
   Trash2,
   Truck,
+  Upload,
 } from "lucide-react";
+import type React from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
@@ -369,6 +372,151 @@ export function InventoryPage() {
   const [editAWBRange, setEditAWBRange] = useState<AWBSerialRange | null>(null);
   const [deleteAWBId, setDeleteAWBId] = useState<string | null>(null);
 
+  // ── Bulk AWB Import ────────────────────────────────────────────────────────
+  const [showBulkAWB, setShowBulkAWB] = useState(false);
+  interface BulkAWBRow {
+    brandName: string;
+    productTypeName: string;
+    fromSerial: string;
+    toSerial: string;
+    purchaseDate: string;
+    quantity: number;
+    availableSerials: string[];
+    error?: string;
+  }
+  const [bulkAWBRows, setBulkAWBRows] = useState<BulkAWBRow[]>([]);
+  const [bulkAWBFileName, setBulkAWBFileName] = useState("");
+
+  const handleBulkAWBTemplateDownload = () => {
+    const today = new Date().toISOString().split("T")[0];
+    const csv = `brandName,productTypeName,fromSerial,toSerial,purchaseDate\nDTDC,D Express,123456001,123456010,${today}\nBlueDart,Priority,AB001,AB010,${today}\n`;
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "awb_import_template.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBulkAWBFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkAWBFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split("\n").filter((l) => l.trim());
+      if (lines.length < 2) {
+        toast.error("CSV must have a header row and at least one data row");
+        return;
+      }
+      const rows: BulkAWBRow[] = [];
+      const today = new Date().toISOString().split("T")[0];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i]
+          .split(",")
+          .map((c) => c.trim().replace(/^"|"$/g, ""));
+        const [
+          brandName = "",
+          productTypeName = "",
+          fromSerial = "",
+          toSerial = "",
+          purchaseDate = today,
+        ] = cols;
+
+        let error: string | undefined;
+        if (!brandName) error = "Brand name required";
+        else if (!fromSerial || !toSerial)
+          error = "From and To serial required";
+
+        // Determine if numeric range and compute quantity
+        const fromNum = Number.parseInt(fromSerial.replace(/\D/g, ""));
+        const toNum = Number.parseInt(toSerial.replace(/\D/g, ""));
+        const isNumeric = !Number.isNaN(fromNum) && !Number.isNaN(toNum);
+        const diff = isNumeric ? toNum - fromNum + 1 : 1;
+        const quantity = Math.max(1, diff);
+
+        // Generate available serials (limit to 500)
+        let availableSerials: string[] = [];
+        if (isNumeric && diff >= 1 && diff <= 500) {
+          const prefix = fromSerial.replace(/\d+$/, "");
+          const padLen = fromSerial.replace(/\D/g, "").length;
+          for (let n = fromNum; n <= toNum; n++) {
+            availableSerials.push(prefix + String(n).padStart(padLen, "0"));
+          }
+        } else if (isNumeric) {
+          // Too many — just store start/end markers
+          availableSerials = [fromSerial, toSerial];
+        } else {
+          availableSerials = [fromSerial, toSerial];
+        }
+
+        // Validate brand exists
+        const brandMatch = courierBrands.find(
+          (b) => b.brandName.toLowerCase() === brandName.toLowerCase(),
+        );
+        if (!brandMatch && !error) {
+          error = `Brand "${brandName}" not found in products`;
+        }
+
+        rows.push({
+          brandName,
+          productTypeName,
+          fromSerial,
+          toSerial,
+          purchaseDate,
+          quantity,
+          availableSerials,
+          error,
+        });
+      }
+      setBulkAWBRows(rows);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleBulkAWBImport = () => {
+    const valid = bulkAWBRows.filter((r) => !r.error);
+    if (valid.length === 0) {
+      toast.error("No valid rows to import");
+      return;
+    }
+    let imported = 0;
+    for (const row of valid) {
+      const brand = courierBrands.find(
+        (b) => b.brandName.toLowerCase() === row.brandName.toLowerCase(),
+      );
+      if (!brand) continue;
+      const cp = (brand.courierProducts ?? []).find(
+        (p) =>
+          p.productType.toLowerCase() === row.productTypeName.toLowerCase(),
+      );
+      addAWBSerial({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        companyId: activeCompanyId,
+        brandId: brand.id,
+        brandName: brand.brandName,
+        productId: cp?.id || undefined,
+        productTypeName: cp?.productType || row.productTypeName || undefined,
+        fromSerial: row.fromSerial,
+        toSerial: row.toSerial,
+        quantity: row.quantity,
+        purchaseDate: row.purchaseDate,
+        usedSerials: [],
+        availableSerials: row.availableSerials,
+      });
+      imported++;
+    }
+    toast.success(`Imported ${imported} AWB ranges successfully`);
+    setShowBulkAWB(false);
+    setBulkAWBRows([]);
+    setBulkAWBFileName("");
+  };
+
   const generalProducts = products.filter(
     (p) => p.type === "general",
   ) as GeneralProduct[];
@@ -513,6 +661,18 @@ export function InventoryPage() {
           </p>
         </div>
         <div className="flex gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setBulkAWBRows([]);
+              setBulkAWBFileName("");
+              setShowBulkAWB(true);
+            }}
+            data-ocid="inventory.bulk_awb.open_modal_button"
+          >
+            <Upload className="w-4 h-4 mr-1" /> Bulk Import AWB
+          </Button>
           <Button
             size="sm"
             variant="outline"
@@ -1121,6 +1281,163 @@ export function InventoryPage() {
           }}
         />
       )}
+
+      {/* Bulk AWB Import Dialog */}
+      <Dialog
+        open={showBulkAWB}
+        onOpenChange={(o) => {
+          if (!o) {
+            setShowBulkAWB(false);
+            setBulkAWBRows([]);
+            setBulkAWBFileName("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-3xl max-h-[85vh] flex flex-col"
+          data-ocid="inventory.bulk_awb.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Bulk Import AWB Ranges</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto space-y-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleBulkAWBTemplateDownload}
+                data-ocid="inventory.bulk_awb.download_button"
+              >
+                <Download className="w-4 h-4 mr-1" /> Download CSV Template
+              </Button>
+              <label className="cursor-pointer">
+                <span className="inline-flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md font-medium hover:bg-primary/90 transition-colors cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  {bulkAWBFileName ? bulkAWBFileName : "Upload CSV File"}
+                </span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleBulkAWBFileChange}
+                  data-ocid="inventory.bulk_awb.upload_button"
+                />
+              </label>
+              {bulkAWBRows.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {bulkAWBRows.length} rows found (
+                  {bulkAWBRows.filter((r) => !r.error).length} valid,{" "}
+                  {bulkAWBRows.filter((r) => !!r.error).length} with errors)
+                </span>
+              )}
+            </div>
+
+            {bulkAWBRows.length === 0 && (
+              <div className="bg-muted/30 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                <Truck className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                <p>
+                  Download the CSV template, fill in your AWB ranges, then
+                  upload.
+                </p>
+                <p className="text-xs mt-1">
+                  Columns: brandName, productTypeName, fromSerial, toSerial,
+                  purchaseDate
+                </p>
+                <p className="text-xs mt-1 text-amber-600">
+                  Brand names must match exactly with courier brands added in
+                  Products.
+                </p>
+              </div>
+            )}
+
+            {bulkAWBRows.length > 0 && (
+              <div className="border border-border rounded-xl overflow-hidden">
+                <div className="bg-muted/30 px-3 py-2 text-xs font-semibold border-b border-border">
+                  Preview ({Math.min(bulkAWBRows.length, 20)} of{" "}
+                  {bulkAWBRows.length} rows)
+                </div>
+                <div className="overflow-auto max-h-64">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/20">
+                        <TableHead className="text-xs">#</TableHead>
+                        <TableHead className="text-xs">Brand</TableHead>
+                        <TableHead className="text-xs">Product Type</TableHead>
+                        <TableHead className="text-xs">From</TableHead>
+                        <TableHead className="text-xs">To</TableHead>
+                        <TableHead className="text-xs">Qty</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bulkAWBRows.slice(0, 20).map((row, idx) => (
+                        <TableRow
+                          // biome-ignore lint/suspicious/noArrayIndexKey: preview list
+                          key={idx}
+                          className={
+                            row.error ? "bg-red-50" : "hover:bg-muted/10"
+                          }
+                          data-ocid={`inventory.bulk_awb.row.${idx + 1}`}
+                        >
+                          <TableCell className="text-xs text-muted-foreground">
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell className="text-xs font-medium">
+                            {row.brandName}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.productTypeName || "—"}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono">
+                            {row.fromSerial}
+                          </TableCell>
+                          <TableCell className="text-xs font-mono">
+                            {row.toSerial}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.quantity}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.error ? (
+                              <span className="text-destructive font-medium">
+                                ✗ {row.error}
+                              </span>
+                            ) : (
+                              <span className="text-green-600 font-medium">
+                                ✓ OK
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBulkAWB(false);
+                setBulkAWBRows([]);
+                setBulkAWBFileName("");
+              }}
+              data-ocid="inventory.bulk_awb.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkAWBImport}
+              disabled={bulkAWBRows.filter((r) => !r.error).length === 0}
+              data-ocid="inventory.bulk_awb.submit_button"
+            >
+              Import {bulkAWBRows.filter((r) => !r.error).length} AWB Ranges
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Delete AWB Range Confirmation */}
       <Dialog

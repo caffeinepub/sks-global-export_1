@@ -40,6 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ChevronDown,
   ChevronRight,
+  Download,
   Edit,
   HelpCircle,
   Package,
@@ -47,19 +48,29 @@ import {
   Search,
   Tag,
   Trash2,
+  Upload,
 } from "lucide-react";
+import type React from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import type {
   AnyProduct,
+  Category,
   CourierBrand,
   CourierProduct,
   GeneralProduct,
+  PricingSlab,
+  ProductUnit,
   ServiceProduct,
   XeroxProduct,
 } from "../types";
 import { formatCurrency, generateId } from "../utils/helpers";
+import {
+  getCategories,
+  getUnits,
+  setUnits as saveUnits,
+} from "../utils/storage";
 
 // ─── CourierProduct sub-dialog ────────────────────────────────────────────────
 
@@ -352,6 +363,137 @@ export function ProductsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("general");
 
+  // Categories state (read-only here; managed via CategoriesPage)
+  const [allCategories] = useState<Category[]>(() => getCategories());
+
+  // Units state
+  const [allUnits, setAllUnitsState] = useState<ProductUnit[]>(() =>
+    getUnits(),
+  );
+  const saveAllUnits = (units: ProductUnit[]) => {
+    saveUnits(units);
+    setAllUnitsState(units);
+  };
+  const [showUnitForm, setShowUnitForm] = useState(false);
+  const [editUnit, setEditUnit] = useState<ProductUnit | null>(null);
+  const [deleteUnitId, setDeleteUnitId] = useState<string | null>(null);
+  const [unitFormName, setUnitFormName] = useState("");
+  const [unitFormSymbol, setUnitFormSymbol] = useState("");
+  const [unitFormSub1Name, setUnitFormSub1Name] = useState("");
+  const [unitFormSub1Rate, setUnitFormSub1Rate] = useState("");
+  const [unitFormSub2Name, setUnitFormSub2Name] = useState("");
+  const [unitFormSub2Rate, setUnitFormSub2Rate] = useState("");
+
+  // ── Bulk Product Import ────────────────────────────────────────────────────
+  const [showBulkImport, setShowBulkImport] = useState(false);
+  interface BulkProductRow {
+    name: string;
+    category: string;
+    unit: string;
+    sellingPrice: number;
+    purchasePrice: number;
+    gstRate: number;
+    hsnCode: string;
+    currentStock: number;
+    minStockAlert: number;
+    error?: string;
+  }
+  const [bulkRows, setBulkRows] = useState<BulkProductRow[]>([]);
+  const [bulkFileName, setBulkFileName] = useState("");
+
+  const handleBulkCSVDownload = () => {
+    const csv =
+      "name,category,unit,sellingPrice,purchasePrice,gstRate,hsnCode,currentStock,minStockAlert\n" +
+      "A4 Paper,Stationery,Ream,250,200,18,48169900,100,20\n" +
+      "Stapler,Stationery,Piece,120,90,18,83051000,50,10\n";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "product_import_template.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleBulkFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text.split("\n").filter((l) => l.trim());
+      if (lines.length < 2) {
+        toast.error("CSV must have a header row and at least one data row");
+        return;
+      }
+      const rows: BulkProductRow[] = [];
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i]
+          .split(",")
+          .map((c) => c.trim().replace(/^"|"$/g, ""));
+        const [
+          name,
+          category = "",
+          unit = "Piece",
+          sellingPriceStr = "0",
+          purchasePriceStr = "0",
+          gstRateStr = "18",
+          hsnCode = "",
+          currentStockStr = "0",
+          minStockAlertStr = "10",
+        ] = cols;
+        const error = !name ? "Name is required" : undefined;
+        rows.push({
+          name,
+          category,
+          unit,
+          sellingPrice: Number(sellingPriceStr) || 0,
+          purchasePrice: Number(purchasePriceStr) || 0,
+          gstRate: Number(gstRateStr) || 0,
+          hsnCode,
+          currentStock: Number(currentStockStr) || 0,
+          minStockAlert: Number(minStockAlertStr) || 10,
+          error,
+        });
+      }
+      setBulkRows(rows);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  };
+
+  const handleBulkImport = () => {
+    const valid = bulkRows.filter((r) => !r.error);
+    if (valid.length === 0) {
+      toast.error("No valid rows to import");
+      return;
+    }
+    for (const row of valid) {
+      addProduct({
+        id: generateId(),
+        companyId: activeCompanyId,
+        type: "general",
+        name: row.name,
+        category: row.category,
+        unit: row.unit,
+        sellingPrice: row.sellingPrice,
+        purchasePrice: row.purchasePrice,
+        gstRate: row.gstRate,
+        hsnCode: row.hsnCode,
+        currentStock: row.currentStock,
+        minStockAlert: row.minStockAlert,
+        isActive: true,
+      });
+    }
+    toast.success(`Imported ${valid.length} products successfully`);
+    setShowBulkImport(false);
+    setBulkRows([]);
+    setBulkFileName("");
+  };
+
   // Which brand rows are expanded to show their product list
   const [expandedBrands, setExpandedBrands] = useState<Set<string>>(new Set());
 
@@ -402,6 +544,12 @@ export function ProductsPage() {
   const [price, setPrice] = useState("");
   const [sacCode, setSacCode] = useState("");
 
+  // Pricing slabs (with local _key for stable list rendering)
+  const [usePricingSlabs, setUsePricingSlabs] = useState(false);
+  const [pricingSlabs, setPricingSlabs] = useState<
+    Array<PricingSlab & { _key: string }>
+  >([]);
+
   const resetForm = () => {
     setName("");
     setCategory("");
@@ -428,6 +576,8 @@ export function ProductsPage() {
     setDescription("");
     setPrice("");
     setSacCode("");
+    setUsePricingSlabs(false);
+    setPricingSlabs([]);
     setEditProduct(null);
   };
 
@@ -452,6 +602,10 @@ export function ProductsPage() {
       setCurrentStock(String(p.currentStock));
       setMinStockAlert(String(p.minStockAlert));
       setIsActive(p.isActive);
+      setUsePricingSlabs(p.usePricingSlabs ?? false);
+      setPricingSlabs(
+        (p.pricingSlabs ?? []).map((s, i) => ({ ...s, _key: String(i) })),
+      );
     } else if (product.type === "courier_awb") {
       const p = product as CourierBrand;
       setBrandName(p.brandName);
@@ -474,6 +628,10 @@ export function ProductsPage() {
       setGstRate(String(p.gstRate));
       setPaperProductId(p.paperProductId);
       setIsActive(p.isActive);
+      setUsePricingSlabs(p.usePricingSlabs ?? false);
+      setPricingSlabs(
+        (p.pricingSlabs ?? []).map((s, i) => ({ ...s, _key: String(i) })),
+      );
     } else if (product.type === "service") {
       const p = product as ServiceProduct;
       setName(p.name);
@@ -509,6 +667,10 @@ export function ProductsPage() {
         currentStock: Number(currentStock),
         minStockAlert: Number(minStockAlert),
         isActive,
+        usePricingSlabs,
+        pricingSlabs: usePricingSlabs
+          ? pricingSlabs.map(({ _key: _k, ...s }) => s)
+          : [],
       } as GeneralProduct;
     } else if (formType === "courier_awb") {
       if (!brandName) {
@@ -553,6 +715,10 @@ export function ProductsPage() {
         pricePerPage: Number(pricePerPage),
         gstRate: Number(gstRate),
         isActive,
+        usePricingSlabs,
+        pricingSlabs: usePricingSlabs
+          ? pricingSlabs.map(({ _key: _k, ...s }) => s)
+          : [],
       } as XeroxProduct;
     } else {
       if (!name || !price) {
@@ -707,19 +873,36 @@ export function ProductsPage() {
           <TabsTrigger value="service" data-ocid="products.service.tab">
             Services ({serviceProds.length})
           </TabsTrigger>
+          <TabsTrigger value="units" data-ocid="products.units.tab">
+            Units ({allUnits.length})
+          </TabsTrigger>
         </TabsList>
 
         {/* General Products */}
         <TabsContent value="general" className="mt-4">
           <div className="flex justify-between items-center mb-3">
             <h3 className="text-sm font-semibold">General Products</h3>
-            <Button
-              size="sm"
-              onClick={() => openAdd("general")}
-              data-ocid="products.general.primary_button"
-            >
-              <Plus className="w-4 h-4 mr-1" /> Add Product
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  setBulkRows([]);
+                  setBulkFileName("");
+                  setShowBulkImport(true);
+                }}
+                data-ocid="products.bulk_import.open_modal_button"
+              >
+                <Upload className="w-4 h-4 mr-1" /> Bulk Import
+              </Button>
+              <Button
+                size="sm"
+                onClick={() => openAdd("general")}
+                data-ocid="products.general.primary_button"
+              >
+                <Plus className="w-4 h-4 mr-1" /> Add Product
+              </Button>
+            </div>
           </div>
           <div className="bg-white rounded-xl border border-border overflow-hidden shadow-xs">
             <Table>
@@ -1175,6 +1358,111 @@ export function ProductsPage() {
           </div>
         </TabsContent>
 
+        {/* Units */}
+        <TabsContent value="units" className="mt-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-semibold">Units of Measurement</h3>
+            <Button
+              size="sm"
+              onClick={() => {
+                setEditUnit(null);
+                setUnitFormName("");
+                setUnitFormSymbol("");
+                setUnitFormSub1Name("");
+                setUnitFormSub1Rate("");
+                setUnitFormSub2Name("");
+                setUnitFormSub2Rate("");
+                setShowUnitForm(true);
+              }}
+              data-ocid="products.units.primary_button"
+            >
+              <Plus className="w-4 h-4 mr-1" /> Add Unit
+            </Button>
+          </div>
+          <div className="bg-white rounded-xl border border-border overflow-hidden shadow-xs">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/30">
+                  <TableHead className="text-xs">Name</TableHead>
+                  <TableHead className="text-xs">Symbol</TableHead>
+                  <TableHead className="text-xs">Sub-Unit 1</TableHead>
+                  <TableHead className="text-xs">Sub-Unit 2</TableHead>
+                  <TableHead className="text-xs">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {allUnits.map((u) => (
+                  <TableRow key={u.id} className="hover:bg-muted/20">
+                    <TableCell className="text-xs font-medium">
+                      {u.name}
+                    </TableCell>
+                    <TableCell className="text-xs font-mono">
+                      {u.symbol}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {u.subUnit1
+                        ? `${u.subUnit1.name} (÷${u.subUnit1.conversionRate})`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {u.subUnit2
+                        ? `${u.subUnit2.name} (÷${u.subUnit2.conversionRate})`
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7"
+                          onClick={() => {
+                            setEditUnit(u);
+                            setUnitFormName(u.name);
+                            setUnitFormSymbol(u.symbol);
+                            setUnitFormSub1Name(u.subUnit1?.name ?? "");
+                            setUnitFormSub1Rate(
+                              u.subUnit1
+                                ? String(u.subUnit1.conversionRate)
+                                : "",
+                            );
+                            setUnitFormSub2Name(u.subUnit2?.name ?? "");
+                            setUnitFormSub2Rate(
+                              u.subUnit2
+                                ? String(u.subUnit2.conversionRate)
+                                : "",
+                            );
+                            setShowUnitForm(true);
+                          }}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-7 w-7 text-destructive"
+                          onClick={() => setDeleteUnitId(u.id)}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {allUnits.length === 0 && (
+                  <TableRow>
+                    <TableCell
+                      colSpan={5}
+                      className="text-center py-8 text-muted-foreground text-sm"
+                    >
+                      No units defined
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
         {/* Services */}
         <TabsContent value="service" className="mt-4">
           <div className="flex justify-between items-center mb-3">
@@ -1295,19 +1583,73 @@ export function ProductsPage() {
                   </div>
                   <div>
                     <Label className="text-xs">Category</Label>
-                    <Input
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      className="mt-1 text-sm"
-                    />
+                    <Select
+                      value={category || "__none__"}
+                      onValueChange={(v) =>
+                        setCategory(v === "__none__" ? "" : v)
+                      }
+                    >
+                      <SelectTrigger className="mt-1 text-sm">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__">— None —</SelectItem>
+                        {allCategories
+                          .filter(
+                            (c) => c.type === "General" || c.type === "Both",
+                          )
+                          .map((c) => {
+                            const parent = c.parentId
+                              ? allCategories.find((p) => p.id === c.parentId)
+                              : null;
+                            return (
+                              <SelectItem key={c.id} value={c.name}>
+                                {parent ? `${parent.name} › ${c.name}` : c.name}
+                              </SelectItem>
+                            );
+                          })}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label className="text-xs">Unit</Label>
-                    <Input
-                      value={unit}
-                      onChange={(e) => setUnit(e.target.value)}
-                      className="mt-1 text-sm"
-                    />
+                    <Select
+                      value={unit || "__none__"}
+                      onValueChange={(v) =>
+                        setUnit(v === "__none__" ? "Piece" : v)
+                      }
+                    >
+                      <SelectTrigger className="mt-1 text-sm">
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {allUnits.map((u) => (
+                          <SelectItem key={u.id} value={u.name}>
+                            {u.name} ({u.symbol})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {(() => {
+                      const selectedUnit = allUnits.find(
+                        (u) => u.name === unit,
+                      );
+                      if (!selectedUnit) return null;
+                      const parts = [
+                        selectedUnit.subUnit1
+                          ? `${selectedUnit.subUnit1.name} (÷${selectedUnit.subUnit1.conversionRate})`
+                          : null,
+                        selectedUnit.subUnit2
+                          ? `${selectedUnit.subUnit2.name} (÷${selectedUnit.subUnit2.conversionRate})`
+                          : null,
+                      ].filter(Boolean);
+                      if (parts.length === 0) return null;
+                      return (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Sub-units: {parts.join(", ")}
+                        </p>
+                      );
+                    })()}
                   </div>
                   <div>
                     <Label className="text-xs">HSN Code</Label>
@@ -1368,6 +1710,115 @@ export function ProductsPage() {
                       className="mt-1 text-sm"
                     />
                   </div>
+                </div>
+                {/* Pricing Slabs */}
+                <div className="col-span-2 border border-border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold">
+                      Quantity-Based Pricing
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={usePricingSlabs}
+                        onCheckedChange={setUsePricingSlabs}
+                        className="h-4 w-8"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {usePricingSlabs ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                  </div>
+                  {usePricingSlabs && (
+                    <div className="space-y-2 mt-2">
+                      <p className="text-xs text-muted-foreground">
+                        Base price (above) is used when no slab matches. Add
+                        slabs for volume pricing.
+                      </p>
+                      {pricingSlabs.map((slab, si) => (
+                        <div
+                          key={slab._key}
+                          className="flex items-center gap-2"
+                        >
+                          <div className="flex-1 grid grid-cols-3 gap-1">
+                            <Input
+                              type="number"
+                              value={slab.minQty}
+                              onChange={(e) => {
+                                const updated = [...pricingSlabs];
+                                updated[si] = {
+                                  ...updated[si],
+                                  minQty: Number(e.target.value),
+                                };
+                                setPricingSlabs(updated);
+                              }}
+                              placeholder="Min Qty"
+                              className="text-xs h-7"
+                            />
+                            <Input
+                              type="number"
+                              value={slab.maxQty ?? ""}
+                              onChange={(e) => {
+                                const updated = [...pricingSlabs];
+                                updated[si] = {
+                                  ...updated[si],
+                                  maxQty:
+                                    e.target.value === ""
+                                      ? null
+                                      : Number(e.target.value),
+                                };
+                                setPricingSlabs(updated);
+                              }}
+                              placeholder="Max (blank=∞)"
+                              className="text-xs h-7"
+                            />
+                            <Input
+                              type="number"
+                              value={slab.price}
+                              onChange={(e) => {
+                                const updated = [...pricingSlabs];
+                                updated[si] = {
+                                  ...updated[si],
+                                  price: Number(e.target.value),
+                                };
+                                setPricingSlabs(updated);
+                              }}
+                              placeholder="Price/unit"
+                              className="text-xs h-7"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="text-destructive"
+                            onClick={() =>
+                              setPricingSlabs(
+                                pricingSlabs.filter((_, i) => i !== si),
+                              )
+                            }
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs w-full"
+                        onClick={() =>
+                          setPricingSlabs([
+                            ...pricingSlabs,
+                            {
+                              minQty: 1,
+                              maxQty: null,
+                              price: 0,
+                              _key: String(Date.now()),
+                            },
+                          ])
+                        }
+                      >
+                        <Plus className="w-3 h-3 mr-1" /> Add Slab
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={isActive} onCheckedChange={setIsActive} />
@@ -1601,6 +2052,115 @@ export function ProductsPage() {
                     </Select>
                   </div>
                 </div>
+                {/* Xerox Bulk Pricing Slabs */}
+                <div className="border border-border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold">
+                      Bulk Xerox Pricing (by page count)
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        checked={usePricingSlabs}
+                        onCheckedChange={setUsePricingSlabs}
+                        className="h-4 w-8"
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        {usePricingSlabs ? "Enabled" : "Disabled"}
+                      </span>
+                    </div>
+                  </div>
+                  {usePricingSlabs && (
+                    <div className="space-y-2 mt-2">
+                      <p className="text-xs text-muted-foreground">
+                        e.g. 1–50 pages = ₹1.50/page, 51+ pages = ₹1.00/page
+                      </p>
+                      {pricingSlabs.map((slab, si) => (
+                        <div
+                          key={slab._key}
+                          className="flex items-center gap-2"
+                        >
+                          <div className="flex-1 grid grid-cols-3 gap-1">
+                            <Input
+                              type="number"
+                              value={slab.minQty}
+                              onChange={(e) => {
+                                const updated = [...pricingSlabs];
+                                updated[si] = {
+                                  ...updated[si],
+                                  minQty: Number(e.target.value),
+                                };
+                                setPricingSlabs(updated);
+                              }}
+                              placeholder="Min pages"
+                              className="text-xs h-7"
+                            />
+                            <Input
+                              type="number"
+                              value={slab.maxQty ?? ""}
+                              onChange={(e) => {
+                                const updated = [...pricingSlabs];
+                                updated[si] = {
+                                  ...updated[si],
+                                  maxQty:
+                                    e.target.value === ""
+                                      ? null
+                                      : Number(e.target.value),
+                                };
+                                setPricingSlabs(updated);
+                              }}
+                              placeholder="Max (blank=∞)"
+                              className="text-xs h-7"
+                            />
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={slab.price}
+                              onChange={(e) => {
+                                const updated = [...pricingSlabs];
+                                updated[si] = {
+                                  ...updated[si],
+                                  price: Number(e.target.value),
+                                };
+                                setPricingSlabs(updated);
+                              }}
+                              placeholder="₹/page"
+                              className="text-xs h-7"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            className="text-destructive"
+                            onClick={() =>
+                              setPricingSlabs(
+                                pricingSlabs.filter((_, i) => i !== si),
+                              )
+                            }
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs w-full"
+                        onClick={() =>
+                          setPricingSlabs([
+                            ...pricingSlabs,
+                            {
+                              minQty: 1,
+                              maxQty: null,
+                              price: 0,
+                              _key: String(Date.now()),
+                            },
+                          ])
+                        }
+                      >
+                        <Plus className="w-3 h-3 mr-1" /> Add Slab
+                      </Button>
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   <Switch checked={isActive} onCheckedChange={setIsActive} />
                   <Label className="text-xs">Active</Label>
@@ -1745,6 +2305,341 @@ export function ProductsPage() {
               className="bg-destructive"
             >
               Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Unit Add/Edit Dialog */}
+      <Dialog
+        open={showUnitForm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setShowUnitForm(false);
+            setEditUnit(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>{editUnit ? "Edit Unit" : "Add Unit"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Unit Name*</Label>
+                <Input
+                  value={unitFormName}
+                  onChange={(e) => setUnitFormName(e.target.value)}
+                  placeholder="e.g. Piece"
+                  className="mt-1 text-sm"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Symbol*</Label>
+                <Input
+                  value={unitFormSymbol}
+                  onChange={(e) => setUnitFormSymbol(e.target.value)}
+                  placeholder="e.g. pcs"
+                  className="mt-1 text-sm"
+                />
+              </div>
+            </div>
+            <div className="border border-border rounded-lg p-3 space-y-2">
+              <Label className="text-xs font-semibold">
+                Sub-Unit 1 (optional)
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Name</Label>
+                  <Input
+                    value={unitFormSub1Name}
+                    onChange={(e) => setUnitFormSub1Name(e.target.value)}
+                    placeholder="e.g. Box"
+                    className="mt-1 text-sm h-8"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    How many {unitFormName || "units"} per sub-unit?
+                  </Label>
+                  <Input
+                    type="number"
+                    value={unitFormSub1Rate}
+                    onChange={(e) => setUnitFormSub1Rate(e.target.value)}
+                    placeholder="e.g. 12"
+                    className="mt-1 text-sm h-8"
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="border border-border rounded-lg p-3 space-y-2">
+              <Label className="text-xs font-semibold">
+                Sub-Unit 2 (optional)
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <Label className="text-xs text-muted-foreground">Name</Label>
+                  <Input
+                    value={unitFormSub2Name}
+                    onChange={(e) => setUnitFormSub2Name(e.target.value)}
+                    placeholder="e.g. Carton"
+                    className="mt-1 text-sm h-8"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs text-muted-foreground">
+                    How many {unitFormName || "units"} per sub-unit?
+                  </Label>
+                  <Input
+                    type="number"
+                    value={unitFormSub2Rate}
+                    onChange={(e) => setUnitFormSub2Rate(e.target.value)}
+                    placeholder="e.g. 144"
+                    className="mt-1 text-sm h-8"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowUnitForm(false);
+                setEditUnit(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!unitFormName.trim() || !unitFormSymbol.trim()) {
+                  toast.error("Name and Symbol are required");
+                  return;
+                }
+                const unit: ProductUnit = {
+                  id: editUnit?.id ?? generateId(),
+                  name: unitFormName.trim(),
+                  symbol: unitFormSymbol.trim(),
+                  subUnit1:
+                    unitFormSub1Name.trim() && unitFormSub1Rate
+                      ? {
+                          name: unitFormSub1Name.trim(),
+                          conversionRate: Number(unitFormSub1Rate),
+                        }
+                      : undefined,
+                  subUnit2:
+                    unitFormSub2Name.trim() && unitFormSub2Rate
+                      ? {
+                          name: unitFormSub2Name.trim(),
+                          conversionRate: Number(unitFormSub2Rate),
+                        }
+                      : undefined,
+                };
+                if (editUnit) {
+                  saveAllUnits(
+                    allUnits.map((u) => (u.id === editUnit.id ? unit : u)),
+                  );
+                  toast.success("Unit updated");
+                } else {
+                  saveAllUnits([...allUnits, unit]);
+                  toast.success("Unit added");
+                }
+                setShowUnitForm(false);
+                setEditUnit(null);
+              }}
+            >
+              {editUnit ? "Update" : "Add"} Unit
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Product Import Dialog */}
+      <Dialog
+        open={showBulkImport}
+        onOpenChange={(o) => {
+          if (!o) {
+            setShowBulkImport(false);
+            setBulkRows([]);
+            setBulkFileName("");
+          }
+        }}
+      >
+        <DialogContent
+          className="max-w-3xl max-h-[85vh] flex flex-col"
+          data-ocid="products.bulk_import.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>Bulk Import General Products</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto space-y-4">
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleBulkCSVDownload}
+                data-ocid="products.bulk_import.download_button"
+              >
+                <Download className="w-4 h-4 mr-1" /> Download CSV Template
+              </Button>
+              <label className="cursor-pointer">
+                <span className="inline-flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-md font-medium hover:bg-primary/90 transition-colors cursor-pointer">
+                  <Upload className="w-3.5 h-3.5" />
+                  {bulkFileName ? bulkFileName : "Upload CSV File"}
+                </span>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="hidden"
+                  onChange={handleBulkFileChange}
+                  data-ocid="products.bulk_import.upload_button"
+                />
+              </label>
+              {bulkRows.length > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  {bulkRows.length} rows found (
+                  {bulkRows.filter((r) => !r.error).length} valid,{" "}
+                  {bulkRows.filter((r) => !!r.error).length} with errors)
+                </span>
+              )}
+            </div>
+
+            {bulkRows.length === 0 && (
+              <div className="bg-muted/30 rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+                <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                <p>
+                  Download the CSV template, fill in your products, then upload.
+                </p>
+                <p className="text-xs mt-1">
+                  Columns: name, category, unit, sellingPrice, purchasePrice,
+                  gstRate, hsnCode, currentStock, minStockAlert
+                </p>
+              </div>
+            )}
+
+            {bulkRows.length > 0 && (
+              <div className="border border-border rounded-xl overflow-hidden">
+                <div className="bg-muted/30 px-3 py-2 text-xs font-semibold border-b border-border">
+                  Preview (showing {Math.min(bulkRows.length, 20)} of{" "}
+                  {bulkRows.length} rows)
+                </div>
+                <div className="overflow-auto max-h-64">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/20">
+                        <TableHead className="text-xs">#</TableHead>
+                        <TableHead className="text-xs">Name</TableHead>
+                        <TableHead className="text-xs">Category</TableHead>
+                        <TableHead className="text-xs">Unit</TableHead>
+                        <TableHead className="text-xs">Sell Price</TableHead>
+                        <TableHead className="text-xs">GST%</TableHead>
+                        <TableHead className="text-xs">Stock</TableHead>
+                        <TableHead className="text-xs">Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bulkRows.slice(0, 20).map((row, idx) => (
+                        <TableRow
+                          // biome-ignore lint/suspicious/noArrayIndexKey: preview list
+                          key={idx}
+                          className={
+                            row.error ? "bg-red-50" : "hover:bg-muted/10"
+                          }
+                          data-ocid={`products.bulk_import.row.${idx + 1}`}
+                        >
+                          <TableCell className="text-xs text-muted-foreground">
+                            {idx + 1}
+                          </TableCell>
+                          <TableCell className="text-xs font-medium">
+                            {row.name || (
+                              <span className="text-destructive italic">
+                                missing
+                              </span>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.category || "—"}
+                          </TableCell>
+                          <TableCell className="text-xs">{row.unit}</TableCell>
+                          <TableCell className="text-xs">
+                            ₹{row.sellingPrice}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.gstRate}%
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.currentStock}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {row.error ? (
+                              <span className="text-destructive font-medium">
+                                ✗ {row.error}
+                              </span>
+                            ) : (
+                              <span className="text-green-600 font-medium">
+                                ✓ OK
+                              </span>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBulkImport(false);
+                setBulkRows([]);
+                setBulkFileName("");
+              }}
+              data-ocid="products.bulk_import.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBulkImport}
+              disabled={bulkRows.filter((r) => !r.error).length === 0}
+              data-ocid="products.bulk_import.submit_button"
+            >
+              Import {bulkRows.filter((r) => !r.error).length} Products
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Unit Confirm */}
+      <AlertDialog
+        open={!!deleteUnitId}
+        onOpenChange={(open) => !open && setDeleteUnitId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Unit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This action cannot be undone. Products using this unit will retain
+              their unit label.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deleteUnitId) {
+                  saveAllUnits(allUnits.filter((u) => u.id !== deleteUnitId));
+                  toast.success("Unit deleted");
+                  setDeleteUnitId(null);
+                }
+              }}
+              className="bg-destructive"
+            >
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

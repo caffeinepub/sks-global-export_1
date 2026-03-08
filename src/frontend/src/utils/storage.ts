@@ -3,6 +3,7 @@ import type {
   AnyProduct,
   AppUser,
   Bill,
+  Category,
   Company,
   CompanySettings,
   CourierBrand,
@@ -14,6 +15,7 @@ import type {
   DesignPricingMaster,
   Expense,
   Invoice,
+  ProductUnit,
   PurchaseInvoice,
   Vendor,
 } from "../types";
@@ -237,6 +239,68 @@ export const nextNonGSTInvoiceSeq = (companyId: string): number => {
   localStorage.setItem(nonGstInvSeqKey(companyId), String(current + 1));
   return current;
 };
+
+// ─── Global Categories (not company-scoped) ───────────────────────────────────
+const DEFAULT_CATEGORIES: Category[] = [
+  { id: "cat-stationery", name: "Stationery", type: "General", parentId: null },
+  { id: "cat-courier", name: "Courier", type: "Courier", parentId: null },
+  { id: "cat-general", name: "General", type: "Both", parentId: null },
+  { id: "cat-cargo", name: "Cargo", type: "Courier", parentId: null },
+  {
+    id: "cat-print",
+    name: "Printing & Xerox",
+    type: "General",
+    parentId: null,
+  },
+];
+
+export const getCategories = (): Category[] => {
+  const stored = get<Category[] | null>("sks_categories", null);
+  if (!stored || stored.length === 0) {
+    localStorage.setItem("sks_categories", JSON.stringify(DEFAULT_CATEGORIES));
+    return DEFAULT_CATEGORIES;
+  }
+  return stored;
+};
+
+export const setCategories = (cats: Category[]): void =>
+  set("sks_categories", cats);
+
+// ─── Global Units (not company-scoped) ───────────────────────────────────────
+const DEFAULT_UNITS: ProductUnit[] = [
+  {
+    id: "unit-piece",
+    name: "Piece",
+    symbol: "pcs",
+    subUnit1: { name: "Box", conversionRate: 12 },
+    subUnit2: { name: "Carton", conversionRate: 144 },
+  },
+  { id: "unit-sheet", name: "Sheet", symbol: "sht" },
+  {
+    id: "unit-kg",
+    name: "Kilogram",
+    symbol: "kg",
+    subUnit1: { name: "Gram", conversionRate: 1000 },
+  },
+  {
+    id: "unit-meter",
+    name: "Meter",
+    symbol: "m",
+    subUnit1: { name: "Centimeter", conversionRate: 100 },
+  },
+  { id: "unit-set", name: "Set", symbol: "set" },
+];
+
+export const getUnits = (): ProductUnit[] => {
+  const stored = get<ProductUnit[] | null>("sks_units", null);
+  if (!stored || stored.length === 0) {
+    localStorage.setItem("sks_units", JSON.stringify(DEFAULT_UNITS));
+    return DEFAULT_UNITS;
+  }
+  return stored;
+};
+
+export const setUnits = (units: ProductUnit[]): void => set("sks_units", units);
 
 // Last backup
 export const getLastBackupTime = (): string | null =>
