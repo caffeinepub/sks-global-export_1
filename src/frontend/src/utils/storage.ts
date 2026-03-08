@@ -308,11 +308,67 @@ export const getLastBackupTime = (): string | null =>
 export const setLastBackupTime = (): void =>
   localStorage.setItem(KEYS.LAST_BACKUP, new Date().toISOString());
 
+// ─── Backup Metadata ─────────────────────────────────────────────────────────
+export const BACKUP_VERSION = 2;
+
+export interface BackupSummary {
+  version: number;
+  exportedAt: string;
+  companiesCount: number;
+  usersCount: number;
+  companies: {
+    id: string;
+    name: string;
+    billsCount: number;
+    invoicesCount: number;
+    customersCount: number;
+  }[];
+}
+
+/** Scan backup JSON and return a summary (no writes). Throws if invalid. */
+export const parseBackupSummary = (jsonString: string): BackupSummary => {
+  const data = JSON.parse(jsonString) as Record<string, unknown>;
+  if (!data.companies || !Array.isArray(data.companies)) {
+    throw new Error("Invalid backup file: missing companies array");
+  }
+  const companies = data.companies as Company[];
+  return {
+    version: (data.__version as number) ?? 1,
+    exportedAt: (data.__exportedAt as string) ?? "unknown",
+    companiesCount: companies.length,
+    usersCount: Array.isArray(data.users)
+      ? (data.users as unknown[]).length
+      : 0,
+    companies: companies.map((c) => ({
+      id: c.id,
+      name: c.name,
+      billsCount: Array.isArray(data[`bills_${c.id}`])
+        ? (data[`bills_${c.id}`] as unknown[]).length
+        : 0,
+      invoicesCount: Array.isArray(data[`invoices_${c.id}`])
+        ? (data[`invoices_${c.id}`] as unknown[]).length
+        : 0,
+      customersCount: Array.isArray(data[`customers_${c.id}`])
+        ? (data[`customers_${c.id}`] as unknown[]).length
+        : 0,
+    })),
+  };
+};
+
 // Export all data as JSON
 export const exportAllData = (): string => {
   const companies = getCompanies();
   const users = getUsers();
-  const allData: Record<string, unknown> = { companies, users };
+  const allData: Record<string, unknown> = {
+    __version: BACKUP_VERSION,
+    __exportedAt: new Date().toISOString(),
+    companies,
+    users,
+    // Global (non-company-scoped) data
+    categories: getCategories(),
+    units: getUnits(),
+    activeCompanyId: getActiveCompanyId(),
+  };
 
   for (const company of companies) {
     const cid = company.id;
@@ -332,63 +388,124 @@ export const exportAllData = (): string => {
     allData[`expenses_${cid}`] = getExpenses(cid);
     allData[`designOrders_${cid}`] = getDesignOrders(cid);
     allData[`designPricing_${cid}`] = getDesignPricing(cid);
+
+    // Preserve invoice sequences per company
+    if (company.gstin) {
+      const gstKey = `sks_gst_inv_seq_${company.gstin.trim().toUpperCase()}`;
+      const gstVal = localStorage.getItem(gstKey);
+      if (gstVal)
+        allData[`__gst_seq_${company.gstin.trim().toUpperCase()}`] =
+          Number.parseInt(gstVal, 10);
+    }
+    const nonGstVal = localStorage.getItem(`sks_nongst_inv_seq_${cid}`);
+    if (nonGstVal)
+      allData[`__nongst_seq_${cid}`] = Number.parseInt(nonGstVal, 10);
   }
 
   return JSON.stringify(allData, null, 2);
 };
 
-// Import all data from JSON
+// Import all data from JSON — restores EVERY key including sequences and globals
 export const importAllData = (jsonString: string): void => {
   const data = JSON.parse(jsonString) as Record<string, unknown>;
 
-  if (data.companies) setCompanies(data.companies as Company[]);
-  if (data.users) setUsers(data.users as AppUser[]);
+  if (!data.companies || !Array.isArray(data.companies)) {
+    throw new Error("Invalid backup file: missing companies array");
+  }
 
-  const companies = (data.companies as Company[]) || getCompanies();
+  // Always write companies and users (even if empty arrays)
+  setCompanies(data.companies as Company[]);
+  if (Array.isArray(data.users)) setUsers(data.users as AppUser[]);
+
+  // Restore global data
+  if (Array.isArray(data.categories)) {
+    localStorage.setItem("sks_categories", JSON.stringify(data.categories));
+  }
+  if (Array.isArray(data.units)) {
+    localStorage.setItem("sks_units", JSON.stringify(data.units));
+  }
+
+  // Restore active company (only if that company exists in the backup)
+  if (data.activeCompanyId && typeof data.activeCompanyId === "string") {
+    const exists = (data.companies as Company[]).find(
+      (c) => c.id === data.activeCompanyId,
+    );
+    if (exists) setActiveCompanyId(data.activeCompanyId as string);
+  }
+
+  const companies = data.companies as Company[];
   for (const company of companies) {
     const cid = company.id;
-    if (data[`bills_${cid}`]) setBills(cid, data[`bills_${cid}`] as Bill[]);
-    if (data[`invoices_${cid}`])
-      setInvoices(cid, data[`invoices_${cid}`] as Invoice[]);
-    if (data[`products_${cid}`])
-      setProducts(cid, data[`products_${cid}`] as AnyProduct[]);
-    if (data[`customers_${cid}`])
-      setCustomers(cid, data[`customers_${cid}`] as Customer[]);
-    if (data[`vendors_${cid}`])
-      setVendors(cid, data[`vendors_${cid}`] as Vendor[]);
-    if (data[`courierBrands_${cid}`])
-      setCourierBrands(cid, data[`courierBrands_${cid}`] as CourierBrand[]);
-    if (data[`awbSerials_${cid}`])
-      setAWBSerials(cid, data[`awbSerials_${cid}`] as AWBSerialRange[]);
-    if (data[`pickups_${cid}`])
-      setPickups(cid, data[`pickups_${cid}`] as CourierPickup[]);
-    if (data[`purchaseInvoices_${cid}`])
+
+    // Restore each key whether the array is empty or not (undefined check only)
+    if (data[`bills_${cid}`] !== undefined)
+      setBills(cid, (data[`bills_${cid}`] as Bill[]) ?? []);
+    if (data[`invoices_${cid}`] !== undefined)
+      setInvoices(cid, (data[`invoices_${cid}`] as Invoice[]) ?? []);
+    if (data[`products_${cid}`] !== undefined)
+      setProducts(cid, (data[`products_${cid}`] as AnyProduct[]) ?? []);
+    if (data[`customers_${cid}`] !== undefined)
+      setCustomers(cid, (data[`customers_${cid}`] as Customer[]) ?? []);
+    if (data[`vendors_${cid}`] !== undefined)
+      setVendors(cid, (data[`vendors_${cid}`] as Vendor[]) ?? []);
+    if (data[`courierBrands_${cid}`] !== undefined)
+      setCourierBrands(
+        cid,
+        (data[`courierBrands_${cid}`] as CourierBrand[]) ?? [],
+      );
+    if (data[`awbSerials_${cid}`] !== undefined)
+      setAWBSerials(cid, (data[`awbSerials_${cid}`] as AWBSerialRange[]) ?? []);
+    if (data[`pickups_${cid}`] !== undefined)
+      setPickups(cid, (data[`pickups_${cid}`] as CourierPickup[]) ?? []);
+    if (data[`purchaseInvoices_${cid}`] !== undefined)
       setPurchaseInvoices(
         cid,
-        data[`purchaseInvoices_${cid}`] as PurchaseInvoice[],
+        (data[`purchaseInvoices_${cid}`] as PurchaseInvoice[]) ?? [],
       );
-    if (data[`settings_${cid}`])
+    if (data[`settings_${cid}`] !== undefined)
       setSettings(cid, data[`settings_${cid}`] as CompanySettings);
-    if (data[`tariffs_${cid}`])
-      setTariffs(cid, data[`tariffs_${cid}`] as CourierTariff[]);
-    if (data[`costTariffs_${cid}`])
-      setCostTariffs(cid, data[`costTariffs_${cid}`] as CourierTariff[]);
-    if (data[`customerTariffs_${cid}`])
+    if (data[`tariffs_${cid}`] !== undefined)
+      setTariffs(cid, (data[`tariffs_${cid}`] as CourierTariff[]) ?? []);
+    if (data[`costTariffs_${cid}`] !== undefined)
+      setCostTariffs(
+        cid,
+        (data[`costTariffs_${cid}`] as CourierTariff[]) ?? [],
+      );
+    if (data[`customerTariffs_${cid}`] !== undefined)
       setCustomerTariffMap(
         cid,
-        data[`customerTariffs_${cid}`] as Record<
+        (data[`customerTariffs_${cid}`] as Record<
           string,
           CustomerTariffAssignment[]
-        >,
+        >) ?? {},
       );
-    if (data[`expenses_${cid}`])
-      setExpenses(cid, data[`expenses_${cid}`] as Expense[]);
-    if (data[`designOrders_${cid}`])
-      setDesignOrders(cid, data[`designOrders_${cid}`] as DesignOrder[]);
-    if (data[`designPricing_${cid}`])
+    if (data[`expenses_${cid}`] !== undefined)
+      setExpenses(cid, (data[`expenses_${cid}`] as Expense[]) ?? []);
+    if (data[`designOrders_${cid}`] !== undefined)
+      setDesignOrders(
+        cid,
+        (data[`designOrders_${cid}`] as DesignOrder[]) ?? [],
+      );
+    if (data[`designPricing_${cid}`] !== undefined)
       setDesignPricing(
         cid,
-        data[`designPricing_${cid}`] as DesignPricingMaster[],
+        (data[`designPricing_${cid}`] as DesignPricingMaster[]) ?? [],
       );
+
+    // Restore invoice sequences
+    if (company.gstin) {
+      const gstin = company.gstin.trim().toUpperCase();
+      const seqKey = `__gst_seq_${gstin}`;
+      if (data[seqKey] !== undefined) {
+        localStorage.setItem(`sks_gst_inv_seq_${gstin}`, String(data[seqKey]));
+      }
+    }
+    const nonGstSeqKey = `__nongst_seq_${cid}`;
+    if (data[nonGstSeqKey] !== undefined) {
+      localStorage.setItem(
+        `sks_nongst_inv_seq_${cid}`,
+        String(data[nonGstSeqKey]),
+      );
+    }
   }
 };

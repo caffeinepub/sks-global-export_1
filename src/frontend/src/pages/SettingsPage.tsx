@@ -67,12 +67,14 @@ import {
 } from "../hooks/useGoogleDriveBackup";
 import type { AppUser, Company } from "../types";
 import { generateId, hashPassword } from "../utils/helpers";
+import type { BackupSummary } from "../utils/storage";
 import {
   exportAllData,
   getGSTInvoiceSeq,
   getLastBackupTime,
   getNonGSTInvoiceSeq,
   importAllData,
+  parseBackupSummary,
   setLastBackupTime,
 } from "../utils/storage";
 
@@ -177,6 +179,14 @@ export function SettingsPage() {
       | "retail"
       | "courier",
   );
+
+  // Import backup confirmation state
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importPending, setImportPending] = useState<{
+    json: string;
+    summary: BackupSummary;
+  } | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const lastBackup = getLastBackupTime();
 
@@ -352,17 +362,38 @@ export function SettingsPage() {
       if (!file) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
+        const jsonStr = ev.target?.result as string;
         try {
-          importAllData(ev.target?.result as string);
-          toast.success("Data imported successfully. Please refresh.");
-          setTimeout(() => window.location.reload(), 1000);
+          const summary = parseBackupSummary(jsonStr);
+          setImportPending({ json: jsonStr, summary });
+          setImportDialogOpen(true);
         } catch {
-          toast.error("Invalid backup file");
+          toast.error(
+            "Invalid backup file — could not read contents. Make sure you are uploading a valid SKS backup JSON.",
+          );
         }
       };
       reader.readAsText(file);
     };
     input.click();
+  };
+
+  const handleConfirmImport = () => {
+    if (!importPending) return;
+    setIsImporting(true);
+    try {
+      importAllData(importPending.json);
+      setIsImporting(false);
+      setImportDialogOpen(false);
+      setImportPending(null);
+      toast.success("Backup restored successfully! Reloading…");
+      setTimeout(() => window.location.reload(), 1200);
+    } catch (err) {
+      setIsImporting(false);
+      toast.error(
+        `Import failed: ${err instanceof Error ? err.message : "Unknown error"}`,
+      );
+    }
   };
 
   return (
@@ -1008,6 +1039,109 @@ export function SettingsPage() {
           </div>
         </TabsContent>
       </Tabs>
+
+      {/* Import Backup Confirmation Dialog */}
+      <Dialog
+        open={importDialogOpen}
+        onOpenChange={(open) => {
+          if (!isImporting) {
+            setImportDialogOpen(open);
+            if (!open) setImportPending(null);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-amber-600" />
+              Confirm Backup Restore
+            </DialogTitle>
+          </DialogHeader>
+          {importPending && (
+            <div className="space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                <div className="flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-800 font-medium">
+                    This will <strong>replace ALL current data</strong> with the
+                    backup. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                  Backup Contents
+                </p>
+                <div className="bg-muted/30 rounded-lg p-3 space-y-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Backup date</span>
+                    <span className="font-medium">
+                      {importPending.summary.exportedAt !== "unknown"
+                        ? new Date(
+                            importPending.summary.exportedAt,
+                          ).toLocaleString("en-IN")
+                        : "Unknown (old backup)"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Companies</span>
+                    <span className="font-medium">
+                      {importPending.summary.companiesCount}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Users</span>
+                    <span className="font-medium">
+                      {importPending.summary.usersCount}
+                    </span>
+                  </div>
+                </div>
+                {importPending.summary.companies.map((c) => (
+                  <div
+                    key={c.id}
+                    className="bg-white border border-border rounded-lg p-2.5 text-xs space-y-1"
+                  >
+                    <p className="font-semibold">{c.name}</p>
+                    <div className="flex gap-4 text-muted-foreground">
+                      <span>{c.billsCount} bills</span>
+                      <span>{c.invoicesCount} invoices</span>
+                      <span>{c.customersCount} customers</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setImportDialogOpen(false);
+                setImportPending(null);
+              }}
+              disabled={isImporting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleConfirmImport}
+              disabled={isImporting}
+              className="bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {isImporting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Restoring…
+                </>
+              ) : (
+                <>
+                  <Upload className="w-4 h-4 mr-2" /> Yes, Restore Backup
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Company Form Dialog */}
       <Dialog open={showCompanyForm} onOpenChange={setShowCompanyForm}>

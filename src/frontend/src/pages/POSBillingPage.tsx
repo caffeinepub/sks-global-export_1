@@ -1674,7 +1674,7 @@ export function POSBillingPage({
                               </Label>
                               <div className="grid grid-cols-2 gap-2">
                                 {cpList
-                                  .filter((cp) => cp.isActive)
+                                  .filter((cp) => cp.isActive !== false)
                                   .map((cp) => (
                                     <button
                                       key={cp.id}

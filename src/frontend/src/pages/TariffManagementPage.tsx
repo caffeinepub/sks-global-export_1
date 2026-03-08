@@ -385,7 +385,7 @@ export function TariffManagementPage() {
   const handleBrandChange = (brandId: string) => {
     const brand = courierBrands.find((b) => b.id === brandId);
     const cpList = brand?.courierProducts ?? [];
-    const firstProduct = cpList.find((p) => p.isActive) ?? cpList[0];
+    const firstProduct = cpList.find((p) => p.isActive !== false) ?? cpList[0];
     setForm((prev) => ({
       ...prev,
       brandId,
@@ -401,7 +401,7 @@ export function TariffManagementPage() {
   const selectedBrandForForm = courierBrands.find((b) => b.id === form.brandId);
   const brandCourierProductTypes: string[] =
     selectedBrandForForm?.courierProducts
-      ?.filter((p) => p.isActive)
+      ?.filter((p) => p.isActive !== false) // include if isActive is true or undefined
       .map((p) => p.productType) ?? [];
 
   // ── Render ─────────────────────────────────────────────────────────────────
