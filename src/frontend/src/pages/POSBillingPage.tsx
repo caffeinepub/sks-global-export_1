@@ -287,6 +287,7 @@ export function POSBillingPage({
     updateSettings,
     activeCompanyId,
     activeCompany,
+    currentUser,
   } = useAppStore();
 
   const [paperSize, setPaperSize] = useState<"A6" | "A5">("A6");
@@ -1144,6 +1145,7 @@ export function POSBillingPage({
       balanceDue: Math.max(0, finalTotal - paid),
       notes: notes || undefined,
       isInvoiced: false,
+      createdBy: currentUser?.username,
     };
 
     addBill(bill);

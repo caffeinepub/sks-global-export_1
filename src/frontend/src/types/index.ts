@@ -280,6 +280,7 @@ export interface Bill {
   isInvoiced: boolean;
   invoiceId?: string;
   paymentLogs?: PaymentLog[];
+  createdBy?: string; // username of employee who created this bill
 }
 
 export interface Invoice {
@@ -303,6 +304,7 @@ export interface Invoice {
   paymentStatus: string;
   notes?: string;
   createdAt: string;
+  createdBy?: string; // username of employee who generated this invoice
 }
 
 export interface PurchaseInvoiceItem {
@@ -313,6 +315,7 @@ export interface PurchaseInvoiceItem {
   unit: string;
   unitPrice: number;
   totalPrice: number;
+  gstRate: number; // 0, 5, 12, 18, 28
   awbFrom?: string;
   awbTo?: string;
 }
@@ -329,6 +332,9 @@ export interface PurchaseInvoice {
   gstAmount: number;
   total: number;
   paymentStatus: "paid" | "partial" | "pending";
+  notes?: string;
+  amountPaid?: number;
+  createdBy?: string;
 }
 
 export interface CourierPickup {
@@ -502,4 +508,37 @@ export interface ProductUnit {
   subUnit1?: ProductSubUnit; // e.g. {name: "Box", conversionRate: 12}
   subUnit2?: ProductSubUnit; // e.g. {name: "Carton", conversionRate: 144}
   subUnit3?: ProductSubUnit; // e.g. {name: "Master Carton", conversionRate: 1440}
+}
+
+// ─── Courier Query / Follow-up Ticket ─────────────────────────────────────────
+export type QueryPriority = "low" | "medium" | "high" | "urgent";
+export type QueryStatus = "open" | "in_progress" | "resolved" | "closed";
+
+export interface QueryFollowUpLog {
+  id: string;
+  date: string; // ISO
+  note: string;
+  by: string; // username
+  status: QueryStatus; // status at time of log
+}
+
+export interface CourierQuery {
+  id: string;
+  companyId: string;
+  ticketNo: string; // e.g. TKT001
+  awbNo: string;
+  brandName: string;
+  billId?: string;
+  billNo?: string;
+  customerName: string;
+  customerPhone?: string;
+  subject: string;
+  description: string;
+  priority: QueryPriority;
+  status: QueryStatus;
+  raisedBy: string; // username
+  assignedTo?: string; // username
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  followUpLogs: QueryFollowUpLog[];
 }

@@ -531,6 +531,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
   </table>
   ${bill.notes ? `<hr class="divider"/><p style="font-size:0.85em;color:#555;margin-top:3px;"><em>Note: ${bill.notes}</em></p>` : ""}
   ${activeCompany?.upiId && bill.balanceDue > 0 ? `<p style="font-size:0.8em;text-align:center;margin-top:5px;color:#555;">UPI: ${activeCompany.upiId}</p>` : ""}
+  ${bill.createdBy ? `<p style="font-size:0.8em;color:#666;text-align:right;margin-top:4px;">Billed by: <strong>${bill.createdBy}</strong></p>` : ""}
   <p class="footer-note">Thank you for your business!</p>
   ${pdfNote}
   <script>window.onload = function(){ window.focus(); window.print(); };<\/script>
@@ -803,6 +804,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                 <TableHead className="text-xs">Total</TableHead>
                 <TableHead className="text-xs">Payment</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs">Employee</TableHead>
                 <TableHead className="text-xs">Invoice</TableHead>
                 <TableHead className="text-xs">Actions</TableHead>
               </TableRow>
@@ -811,7 +813,7 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
               {filteredBills.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={10}
+                    colSpan={11}
                     className="text-center py-12 text-muted-foreground"
                     data-ocid="bills.empty_state"
                   >
@@ -870,6 +872,9 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                       </Badge>
                     </TableCell>
                     <TableCell>{getStatusBadge(bill.paymentStatus)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono">
+                      {bill.createdBy || "-"}
+                    </TableCell>
                     <TableCell>
                       {bill.isInvoiced ? (
                         <CheckCircle2 className="w-4 h-4 text-green-500" />
@@ -1003,6 +1008,16 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
                   <p className="text-muted-foreground">Status</p>
                   {getStatusBadge(viewBill.paymentStatus)}
                 </div>
+                {viewBill.createdBy && (
+                  <div>
+                    <p className="text-muted-foreground">
+                      Billed By (Employee)
+                    </p>
+                    <p className="font-semibold font-mono text-primary">
+                      {viewBill.createdBy}
+                    </p>
+                  </div>
+                )}
               </div>
               <Table>
                 <TableHeader>

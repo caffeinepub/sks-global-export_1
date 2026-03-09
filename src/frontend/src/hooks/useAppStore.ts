@@ -115,6 +115,7 @@ interface AppState {
   loadPurchaseInvoices: () => void;
   addPurchaseInvoice: (inv: PurchaseInvoice) => void;
   updatePurchaseInvoice: (inv: PurchaseInvoice) => void;
+  deletePurchaseInvoice: (id: string) => void;
 
   // Pickups
   pickups: CourierPickup[];
@@ -469,6 +470,14 @@ export const useAppStore = create<AppState>((set, get) => {
     updatePurchaseInvoice: (inv: PurchaseInvoice) => {
       const purchaseInvoices = getPurchaseInvoices(SHARED_DATA_ID).map((i) =>
         i.id === inv.id ? inv : i,
+      );
+      setPurchaseInvoices(SHARED_DATA_ID, purchaseInvoices);
+      set({ purchaseInvoices });
+    },
+
+    deletePurchaseInvoice: (id: string) => {
+      const purchaseInvoices = getPurchaseInvoices(SHARED_DATA_ID).filter(
+        (i) => i.id !== id,
       );
       setPurchaseInvoices(SHARED_DATA_ID, purchaseInvoices);
       set({ purchaseInvoices });

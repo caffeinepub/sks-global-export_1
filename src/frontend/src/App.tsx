@@ -11,6 +11,7 @@ import { AdminPage } from "./pages/AdminPage";
 import { BillsPage } from "./pages/BillsPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
 import { CostPricePage } from "./pages/CostPricePage";
+import { CourierQueriesPage } from "./pages/CourierQueriesPage";
 import { CourierTrackingPage } from "./pages/CourierTrackingPage";
 import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
@@ -139,6 +140,8 @@ function AppLayout() {
         return <PickupsPage />;
       case "courier-tracking":
         return <CourierTrackingPage />;
+      case "courier-queries":
+        return <CourierQueriesPage />;
       case "reports":
         return <ReportsPage />;
       case "settings":

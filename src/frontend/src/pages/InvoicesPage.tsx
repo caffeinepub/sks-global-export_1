@@ -874,6 +874,11 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
       <div style={S.pageFooter}>
         <span>{invoice.invoiceNo}</span>
         <span>This is a computer generated invoice</span>
+        {invoice.createdBy && (
+          <span>
+            Created by: <strong>{invoice.createdBy}</strong>
+          </span>
+        )}
       </div>
     </div>
   );
@@ -1526,6 +1531,7 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
         }}
       >
         <span>{invoice.invoiceNo} | Page: 1 / 1</span>
+        {invoice.createdBy && <span>Created by: {invoice.createdBy}</span>}
         <span>Powered by caffeine.ai</span>
       </div>
     </div>
@@ -2123,6 +2129,7 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
         }}
       >
         <span>{invoice.invoiceNo} | Page: 1 / 1</span>
+        {invoice.createdBy && <span>Created by: {invoice.createdBy}</span>}
         <span>Powered by caffeine.ai</span>
       </div>
     </div>
@@ -2835,6 +2842,7 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
     updateSettings,
     activeCompanyId,
     activeCompany,
+    currentUser,
   } = useAppStore();
 
   const [filterCustomer, setFilterCustomer] = useState("all");
@@ -3027,6 +3035,7 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       paymentMethod: "cash",
       paymentStatus: "pending",
       createdAt: new Date().toISOString(),
+      createdBy: currentUser?.username,
     };
 
     addInvoice(invoice);
@@ -3503,6 +3512,7 @@ function InvoiceHistoryTab() {
                 <TableHead className="text-xs">Type</TableHead>
                 <TableHead className="text-xs">Total</TableHead>
                 <TableHead className="text-xs">Status</TableHead>
+                <TableHead className="text-xs">Employee</TableHead>
                 <TableHead className="text-xs">Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -3510,7 +3520,7 @@ function InvoiceHistoryTab() {
               {filteredInvoices.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={7}
+                    colSpan={8}
                     className="text-center py-12 text-muted-foreground"
                   >
                     No invoices found. Generate invoices from the Billed
@@ -3539,6 +3549,9 @@ function InvoiceHistoryTab() {
                       {formatCurrency(inv.total)}
                     </TableCell>
                     <TableCell>{getStatusBadge(inv.paymentStatus)}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground font-mono">
+                      {inv.createdBy || "-"}
+                    </TableCell>
                     <TableCell>
                       <div className="flex gap-1">
                         <Button

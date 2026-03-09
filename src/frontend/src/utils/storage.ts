@@ -8,6 +8,7 @@ import type {
   CompanySettings,
   CourierBrand,
   CourierPickup,
+  CourierQuery,
   CourierTariff,
   Customer,
   CustomerTariffAssignment,
@@ -51,6 +52,7 @@ export const KEYS = {
   expenses: (cid: string) => `sks_expenses_${cid}`,
   designOrders: (cid: string) => `sks_design_orders_${cid}`,
   designPricing: (cid: string) => `sks_design_pricing_${cid}`,
+  courierQueries: (cid: string) => `sks_courier_queries_${cid}`,
 };
 
 function get<T>(key: string, fallback: T): T {
@@ -187,6 +189,11 @@ export const getDesignPricing = (cid: string): DesignPricingMaster[] =>
   get<DesignPricingMaster[]>(KEYS.designPricing(cid), []);
 export const setDesignPricing = (cid: string, d: DesignPricingMaster[]): void =>
   set(KEYS.designPricing(cid), d);
+
+export const getCourierQueries = (cid: string): CourierQuery[] =>
+  get<CourierQuery[]>(KEYS.courierQueries(cid), []);
+export const setCourierQueries = (cid: string, d: CourierQuery[]): void =>
+  set(KEYS.courierQueries(cid), d);
 
 // SKS Own-Brand Daily AWB Counter
 // Key: sks_awb_daily_{companyId}_{dateStr}  (dateStr = ddmmyy)
@@ -403,6 +410,7 @@ export const exportAllData = (): string => {
     allData[`expenses_${cid}`] = getExpenses(cid);
     allData[`designOrders_${cid}`] = getDesignOrders(cid);
     allData[`designPricing_${cid}`] = getDesignPricing(cid);
+    allData[`courierQueries_${cid}`] = getCourierQueries(cid);
 
     // Preserve invoice sequences per company
     if (company.gstin) {
@@ -572,10 +580,101 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
       const newItems = incomingTariffs.filter((x) => !localIds.has(x.id));
       if (newItems.length > 0) setTariffs(cid, [...local, ...newItems]);
     }
+
+    // Merge cost tariffs
+    const incomingCostTariffs = Array.isArray(data[`costTariffs_${cid}`])
+      ? (data[`costTariffs_${cid}`] as CourierTariff[])
+      : [];
+    if (incomingCostTariffs.length > 0) {
+      const local = getCostTariffs(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingCostTariffs.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setCostTariffs(cid, [...local, ...newItems]);
+    }
+
+    // Merge AWB serials
+    const incomingAWB = Array.isArray(data[`awbSerials_${cid}`])
+      ? (data[`awbSerials_${cid}`] as AWBSerialRange[])
+      : [];
+    if (incomingAWB.length > 0) {
+      const local = getAWBSerials(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingAWB.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setAWBSerials(cid, [...local, ...newItems]);
+    }
+
+    // Merge pickups
+    const incomingPickups = Array.isArray(data[`pickups_${cid}`])
+      ? (data[`pickups_${cid}`] as CourierPickup[])
+      : [];
+    if (incomingPickups.length > 0) {
+      const local = getPickups(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingPickups.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setPickups(cid, [...local, ...newItems]);
+    }
+
+    // Merge design orders
+    const incomingDesignOrders = Array.isArray(data[`designOrders_${cid}`])
+      ? (data[`designOrders_${cid}`] as DesignOrder[])
+      : [];
+    if (incomingDesignOrders.length > 0) {
+      const local = getDesignOrders(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingDesignOrders.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setDesignOrders(cid, [...local, ...newItems]);
+    }
+
+    // Merge design pricing
+    const incomingDesignPricing = Array.isArray(data[`designPricing_${cid}`])
+      ? (data[`designPricing_${cid}`] as DesignPricingMaster[])
+      : [];
+    if (incomingDesignPricing.length > 0) {
+      const local = getDesignPricing(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingDesignPricing.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setDesignPricing(cid, [...local, ...newItems]);
+    }
+
+    // Merge courier queries
+    const incomingQueries = Array.isArray(data[`courierQueries_${cid}`])
+      ? (data[`courierQueries_${cid}`] as CourierQuery[])
+      : [];
+    if (incomingQueries.length > 0) {
+      const local = getCourierQueries(cid);
+      const localIds = new Set(local.map((x) => x.id));
+      const newItems = incomingQueries.filter((x) => !localIds.has(x.id));
+      if (newItems.length > 0) setCourierQueries(cid, [...local, ...newItems]);
+    }
+
+    // Merge customer tariffs (Record<customerId, assignments[]>)
+    const incomingCustTariffs =
+      data[`customerTariffs_${cid}`] !== null &&
+      typeof data[`customerTariffs_${cid}`] === "object" &&
+      !Array.isArray(data[`customerTariffs_${cid}`])
+        ? (data[`customerTariffs_${cid}`] as Record<
+            string,
+            CustomerTariffAssignment[]
+          >)
+        : {};
+    if (Object.keys(incomingCustTariffs).length > 0) {
+      const local = getCustomerTariffMap(cid);
+      let changed = false;
+      for (const [custId, assignments] of Object.entries(incomingCustTariffs)) {
+        if (!local[custId]) {
+          local[custId] = assignments;
+          changed = true;
+        }
+      }
+      if (changed) setCustomerTariffMap(cid, local);
+    }
   }
 
   return summary;
 };
+
+/** Alias for getCustomerTariffMap — returns array-style for per-customer merge. */
+export const getCustomerTariffAssignments = getCustomerTariffMap;
 
 // ─── Manual Contacts (global, not per-company) ────────────────────────────────
 export interface ManualContact {
