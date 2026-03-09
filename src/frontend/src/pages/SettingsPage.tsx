@@ -39,7 +39,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
   AlertCircle,
+  Archive,
   Building2,
+  Calendar,
   CheckCircle,
   Cloud,
   CloudOff,
@@ -52,16 +54,18 @@ import {
   Image,
   KeyRound,
   Loader2,
+  Lock,
   Plus,
   RefreshCw,
   RotateCcw,
   ShieldAlert,
   Trash2,
+  TrendingUp,
   Upload,
   Users,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
 import {
@@ -80,16 +84,29 @@ import {
   getSampleVendorsCSV,
 } from "../utils/excelHelpers";
 import { generateId, hashPassword } from "../utils/helpers";
-import type { BackupSummary, MergeSummary } from "../utils/storage";
+import type {
+  BackupSummary,
+  FinanceYearArchive,
+  MergeSummary,
+} from "../utils/storage";
 import {
+  SHARED_DATA_ID,
   exportAllData,
+  getBills,
+  getCurrentFYInfo,
+  getExpenses,
+  getFYArchives,
   getGSTInvoiceSeq,
+  getInvoices,
   getLastBackupTime,
   getNonGSTInvoiceSeq,
   importAllData,
   mergeImportData,
   parseBackupSummary,
+  setFYArchives,
+  setGSTInvoiceSeq,
   setLastBackupTime,
+  setNonGSTInvoiceSeq,
 } from "../utils/storage";
 
 export function SettingsPage() {
@@ -193,6 +210,37 @@ export function SettingsPage() {
       | "retail"
       | "courier",
   );
+
+  // Editable invoice sequence states
+  const [gstSeqEdit, setGstSeqEdit] = useState<string>(() =>
+    activeCompany?.gstin?.trim()
+      ? String(getGSTInvoiceSeq(activeCompany.gstin.trim()))
+      : "1",
+  );
+  const [nonGstSeqEdit, setNonGstSeqEdit] = useState<string>(() =>
+    activeCompany ? String(getNonGSTInvoiceSeq(activeCompany.id)) : "1",
+  );
+
+  // Keep seq edits in sync when activeCompany changes
+  useEffect(() => {
+    setGstSeqEdit(
+      activeCompany?.gstin?.trim()
+        ? String(getGSTInvoiceSeq(activeCompany.gstin.trim()))
+        : "1",
+    );
+    setNonGstSeqEdit(
+      activeCompany ? String(getNonGSTInvoiceSeq(activeCompany.id)) : "1",
+    );
+  }, [activeCompany]);
+
+  // Finance Year state
+  const [fyArchives, setFyArchivesState] = useState<FinanceYearArchive[]>(() =>
+    getFYArchives(),
+  );
+  const [fyCloseConfirmOpen, setFyCloseConfirmOpen] = useState(false);
+  const [fyClosePassword, setFyClosePassword] = useState("");
+  const [fyClosePasswordError, setFyClosePasswordError] = useState("");
+  const [fyClosePasswordVerified, setFyClosePasswordVerified] = useState(false);
 
   // Import backup confirmation state
   const [importDialogOpen, setImportDialogOpen] = useState(false);
@@ -549,6 +597,81 @@ export function SettingsPage() {
     }
   };
 
+  const handleCloseFY = () => {
+    const { label, start, end } = getCurrentFYInfo();
+
+    const allBills = getBills(SHARED_DATA_ID);
+    const allInvoices = getInvoices(SHARED_DATA_ID);
+    const allExpenses = getExpenses(SHARED_DATA_ID);
+
+    const fyBills = allBills.filter((b) => {
+      const d = new Date(b.date);
+      return d >= start && d <= end;
+    });
+    const fyInvoices = allInvoices.filter((inv) => {
+      const d = new Date(inv.date);
+      return d >= start && d <= end;
+    });
+    const fyExpenses = allExpenses.filter((exp) => {
+      const d = new Date(exp.date);
+      return d >= start && d <= end;
+    });
+
+    const totalRevenue = fyBills.reduce((sum, b) => sum + (b.total || 0), 0);
+    const totalExpensesAmt = fyExpenses.reduce(
+      (sum, e) => sum + (e.amount || 0),
+      0,
+    );
+
+    const archive: FinanceYearArchive = {
+      id: `fy-${Date.now()}`,
+      label,
+      startDate: start.toISOString(),
+      endDate: end.toISOString(),
+      closedAt: new Date().toISOString(),
+      summary: {
+        totalBills: fyBills.length,
+        totalInvoices: fyInvoices.length,
+        totalRevenue,
+        totalExpenses: totalExpensesAmt,
+      },
+      bills: fyBills,
+      invoices: fyInvoices,
+      expenses: fyExpenses,
+    };
+
+    const archives = getFYArchives();
+    const updatedArchives = [
+      ...archives.filter((a) => a.label !== label),
+      archive,
+    ];
+    setFYArchives(updatedArchives);
+    setFyArchivesState(updatedArchives);
+
+    // Reset invoice sequences for all companies
+    for (const company of companies) {
+      if (company.gstin?.trim()) {
+        setGSTInvoiceSeq(company.gstin.trim(), 1);
+      }
+      setNonGSTInvoiceSeq(company.id, 1);
+    }
+
+    // Reset bill sequence in settings
+    if (settings) {
+      updateSettings({ ...settings, billSeq: 1 });
+      setBillSeq("1");
+    }
+
+    // Reset local seq edit states
+    setGstSeqEdit("1");
+    setNonGstSeqEdit("1");
+
+    setFyCloseConfirmOpen(false);
+    setFyClosePassword("");
+    setFyClosePasswordVerified(false);
+    toast.success(`${label} closed successfully. Sequences reset to 1.`);
+  };
+
   return (
     <div className="p-6 space-y-4">
       <div>
@@ -578,6 +701,13 @@ export function SettingsPage() {
             data-ocid="settings.samples.tab"
           >
             <FileSpreadsheet className="w-3.5 h-3.5 mr-1" /> Sample Files
+          </TabsTrigger>
+          <TabsTrigger
+            value="financeYear"
+            className="text-xs"
+            data-ocid="settings.finance_year.tab"
+          >
+            <Calendar className="w-3.5 h-3.5 mr-1" /> Finance Year
           </TabsTrigger>
         </TabsList>
 
@@ -700,33 +830,54 @@ export function SettingsPage() {
                   </div>
                   <div>
                     <Label className="text-xs">
-                      Current Next No (for this GSTIN)
+                      Next Invoice No (editable)
                     </Label>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className="text-sm font-mono font-bold text-green-700 px-2 py-1 rounded bg-white border border-green-300">
-                        {activeCompany?.gstin?.trim()
-                          ? String(
-                              getGSTInvoiceSeq(activeCompany.gstin.trim()),
-                            ).padStart(4, "0")
-                          : "—"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {activeCompany?.gstin
-                          ? `(GSTIN: ${activeCompany.gstin})`
-                          : "No GSTIN set on this company"}
-                      </span>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={gstSeqEdit}
+                        onChange={(e) => setGstSeqEdit(e.target.value)}
+                        className="text-sm font-mono w-28 border-green-300"
+                        data-ocid="settings.gst_seq.input"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs border-green-400 text-green-700 hover:bg-green-50"
+                        onClick={() => {
+                          if (!activeCompany?.gstin?.trim()) {
+                            toast.error("No GSTIN set for this company");
+                            return;
+                          }
+                          const val = Number.parseInt(gstSeqEdit, 10);
+                          if (!Number.isNaN(val) && val >= 1) {
+                            setGSTInvoiceSeq(activeCompany.gstin.trim(), val);
+                            toast.success(`GST invoice sequence set to ${val}`);
+                          } else {
+                            toast.error("Enter a valid number (minimum 1)");
+                          }
+                        }}
+                        data-ocid="settings.gst_seq.save_button"
+                      >
+                        Set
+                      </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {activeCompany?.gstin
+                        ? `GSTIN: ${activeCompany.gstin}`
+                        : "No GSTIN set on this company"}
+                    </p>
+                    <p className="text-xs text-green-700 mt-0.5">
+                      To continue from invoice 94, enter 94 here.
+                    </p>
                   </div>
                 </div>
                 <p className="text-xs text-green-700">
                   Preview:{" "}
                   <span className="font-mono font-bold">
                     {gstPrefix}
-                    {activeCompany?.gstin?.trim()
-                      ? String(
-                          getGSTInvoiceSeq(activeCompany.gstin.trim()),
-                        ).padStart(4, "0")
-                      : "0001"}
+                    {String(Number(gstSeqEdit) || 1).padStart(4, "0")}
                   </span>
                 </p>
               </div>
@@ -749,32 +900,55 @@ export function SettingsPage() {
                   </div>
                   <div>
                     <Label className="text-xs">
-                      Current Next No (this company)
+                      Next Invoice No (editable)
                     </Label>
                     <div className="mt-1 flex items-center gap-2">
-                      <span className="text-sm font-mono font-bold text-purple-700 px-2 py-1 rounded bg-white border border-purple-300">
-                        {activeCompany
-                          ? String(
-                              getNonGSTInvoiceSeq(activeCompany.id),
-                            ).padStart(4, "0")
-                          : "—"}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        ({activeCompany?.name || "No company"})
-                      </span>
+                      <Input
+                        type="number"
+                        min="1"
+                        value={nonGstSeqEdit}
+                        onChange={(e) => setNonGstSeqEdit(e.target.value)}
+                        className="text-sm font-mono w-28 border-purple-300"
+                        data-ocid="settings.nongst_seq.input"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs border-purple-400 text-purple-700 hover:bg-purple-50"
+                        onClick={() => {
+                          if (!activeCompany) {
+                            toast.error("No active company");
+                            return;
+                          }
+                          const val = Number.parseInt(nonGstSeqEdit, 10);
+                          if (!Number.isNaN(val) && val >= 1) {
+                            setNonGSTInvoiceSeq(activeCompany.id, val);
+                            toast.success(
+                              `Non-GST invoice sequence set to ${val}`,
+                            );
+                          } else {
+                            toast.error("Enter a valid number (minimum 1)");
+                          }
+                        }}
+                        data-ocid="settings.nongst_seq.save_button"
+                      >
+                        Set
+                      </Button>
                     </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      ({activeCompany?.name || "No company"})
+                    </p>
+                    <p className="text-xs text-purple-700 mt-0.5">
+                      To continue from invoice 50, enter 50 here. Each company
+                      has its own series.
+                    </p>
                   </div>
                 </div>
                 <p className="text-xs text-purple-700">
                   Preview:{" "}
                   <span className="font-mono font-bold">
                     {nonGstPrefix}
-                    {activeCompany
-                      ? String(getNonGSTInvoiceSeq(activeCompany.id)).padStart(
-                          4,
-                          "0",
-                        )
-                      : "0001"}
+                    {String(Number(nonGstSeqEdit) || 1).padStart(4, "0")}
                   </span>
                 </p>
               </div>
@@ -1410,6 +1584,207 @@ export function SettingsPage() {
               Sheets. Keep the first row (header) unchanged. Add your data
               starting from row 2. Save as CSV before uploading.
             </div>
+          </div>
+        </TabsContent>
+
+        {/* Finance Year */}
+        <TabsContent value="financeYear" className="mt-4">
+          <div className="max-w-xl space-y-4">
+            {/* Current FY Summary */}
+            <div className="bg-white rounded-xl border border-border p-5 shadow-xs space-y-4">
+              <div className="flex items-center gap-3">
+                <Calendar className="w-5 h-5 text-primary" />
+                <div>
+                  <h3 className="text-sm font-semibold">
+                    Current Finance Year
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    {getCurrentFYInfo().label} — April 1 to March 31
+                  </p>
+                </div>
+              </div>
+
+              {/* Quick stats */}
+              {(() => {
+                const { start, end } = getCurrentFYInfo();
+                const allBills = getBills(SHARED_DATA_ID);
+                const allInvoices = getInvoices(SHARED_DATA_ID);
+                const allExpenses = getExpenses(SHARED_DATA_ID);
+                const fyBills = allBills.filter((b) => {
+                  const d = new Date(b.date);
+                  return d >= start && d <= end;
+                });
+                const fyInvoices = allInvoices.filter((inv) => {
+                  const d = new Date(inv.date);
+                  return d >= start && d <= end;
+                });
+                const fyExpenses = allExpenses.filter((exp) => {
+                  const d = new Date(exp.date);
+                  return d >= start && d <= end;
+                });
+                const totalRevenue = fyBills.reduce(
+                  (sum, b) => sum + (b.total || 0),
+                  0,
+                );
+                const totalExpensesAmt = fyExpenses.reduce(
+                  (sum, e) => sum + (e.amount || 0),
+                  0,
+                );
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="p-3 rounded-lg bg-blue-50 border border-blue-100 text-center">
+                      <p className="text-xl font-bold text-blue-700">
+                        {fyBills.length}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Bills this FY
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-green-50 border border-green-100 text-center">
+                      <p className="text-xl font-bold text-green-700">
+                        {fyInvoices.length}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Invoices this FY
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-purple-50 border border-purple-100 text-center">
+                      <p className="text-xl font-bold text-purple-700">
+                        ₹{totalRevenue.toLocaleString("en-IN")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Total Revenue
+                      </p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-red-50 border border-red-100 text-center">
+                      <p className="text-xl font-bold text-red-700">
+                        ₹{totalExpensesAmt.toLocaleString("en-IN")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Total Expenses
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-800 space-y-1">
+                  <p className="font-semibold">
+                    Before closing the Finance Year:
+                  </p>
+                  <ul className="list-disc list-inside space-y-0.5 text-amber-700">
+                    <li>All current FY bills and invoices will be archived</li>
+                    <li>Invoice and bill sequences will reset to 1</li>
+                    <li>
+                      Products, customers, vendors, and tariffs are NOT affected
+                    </li>
+                    <li>You can view archived data any time from this page</li>
+                  </ul>
+                </div>
+              </div>
+
+              {currentUser?.role === "admin" && (
+                <Button
+                  onClick={() => {
+                    setFyCloseConfirmOpen(true);
+                    setFyClosePassword("");
+                    setFyClosePasswordError("");
+                    setFyClosePasswordVerified(false);
+                  }}
+                  className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                  data-ocid="settings.fy.close_button"
+                >
+                  <Lock className="w-4 h-4 mr-2" />
+                  Close Finance Year — {getCurrentFYInfo().label}
+                </Button>
+              )}
+            </div>
+
+            {/* FY Archive history */}
+            {fyArchives.length > 0 && (
+              <div className="bg-white rounded-xl border border-border p-4 shadow-xs space-y-3">
+                <div className="flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-muted-foreground" />
+                  <h3 className="text-sm font-semibold">
+                    Finance Year Archives
+                  </h3>
+                </div>
+                <div className="space-y-2">
+                  {[...fyArchives].reverse().map((archive) => (
+                    <div
+                      key={archive.id}
+                      className="p-3 rounded-lg border border-border bg-muted/20 space-y-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {archive.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            Closed on{" "}
+                            {new Date(archive.closedAt).toLocaleDateString(
+                              "en-IN",
+                            )}
+                          </p>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="text-xs bg-green-50 text-green-700 border-green-200"
+                        >
+                          Archived
+                        </Badge>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-xs">
+                        <span className="text-muted-foreground">
+                          Bills: <strong>{archive.summary.totalBills}</strong>
+                        </span>
+                        <span className="text-muted-foreground">
+                          Invoices:{" "}
+                          <strong>{archive.summary.totalInvoices}</strong>
+                        </span>
+                        <span className="text-muted-foreground">
+                          Revenue:{" "}
+                          <strong>
+                            ₹
+                            {archive.summary.totalRevenue.toLocaleString(
+                              "en-IN",
+                            )}
+                          </strong>
+                        </span>
+                        <span className="text-muted-foreground">
+                          Expenses:{" "}
+                          <strong>
+                            ₹
+                            {archive.summary.totalExpenses.toLocaleString(
+                              "en-IN",
+                            )}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Empty state for archives */}
+            {fyArchives.length === 0 && (
+              <div
+                className="bg-white rounded-xl border border-border p-6 shadow-xs text-center"
+                data-ocid="settings.fy.empty_state"
+              >
+                <TrendingUp className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm font-medium text-muted-foreground">
+                  No archived finance years yet
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Close the current finance year at the end of March to archive
+                  and reset sequences.
+                </p>
+              </div>
+            )}
           </div>
         </TabsContent>
       </Tabs>
@@ -2338,6 +2713,129 @@ export function SettingsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Finance Year Close Confirmation Dialog */}
+      <Dialog
+        open={fyCloseConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFyCloseConfirmOpen(false);
+            setFyClosePassword("");
+            setFyClosePasswordError("");
+            setFyClosePasswordVerified(false);
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Lock className="w-5 h-5 text-amber-600" />
+              Close Finance Year — {getCurrentFYInfo().label}
+            </DialogTitle>
+          </DialogHeader>
+
+          {!fyClosePasswordVerified ? (
+            <div className="space-y-3">
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800">
+                  This will archive all {getCurrentFYInfo().label} data and
+                  reset all invoice and bill sequences to 1. Master data
+                  (products, customers, vendors) will not be affected.
+                </p>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">
+                  Enter your admin password to confirm
+                </Label>
+                <Input
+                  type="password"
+                  value={fyClosePassword}
+                  onChange={(e) => {
+                    setFyClosePassword(e.target.value);
+                    setFyClosePasswordError("");
+                  }}
+                  placeholder="Your login password"
+                  data-ocid="settings.fy.password.input"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      if (!fyClosePassword) {
+                        setFyClosePasswordError("Please enter your password");
+                        return;
+                      }
+                      const hashed = btoa(fyClosePassword);
+                      if (!currentUser || currentUser.passwordHash !== hashed) {
+                        setFyClosePasswordError("Incorrect password");
+                      } else {
+                        setFyClosePasswordError("");
+                        setFyClosePasswordVerified(true);
+                      }
+                    }
+                  }}
+                />
+                {fyClosePasswordError && (
+                  <p className="text-xs text-red-600">{fyClosePasswordError}</p>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="p-4 bg-amber-50 border-2 border-amber-300 rounded-xl space-y-2">
+              <p className="text-sm font-bold text-amber-700 flex items-center gap-2">
+                <Lock className="w-5 h-5" /> Final Confirmation
+              </p>
+              <p className="text-xs text-amber-700">
+                Are you sure you want to close{" "}
+                <strong>{getCurrentFYInfo().label}</strong>? This will:
+              </p>
+              <ul className="text-xs text-amber-700 list-disc list-inside space-y-0.5">
+                <li>Archive all current FY transactions</li>
+                <li>Reset all invoice sequences to 1</li>
+                <li>Reset bill sequence to 1</li>
+              </ul>
+            </div>
+          )}
+
+          <DialogFooter className="gap-2">
+            <Button
+              variant="outline"
+              onClick={() => setFyCloseConfirmOpen(false)}
+              data-ocid="settings.fy.cancel_button"
+            >
+              Cancel
+            </Button>
+            {!fyClosePasswordVerified ? (
+              <Button
+                onClick={() => {
+                  if (!fyClosePassword) {
+                    setFyClosePasswordError("Please enter your password");
+                    return;
+                  }
+                  const hashed = btoa(fyClosePassword);
+                  if (!currentUser || currentUser.passwordHash !== hashed) {
+                    setFyClosePasswordError("Incorrect password");
+                  } else {
+                    setFyClosePasswordError("");
+                    setFyClosePasswordVerified(true);
+                  }
+                }}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                data-ocid="settings.fy.verify_password.button"
+              >
+                Verify Password
+              </Button>
+            ) : (
+              <Button
+                onClick={handleCloseFY}
+                className="bg-amber-600 hover:bg-amber-700 text-white"
+                data-ocid="settings.fy.confirm_close.button"
+              >
+                <Lock className="w-4 h-4 mr-2" /> Confirm Close{" "}
+                {getCurrentFYInfo().label}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

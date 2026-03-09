@@ -231,6 +231,11 @@ export const getGSTInvoiceSeq = (gstin: string): number => {
 export const peekGSTInvoiceSeq = (gstin: string): number =>
   getGSTInvoiceSeq(gstin);
 
+/** Set the GST invoice sequence to a specific value (for manual editing). */
+export const setGSTInvoiceSeq = (gstin: string, value: number): void => {
+  localStorage.setItem(gstInvSeqKey(gstin), String(Math.max(1, value)));
+};
+
 /** Increments and returns the NEW seq number after increment. */
 export const nextGSTInvoiceSeq = (gstin: string): number => {
   const current = getGSTInvoiceSeq(gstin);
@@ -246,6 +251,11 @@ const nonGstInvSeqKey = (companyId: string) =>
 export const getNonGSTInvoiceSeq = (companyId: string): number => {
   const val = localStorage.getItem(nonGstInvSeqKey(companyId));
   return val ? Number.parseInt(val, 10) : 1;
+};
+
+/** Set the Non-GST invoice sequence to a specific value (for manual editing). */
+export const setNonGSTInvoiceSeq = (companyId: string, value: number): void => {
+  localStorage.setItem(nonGstInvSeqKey(companyId), String(Math.max(1, value)));
 };
 
 export const nextNonGSTInvoiceSeq = (companyId: string): number => {
@@ -378,6 +388,8 @@ export const parseBackupSummary = (jsonString: string): BackupSummary => {
 };
 
 // Export all data as JSON
+// NOTE: All transactional data is stored under SHARED_DATA_ID ("shared"), not per-company IDs.
+// We export both the shared key AND per-company keys (for backwards compatibility with old backups).
 export const exportAllData = (): string => {
   const companies = getCompanies();
   const users = getUsers();
@@ -390,39 +402,58 @@ export const exportAllData = (): string => {
     categories: getCategories(),
     units: getUnits(),
     activeCompanyId: getActiveCompanyId(),
+    // Manual contacts (global)
+    manualContacts: getManualContacts(),
   };
 
+  // Export shared data (the actual data store used by the app)
+  allData[`bills_${SHARED_DATA_ID}`] = getBills(SHARED_DATA_ID);
+  allData[`invoices_${SHARED_DATA_ID}`] = getInvoices(SHARED_DATA_ID);
+  allData[`products_${SHARED_DATA_ID}`] = getProducts(SHARED_DATA_ID);
+  allData[`customers_${SHARED_DATA_ID}`] = getCustomers(SHARED_DATA_ID);
+  allData[`vendors_${SHARED_DATA_ID}`] = getVendors(SHARED_DATA_ID);
+  allData[`courierBrands_${SHARED_DATA_ID}`] = getCourierBrands(SHARED_DATA_ID);
+  allData[`awbSerials_${SHARED_DATA_ID}`] = getAWBSerials(SHARED_DATA_ID);
+  allData[`pickups_${SHARED_DATA_ID}`] = getPickups(SHARED_DATA_ID);
+  allData[`purchaseInvoices_${SHARED_DATA_ID}`] =
+    getPurchaseInvoices(SHARED_DATA_ID);
+  allData[`settings_${SHARED_DATA_ID}`] = getSettings(SHARED_DATA_ID);
+  allData[`tariffs_${SHARED_DATA_ID}`] = getTariffs(SHARED_DATA_ID);
+  allData[`costTariffs_${SHARED_DATA_ID}`] = getCostTariffs(SHARED_DATA_ID);
+  allData[`customerTariffs_${SHARED_DATA_ID}`] =
+    getCustomerTariffMap(SHARED_DATA_ID);
+  allData[`expenses_${SHARED_DATA_ID}`] = getExpenses(SHARED_DATA_ID);
+  allData[`designOrders_${SHARED_DATA_ID}`] = getDesignOrders(SHARED_DATA_ID);
+  allData[`designPricing_${SHARED_DATA_ID}`] = getDesignPricing(SHARED_DATA_ID);
+  allData[`courierQueries_${SHARED_DATA_ID}`] =
+    getCourierQueries(SHARED_DATA_ID);
+
+  // Also export per-company settings for each company (these are legitimately per-company)
   for (const company of companies) {
     const cid = company.id;
-    allData[`bills_${cid}`] = getBills(cid);
-    allData[`invoices_${cid}`] = getInvoices(cid);
-    allData[`products_${cid}`] = getProducts(cid);
-    allData[`customers_${cid}`] = getCustomers(cid);
-    allData[`vendors_${cid}`] = getVendors(cid);
-    allData[`courierBrands_${cid}`] = getCourierBrands(cid);
-    allData[`awbSerials_${cid}`] = getAWBSerials(cid);
-    allData[`pickups_${cid}`] = getPickups(cid);
-    allData[`purchaseInvoices_${cid}`] = getPurchaseInvoices(cid);
     allData[`settings_${cid}`] = getSettings(cid);
-    allData[`tariffs_${cid}`] = getTariffs(cid);
-    allData[`costTariffs_${cid}`] = getCostTariffs(cid);
-    allData[`customerTariffs_${cid}`] = getCustomerTariffMap(cid);
-    allData[`expenses_${cid}`] = getExpenses(cid);
-    allData[`designOrders_${cid}`] = getDesignOrders(cid);
-    allData[`designPricing_${cid}`] = getDesignPricing(cid);
-    allData[`courierQueries_${cid}`] = getCourierQueries(cid);
 
-    // Preserve invoice sequences per company
+    // Preserve invoice sequences per company/GSTIN
     if (company.gstin) {
-      const gstKey = `sks_gst_inv_seq_${company.gstin.trim().toUpperCase()}`;
-      const gstVal = localStorage.getItem(gstKey);
-      if (gstVal)
-        allData[`__gst_seq_${company.gstin.trim().toUpperCase()}`] =
-          Number.parseInt(gstVal, 10);
+      const gstin = company.gstin.trim().toUpperCase();
+      const gstVal = localStorage.getItem(`sks_gst_inv_seq_${gstin}`);
+      if (gstVal) allData[`__gst_seq_${gstin}`] = Number.parseInt(gstVal, 10);
     }
     const nonGstVal = localStorage.getItem(`sks_nongst_inv_seq_${cid}`);
     if (nonGstVal)
       allData[`__nongst_seq_${cid}`] = Number.parseInt(nonGstVal, 10);
+  }
+
+  // Also export bill sequence counter
+  const billSeqVal = localStorage.getItem("sks_bill_seq_shared");
+  if (billSeqVal) allData.__bill_seq_shared = Number.parseInt(billSeqVal, 10);
+
+  // Export all SKS daily AWB counters (scan all keys)
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith("sks_awb_daily_")) {
+      allData[`__awb_daily_${key}`] = localStorage.getItem(key);
+    }
   }
 
   return JSON.stringify(allData, null, 2);
@@ -444,6 +475,7 @@ export interface MergeSummary {
  * Merge import — non-destructive.
  * Only adds records that don't already exist locally (compared by ID).
  * Existing records are never overwritten or deleted.
+ * Handles both new format (SHARED_DATA_ID) and old format (per-company IDs).
  */
 export const mergeImportData = (jsonString: string): MergeSummary => {
   const data = JSON.parse(jsonString) as Record<string, unknown>;
@@ -508,166 +540,125 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
     }
   }
 
-  // All companies from backup — merge per-company data
-  // (includes both newly added companies and existing ones for data merge)
-  for (const company of incomingCompanies) {
-    const cid = company.id;
-
-    const mergeArray = <T extends { id: string }>(
-      getter: (id: string) => T[],
-      setter: (id: string, d: T[]) => void,
-      key: string,
-    ): number => {
-      const incoming = Array.isArray(data[key]) ? (data[key] as T[]) : [];
-      if (incoming.length === 0) return 0;
-      const local = getter(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incoming.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setter(cid, [...local, ...newItems]);
-      return newItems.length;
-    };
-
-    summary.billsAdded += mergeArray(getBills, setBills, `bills_${cid}`);
-    summary.invoicesAdded += mergeArray(
-      getInvoices,
-      setInvoices,
-      `invoices_${cid}`,
+  // Merge manual contacts
+  const incomingContacts = Array.isArray(data.manualContacts)
+    ? (data.manualContacts as Array<{
+        id: string;
+        name: string;
+        phone: string;
+      }>)
+    : [];
+  if (incomingContacts.length > 0) {
+    const localContacts = getManualContacts();
+    const localContactIds = new Set(localContacts.map((c) => c.id));
+    const newContacts = incomingContacts.filter(
+      (c) => !localContactIds.has(c.id),
     );
-    summary.customersAdded += mergeArray(
-      getCustomers,
-      setCustomers,
-      `customers_${cid}`,
-    );
-    summary.vendorsAdded += mergeArray(
-      getVendors,
-      setVendors,
-      `vendors_${cid}`,
-    );
-    summary.productsAdded += mergeArray(
-      getProducts,
-      setProducts,
-      `products_${cid}`,
-    );
-    summary.purchaseInvoicesAdded += mergeArray(
-      getPurchaseInvoices,
-      setPurchaseInvoices,
-      `purchaseInvoices_${cid}`,
-    );
-    summary.expensesAdded += mergeArray(
-      getExpenses,
-      setExpenses,
-      `expenses_${cid}`,
-    );
-
-    // Merge courier brands
-    const incomingBrands = Array.isArray(data[`courierBrands_${cid}`])
-      ? (data[`courierBrands_${cid}`] as CourierBrand[])
-      : [];
-    if (incomingBrands.length > 0) {
-      const local = getCourierBrands(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingBrands.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setCourierBrands(cid, [...local, ...newItems]);
+    if (newContacts.length > 0) {
+      setManualContacts([...localContacts, ...newContacts]);
     }
+  }
 
-    // Merge tariffs
-    const incomingTariffs = Array.isArray(data[`tariffs_${cid}`])
-      ? (data[`tariffs_${cid}`] as CourierTariff[])
-      : [];
-    if (incomingTariffs.length > 0) {
-      const local = getTariffs(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingTariffs.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setTariffs(cid, [...local, ...newItems]);
+  // Helper: get incoming array from backup, checking SHARED_DATA_ID first then per-company keys
+  const getIncoming = <T>(baseKey: string, companyId: string): T[] => {
+    if (Array.isArray(data[`${baseKey}_${SHARED_DATA_ID}`])) {
+      return data[`${baseKey}_${SHARED_DATA_ID}`] as T[];
     }
-
-    // Merge cost tariffs
-    const incomingCostTariffs = Array.isArray(data[`costTariffs_${cid}`])
-      ? (data[`costTariffs_${cid}`] as CourierTariff[])
-      : [];
-    if (incomingCostTariffs.length > 0) {
-      const local = getCostTariffs(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingCostTariffs.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setCostTariffs(cid, [...local, ...newItems]);
+    if (Array.isArray(data[`${baseKey}_${companyId}`])) {
+      return data[`${baseKey}_${companyId}`] as T[];
     }
+    return [];
+  };
 
-    // Merge AWB serials
-    const incomingAWB = Array.isArray(data[`awbSerials_${cid}`])
-      ? (data[`awbSerials_${cid}`] as AWBSerialRange[])
-      : [];
-    if (incomingAWB.length > 0) {
-      const local = getAWBSerials(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingAWB.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setAWBSerials(cid, [...local, ...newItems]);
+  // Merge shared transactional data into SHARED_DATA_ID
+  // We only need to run this once (data is shared across all companies)
+  const firstCid = incomingCompanies[0]?.id ?? "";
+
+  const mergeSharedArray = <T extends { id: string }>(
+    getter: (id: string) => T[],
+    setter: (id: string, d: T[]) => void,
+    baseKey: string,
+  ): number => {
+    const incoming = getIncoming<T>(baseKey, firstCid);
+    if (incoming.length === 0) return 0;
+    const local = getter(SHARED_DATA_ID);
+    const localIds = new Set(local.map((x) => x.id));
+    const newItems = incoming.filter((x) => !localIds.has(x.id));
+    if (newItems.length > 0) setter(SHARED_DATA_ID, [...local, ...newItems]);
+    return newItems.length;
+  };
+
+  summary.billsAdded += mergeSharedArray(getBills, setBills, "bills");
+  summary.invoicesAdded += mergeSharedArray(
+    getInvoices,
+    setInvoices,
+    "invoices",
+  );
+  summary.customersAdded += mergeSharedArray(
+    getCustomers,
+    setCustomers,
+    "customers",
+  );
+  summary.vendorsAdded += mergeSharedArray(getVendors, setVendors, "vendors");
+  summary.productsAdded += mergeSharedArray(
+    getProducts,
+    setProducts,
+    "products",
+  );
+  summary.purchaseInvoicesAdded += mergeSharedArray(
+    getPurchaseInvoices,
+    setPurchaseInvoices,
+    "purchaseInvoices",
+  );
+  summary.expensesAdded += mergeSharedArray(
+    getExpenses,
+    setExpenses,
+    "expenses",
+  );
+  mergeSharedArray(getCourierBrands, setCourierBrands, "courierBrands");
+  mergeSharedArray(getTariffs, setTariffs, "tariffs");
+  mergeSharedArray(getCostTariffs, setCostTariffs, "costTariffs");
+  mergeSharedArray(getAWBSerials, setAWBSerials, "awbSerials");
+  mergeSharedArray(getPickups, setPickups, "pickups");
+  mergeSharedArray(getDesignOrders, setDesignOrders, "designOrders");
+  mergeSharedArray(getDesignPricing, setDesignPricing, "designPricing");
+  mergeSharedArray(getCourierQueries, setCourierQueries, "courierQueries");
+
+  // Merge customer tariffs (Record<customerId, assignments[]>)
+  const getIncomingMap = (
+    baseKey: string,
+    companyId: string,
+  ): Record<string, CustomerTariffAssignment[]> => {
+    const sharedKey = `${baseKey}_${SHARED_DATA_ID}`;
+    const perKey = `${baseKey}_${companyId}`;
+    if (
+      data[sharedKey] &&
+      typeof data[sharedKey] === "object" &&
+      !Array.isArray(data[sharedKey])
+    ) {
+      return data[sharedKey] as Record<string, CustomerTariffAssignment[]>;
     }
-
-    // Merge pickups
-    const incomingPickups = Array.isArray(data[`pickups_${cid}`])
-      ? (data[`pickups_${cid}`] as CourierPickup[])
-      : [];
-    if (incomingPickups.length > 0) {
-      const local = getPickups(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingPickups.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setPickups(cid, [...local, ...newItems]);
+    if (
+      data[perKey] &&
+      typeof data[perKey] === "object" &&
+      !Array.isArray(data[perKey])
+    ) {
+      return data[perKey] as Record<string, CustomerTariffAssignment[]>;
     }
+    return {};
+  };
 
-    // Merge design orders
-    const incomingDesignOrders = Array.isArray(data[`designOrders_${cid}`])
-      ? (data[`designOrders_${cid}`] as DesignOrder[])
-      : [];
-    if (incomingDesignOrders.length > 0) {
-      const local = getDesignOrders(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingDesignOrders.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setDesignOrders(cid, [...local, ...newItems]);
-    }
-
-    // Merge design pricing
-    const incomingDesignPricing = Array.isArray(data[`designPricing_${cid}`])
-      ? (data[`designPricing_${cid}`] as DesignPricingMaster[])
-      : [];
-    if (incomingDesignPricing.length > 0) {
-      const local = getDesignPricing(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingDesignPricing.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setDesignPricing(cid, [...local, ...newItems]);
-    }
-
-    // Merge courier queries
-    const incomingQueries = Array.isArray(data[`courierQueries_${cid}`])
-      ? (data[`courierQueries_${cid}`] as CourierQuery[])
-      : [];
-    if (incomingQueries.length > 0) {
-      const local = getCourierQueries(cid);
-      const localIds = new Set(local.map((x) => x.id));
-      const newItems = incomingQueries.filter((x) => !localIds.has(x.id));
-      if (newItems.length > 0) setCourierQueries(cid, [...local, ...newItems]);
-    }
-
-    // Merge customer tariffs (Record<customerId, assignments[]>)
-    const incomingCustTariffs =
-      data[`customerTariffs_${cid}`] !== null &&
-      typeof data[`customerTariffs_${cid}`] === "object" &&
-      !Array.isArray(data[`customerTariffs_${cid}`])
-        ? (data[`customerTariffs_${cid}`] as Record<
-            string,
-            CustomerTariffAssignment[]
-          >)
-        : {};
-    if (Object.keys(incomingCustTariffs).length > 0) {
-      const local = getCustomerTariffMap(cid);
-      let changed = false;
-      for (const [custId, assignments] of Object.entries(incomingCustTariffs)) {
-        if (!local[custId]) {
-          local[custId] = assignments;
-          changed = true;
-        }
+  const incomingCustTariffs = getIncomingMap("customerTariffs", firstCid);
+  if (Object.keys(incomingCustTariffs).length > 0) {
+    const local = getCustomerTariffMap(SHARED_DATA_ID);
+    let changed = false;
+    for (const [custId, assignments] of Object.entries(incomingCustTariffs)) {
+      if (!local[custId]) {
+        local[custId] = assignments;
+        changed = true;
       }
-      if (changed) setCustomerTariffMap(cid, local);
     }
+    if (changed) setCustomerTariffMap(SHARED_DATA_ID, local);
   }
 
   return summary;
@@ -688,6 +679,51 @@ export const getManualContacts = (): ManualContact[] =>
 
 export const setManualContacts = (contacts: ManualContact[]): void =>
   set("sks_manual_contacts", contacts);
+
+// ─── Finance Year Archive ─────────────────────────────────────────────────────
+export interface FinanceYearArchive {
+  id: string;
+  label: string; // e.g. "FY 2024-25"
+  startDate: string; // ISO
+  endDate: string; // ISO
+  closedAt: string; // ISO
+  summary: {
+    totalBills: number;
+    totalInvoices: number;
+    totalRevenue: number;
+    totalExpenses: number;
+  };
+  // Snapshot of key data
+  bills: Bill[];
+  invoices: Invoice[];
+  expenses: Expense[];
+}
+
+export const FY_ARCHIVES_KEY = "sks_fy_archives";
+
+export const getFYArchives = (): FinanceYearArchive[] =>
+  get<FinanceYearArchive[]>(FY_ARCHIVES_KEY, []);
+
+export const setFYArchives = (archives: FinanceYearArchive[]): void =>
+  set(FY_ARCHIVES_KEY, archives);
+
+/** Returns the current Indian financial year label and dates. April–March. */
+export const getCurrentFYInfo = (): {
+  label: string;
+  start: Date;
+  end: Date;
+} => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-indexed
+  const fyStartYear = month >= 4 ? year : year - 1;
+  const fyEndYear = fyStartYear + 1;
+  return {
+    label: `FY ${fyStartYear}-${String(fyEndYear).slice(2)}`,
+    start: new Date(fyStartYear, 3, 1), // April 1
+    end: new Date(fyEndYear, 2, 31, 23, 59, 59), // March 31
+  };
+};
 
 // ─── Migration: move per-company data into shared key ─────────────────────────
 /**
@@ -852,6 +888,7 @@ export const migrateToSharedData = (): void => {
 };
 
 // Import all data from JSON — restores EVERY key including sequences and globals
+// Handles both new format (SHARED_DATA_ID) and old format (per-company IDs) for backwards compat.
 export const importAllData = (jsonString: string): void => {
   const data = JSON.parse(jsonString) as Record<string, unknown>;
 
@@ -871,6 +908,14 @@ export const importAllData = (jsonString: string): void => {
     localStorage.setItem("sks_units", JSON.stringify(data.units));
   }
 
+  // Restore manual contacts
+  if (Array.isArray(data.manualContacts)) {
+    localStorage.setItem(
+      "sks_manual_contacts",
+      JSON.stringify(data.manualContacts),
+    );
+  }
+
   // Restore active company (only if that company exists in the backup)
   if (data.activeCompanyId && typeof data.activeCompanyId === "string") {
     const exists = (data.companies as Company[]).find(
@@ -879,64 +924,118 @@ export const importAllData = (jsonString: string): void => {
     if (exists) setActiveCompanyId(data.activeCompanyId as string);
   }
 
+  // Helper: pick data from backup by trying SHARED_DATA_ID first, then per-company keys
+  const pickArray = <T>(
+    baseKey: string,
+    companyId: string,
+  ): T[] | undefined => {
+    // Try shared key first (new format)
+    if (data[`${baseKey}_${SHARED_DATA_ID}`] !== undefined) {
+      return (data[`${baseKey}_${SHARED_DATA_ID}`] as T[]) ?? [];
+    }
+    // Fall back to per-company key (old format)
+    if (data[`${baseKey}_${companyId}`] !== undefined) {
+      return (data[`${baseKey}_${companyId}`] as T[]) ?? [];
+    }
+    return undefined;
+  };
+
+  const pickMap = <T>(
+    baseKey: string,
+    companyId: string,
+  ): Record<string, T> | undefined => {
+    if (data[`${baseKey}_${SHARED_DATA_ID}`] !== undefined) {
+      return (data[`${baseKey}_${SHARED_DATA_ID}`] as Record<string, T>) ?? {};
+    }
+    if (data[`${baseKey}_${companyId}`] !== undefined) {
+      return (data[`${baseKey}_${companyId}`] as Record<string, T>) ?? {};
+    }
+    return undefined;
+  };
+
+  // For shared data, we only need to restore once (using first company as fallback for old format)
   const companies = data.companies as Company[];
+  const firstCid = companies[0]?.id ?? "";
+
+  // Restore shared transactional data (write to SHARED_DATA_ID)
+  const bills = pickArray<Bill>("bills", firstCid);
+  if (bills !== undefined) setBills(SHARED_DATA_ID, bills);
+
+  const invoices = pickArray<Invoice>("invoices", firstCid);
+  if (invoices !== undefined) setInvoices(SHARED_DATA_ID, invoices);
+
+  const products = pickArray<AnyProduct>("products", firstCid);
+  if (products !== undefined) setProducts(SHARED_DATA_ID, products);
+
+  const customers = pickArray<Customer>("customers", firstCid);
+  if (customers !== undefined) setCustomers(SHARED_DATA_ID, customers);
+
+  const vendors = pickArray<Vendor>("vendors", firstCid);
+  if (vendors !== undefined) setVendors(SHARED_DATA_ID, vendors);
+
+  const courierBrands = pickArray<CourierBrand>("courierBrands", firstCid);
+  if (courierBrands !== undefined)
+    setCourierBrands(SHARED_DATA_ID, courierBrands);
+
+  const awbSerials = pickArray<AWBSerialRange>("awbSerials", firstCid);
+  if (awbSerials !== undefined) setAWBSerials(SHARED_DATA_ID, awbSerials);
+
+  const pickups = pickArray<CourierPickup>("pickups", firstCid);
+  if (pickups !== undefined) setPickups(SHARED_DATA_ID, pickups);
+
+  const purchaseInvoices = pickArray<PurchaseInvoice>(
+    "purchaseInvoices",
+    firstCid,
+  );
+  if (purchaseInvoices !== undefined)
+    setPurchaseInvoices(SHARED_DATA_ID, purchaseInvoices);
+
+  const tariffs = pickArray<CourierTariff>("tariffs", firstCid);
+  if (tariffs !== undefined) setTariffs(SHARED_DATA_ID, tariffs);
+
+  const costTariffs = pickArray<CourierTariff>("costTariffs", firstCid);
+  if (costTariffs !== undefined) setCostTariffs(SHARED_DATA_ID, costTariffs);
+
+  const customerTariffs = pickMap<CustomerTariffAssignment[]>(
+    "customerTariffs",
+    firstCid,
+  );
+  if (customerTariffs !== undefined)
+    setCustomerTariffMap(SHARED_DATA_ID, customerTariffs);
+
+  const expenses = pickArray<Expense>("expenses", firstCid);
+  if (expenses !== undefined) setExpenses(SHARED_DATA_ID, expenses);
+
+  const designOrders = pickArray<DesignOrder>("designOrders", firstCid);
+  if (designOrders !== undefined) setDesignOrders(SHARED_DATA_ID, designOrders);
+
+  const designPricing = pickArray<DesignPricingMaster>(
+    "designPricing",
+    firstCid,
+  );
+  if (designPricing !== undefined)
+    setDesignPricing(SHARED_DATA_ID, designPricing);
+
+  const courierQueries = pickArray<CourierQuery>("courierQueries", firstCid);
+  if (courierQueries !== undefined)
+    setCourierQueries(SHARED_DATA_ID, courierQueries);
+
+  // Restore settings (per-company settings are legitimate per-company)
+  // Also restore shared settings
+  if (data[`settings_${SHARED_DATA_ID}`] !== undefined) {
+    setSettings(
+      SHARED_DATA_ID,
+      data[`settings_${SHARED_DATA_ID}`] as CompanySettings,
+    );
+  }
+
+  // Restore per-company settings and invoice sequences
   for (const company of companies) {
     const cid = company.id;
 
-    // Restore each key whether the array is empty or not (undefined check only)
-    if (data[`bills_${cid}`] !== undefined)
-      setBills(cid, (data[`bills_${cid}`] as Bill[]) ?? []);
-    if (data[`invoices_${cid}`] !== undefined)
-      setInvoices(cid, (data[`invoices_${cid}`] as Invoice[]) ?? []);
-    if (data[`products_${cid}`] !== undefined)
-      setProducts(cid, (data[`products_${cid}`] as AnyProduct[]) ?? []);
-    if (data[`customers_${cid}`] !== undefined)
-      setCustomers(cid, (data[`customers_${cid}`] as Customer[]) ?? []);
-    if (data[`vendors_${cid}`] !== undefined)
-      setVendors(cid, (data[`vendors_${cid}`] as Vendor[]) ?? []);
-    if (data[`courierBrands_${cid}`] !== undefined)
-      setCourierBrands(
-        cid,
-        (data[`courierBrands_${cid}`] as CourierBrand[]) ?? [],
-      );
-    if (data[`awbSerials_${cid}`] !== undefined)
-      setAWBSerials(cid, (data[`awbSerials_${cid}`] as AWBSerialRange[]) ?? []);
-    if (data[`pickups_${cid}`] !== undefined)
-      setPickups(cid, (data[`pickups_${cid}`] as CourierPickup[]) ?? []);
-    if (data[`purchaseInvoices_${cid}`] !== undefined)
-      setPurchaseInvoices(
-        cid,
-        (data[`purchaseInvoices_${cid}`] as PurchaseInvoice[]) ?? [],
-      );
-    if (data[`settings_${cid}`] !== undefined)
+    if (data[`settings_${cid}`] !== undefined) {
       setSettings(cid, data[`settings_${cid}`] as CompanySettings);
-    if (data[`tariffs_${cid}`] !== undefined)
-      setTariffs(cid, (data[`tariffs_${cid}`] as CourierTariff[]) ?? []);
-    if (data[`costTariffs_${cid}`] !== undefined)
-      setCostTariffs(
-        cid,
-        (data[`costTariffs_${cid}`] as CourierTariff[]) ?? [],
-      );
-    if (data[`customerTariffs_${cid}`] !== undefined)
-      setCustomerTariffMap(
-        cid,
-        (data[`customerTariffs_${cid}`] as Record<
-          string,
-          CustomerTariffAssignment[]
-        >) ?? {},
-      );
-    if (data[`expenses_${cid}`] !== undefined)
-      setExpenses(cid, (data[`expenses_${cid}`] as Expense[]) ?? []);
-    if (data[`designOrders_${cid}`] !== undefined)
-      setDesignOrders(
-        cid,
-        (data[`designOrders_${cid}`] as DesignOrder[]) ?? [],
-      );
-    if (data[`designPricing_${cid}`] !== undefined)
-      setDesignPricing(
-        cid,
-        (data[`designPricing_${cid}`] as DesignPricingMaster[]) ?? [],
-      );
+    }
 
     // Restore invoice sequences
     if (company.gstin) {

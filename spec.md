@@ -1,64 +1,38 @@
 # SKS Global Export
 
 ## Current State
-
-`PurchaseInvoicesPage.tsx` exists but has limited functionality:
-- Create-only (no Edit, no Delete)
-- View dialog (read-only)
-- Excel export per invoice
-- No print/PDF/JPEG/PNG download
-- No search/filter controls
-- No payment tracking details (partial payments)
-- No GST breakdown per item (flat 18%)
-- No notes/remarks field
-
-`storage.ts` `exportAllData` / `importAllData` / `mergeImportData` are complete but do NOT include:
-- `courierQueries` per company in export
-- `designOrders`/`designPricing` keys are exported but NOT merged in `mergeImportData`
-- AWB serials are exported but NOT merged in `mergeImportData`
-- Pickups are exported but NOT merged in `mergeImportData`
-- Tariffs are partially merged (only tariffs, not costTariffs or customerTariffs)
-- No export of manual contacts (`sks_manual_contacts`)
-
-`useAppStore` has `addPurchaseInvoice` but no `updatePurchaseInvoice` or `deletePurchaseInvoice`.
+- Settings > Invoice tab shows GST and Non-GST invoice prefix fields (editable) but sequence numbers are display-only (read-only spans)
+- Bill prefix and sequence are editable
+- No Finance Year Closing feature exists
+- Export backup exports per-company data correctly using SHARED_DATA_ID pattern
+- Import backup (full restore and merge) exists but has issues: the backup export uses company.id as key but SHARED_DATA_ID ("shared") is actually used for all data, so import tries to restore per-company keys that don't match the actual stored keys
+- Google Drive backup/restore calls exportAllData() which should be correct, but restore has the same key mismatch issue
 
 ## Requested Changes (Diff)
 
 ### Add
-- **Edit Purchase Invoice** — edit all fields (vendor, invoice no, date, items, payment status, notes). Stock adjustment on edit (reverse old qty, apply new qty for general products).
-- **Delete Purchase Invoice** — with confirmation dialog. Reverse stock changes on delete.
-- **Search & Filter** — search by invoice no or vendor name; filter by payment status and date range.
-- **Notes/Remarks field** — free text on purchase invoice for internal notes.
-- **Per-item GST rate** — instead of flat 18%, each item has its own GST rate selector (0, 5, 12, 18, 28%).
-- **Payment details** — for partial status: amount paid field and balance calculated.
-- **Print** — opens a clean A4 print popup with a professional purchase invoice layout (company letterhead, vendor details, items table with GST, totals, notes, payment status).
-- **PDF download** — opens print popup (browser Save as PDF).
-- **JPEG/PNG download** — uses browser Canvas API to capture invoice content and download.
-- **Summary cards** — Total invoices, Total value, Paid, Pending amount cards at top.
-- **Bulk actions** — select multiple invoices, mark as paid, export to Excel.
-- **Excel export all** — export the full filtered list (not just single invoice).
+- Editable GST invoice sequence number field in Settings > Invoice (allows user to set next number, e.g. if currently at 94, keep it or change it)
+- Editable Non-GST invoice sequence number field per company
+- Finance Year Closing tab/section in Settings page with:
+  - Display current FY (April to March)
+  - Show summary: total bills, invoices, revenue for current FY
+  - Close FY action: archives current data with FY label, resets invoice/bill sequences to 1, keeps master data (products, customers, vendors, tariffs)
+  - FY history list showing past closed years
 
 ### Modify
-- `useAppStore` — add `updatePurchaseInvoice(inv)` and `deletePurchaseInvoice(id)` actions with localStorage persistence.
-- `storage.ts` `mergeImportData` — add merging for: `awbSerials`, `pickups`, `costTariffs`, `customerTariffs`, `designOrders`, `designPricing`, `courierQueries`.
-- `storage.ts` `exportAllData` — add `courierQueries_${cid}` to the export loop.
-- `PurchaseInvoicesPage.tsx` — full rebuild with all new features above.
+- Settings > Invoice tab: Convert GST sequence and Non-GST sequence from read-only display to editable input fields with save button
+- storage.ts exportAllData(): Fix to use SHARED_DATA_ID for all transactional data keys (bills, invoices, products, customers, vendors, courier brands, AWB serials, pickups, purchase invoices, tariffs, cost tariffs, customer tariffs, expenses, design orders, design pricing, courier queries, settings). Currently it iterates companies and uses company.id as key, but all data is stored under SHARED_DATA_ID
+- storage.ts importAllData(): Fix to restore data to SHARED_DATA_ID key instead of per-company keys
+- storage.ts mergeImportData(): Fix to read/write from SHARED_DATA_ID
+- Also add manual contacts export/import to backup
 
 ### Remove
-- Nothing removed.
+- Nothing removed
 
 ## Implementation Plan
-
-1. **`useAppStore`** — add `updatePurchaseInvoice` and `deletePurchaseInvoice` to the store (read current file first to locate the purchase invoice slice).
-2. **`storage.ts`** — fix `mergeImportData` to include all missing data types; fix `exportAllData` to include `courierQueries`.
-3. **`PurchaseInvoicesPage.tsx`** — full rewrite:
-   - Summary cards (total count, total value, paid total, pending total)
-   - Search bar + Status filter + Date range filter
-   - Table with checkboxes for bulk actions
-   - Action buttons per row: View, Edit, Delete, Print, PDF, JPEG/PNG, Excel
-   - Create/Edit dialog: vendor, invoice no, date, payment status, amount paid (if partial), notes; items section with per-item GST rate
-   - View dialog: professional read-only layout with print/PDF/JPEG/PNG buttons
-   - Print popup utility (same pattern as invoice templates already in app)
-   - Bulk action toolbar: Mark Paid, Export Excel
-   - Delete confirmation dialog
-   - All `data-ocid` markers on interactive elements
+1. Fix storage.ts exportAllData() - export transactional data using SHARED_DATA_ID key, also export manual contacts
+2. Fix storage.ts importAllData() - import transactional data to SHARED_DATA_ID key, also restore manual contacts
+3. Fix storage.ts mergeImportData() - merge transactional data from/to SHARED_DATA_ID
+4. Update SettingsPage.tsx Invoice tab: Add editable inputs for GST sequence and Non-GST sequence with a "Set Sequence" save that writes directly to the localStorage keys
+5. Add Finance Year Closing tab to Settings with FY summary, close action (with confirmation), and archived FY history stored in localStorage
+6. Add setGSTInvoiceSeq() and setNonGSTInvoiceSeq() helper functions to storage.ts
