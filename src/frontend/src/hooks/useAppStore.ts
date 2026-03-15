@@ -404,6 +404,41 @@ export const useAppStore = create<AppState>((set, get) => {
     },
 
     deleteBill: (billId: string) => {
+      // Find the bill being deleted to restore any AWB serials
+      const billToDelete = getBills(SHARED_DATA_ID).find(
+        (b) => b.id === billId,
+      );
+      if (billToDelete) {
+        // Collect AWB serials used in this bill's courier items
+        const awbSerialsToRestore = billToDelete.items
+          .filter(
+            (item) => item.productType === "courier_awb" && item.awbSerial,
+          )
+          .map((item) => item.awbSerial!);
+        if (awbSerialsToRestore.length > 0) {
+          // Restore each AWB serial back to available in the awbSerials stock
+          const updatedAWBSerials = getAWBSerials(SHARED_DATA_ID).map(
+            (range) => {
+              const toRestore = awbSerialsToRestore.filter((serial) =>
+                range.usedSerials.includes(serial),
+              );
+              if (toRestore.length === 0) return range;
+              return {
+                ...range,
+                usedSerials: range.usedSerials.filter(
+                  (s) => !toRestore.includes(s),
+                ),
+                availableSerials: [
+                  ...range.availableSerials,
+                  ...toRestore,
+                ].sort(),
+              };
+            },
+          );
+          setAWBSerials(SHARED_DATA_ID, updatedAWBSerials);
+          set({ awbSerials: updatedAWBSerials });
+        }
+      }
       const bills = getBills(SHARED_DATA_ID).filter((b) => b.id !== billId);
       setBills(SHARED_DATA_ID, bills);
       set({ bills });

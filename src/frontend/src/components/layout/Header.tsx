@@ -323,7 +323,7 @@ export function Header({
   };
 
   return (
-    <header className="h-16 bg-white border-b border-border flex items-center justify-between px-6 sticky top-0 z-20 shadow-xs">
+    <header className="h-16 bg-gradient-to-r from-white via-primary/5 to-white border-b border-primary/20 flex items-center justify-between pl-14 pr-4 md:px-6 sticky top-0 z-20 shadow-sm backdrop-blur-sm">
       {/* Page title */}
       <div>
         <h1 className="text-lg font-semibold text-foreground">

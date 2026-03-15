@@ -539,6 +539,7 @@ export function ProductsPage() {
   const [currentStock, setCurrentStock] = useState("0");
   const [minStockAlert, setMinStockAlert] = useState("10");
   const [isActive, setIsActive] = useState(true);
+  const [priceIncludesGST, setPriceIncludesGST] = useState(true);
   // Courier brand fields
   const [brandName, setBrandName] = useState("");
   const [brandCategory, setBrandCategory] = useState<
@@ -561,6 +562,38 @@ export function ProductsPage() {
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [sacCode, setSacCode] = useState("");
+
+  // Product sub-unit configuration (inline panel in general product form)
+  const [productSubUnit1, setProductSubUnit1] = useState<{
+    unitId: string;
+    name: string;
+    conversionRate: string;
+    mrp: string;
+    sellingPrice: string;
+    costPrice: string;
+  } | null>(null);
+  const [productSubUnit2, setProductSubUnit2] = useState<{
+    unitId: string;
+    name: string;
+    conversionRate: string;
+    mrp: string;
+    sellingPrice: string;
+    costPrice: string;
+  } | null>(null);
+  const [productSubUnit3, setProductSubUnit3] = useState<{
+    unitId: string;
+    name: string;
+    conversionRate: string;
+    mrp: string;
+    sellingPrice: string;
+    costPrice: string;
+  } | null>(null);
+  const [showSubUnitPanel, setShowSubUnitPanel] = useState(false);
+
+  // Xerox materials state
+  const [xeroxMaterials, setXeroxMaterials] = useState<
+    Array<{ productId: string; quantity: string; label: string }>
+  >([]);
 
   // Pricing slabs (with local _key for stable list rendering)
   const [usePricingSlabs, setUsePricingSlabs] = useState(false);
@@ -607,6 +640,7 @@ export function ProductsPage() {
     setCurrentStock("0");
     setMinStockAlert("10");
     setIsActive(true);
+    setPriceIncludesGST(true);
     setBrandName("");
     setBrandCategory("Both");
     setProductType("Courier");
@@ -631,6 +665,11 @@ export function ProductsPage() {
       super_wholesale: defaultTierForm(),
     });
     setEditProduct(null);
+    setProductSubUnit1(null);
+    setProductSubUnit2(null);
+    setProductSubUnit3(null);
+    setShowSubUnitPanel(false);
+    setXeroxMaterials([]);
   };
 
   const openAdd = (type: AnyProduct["type"]) => {
@@ -654,7 +693,52 @@ export function ProductsPage() {
       setCurrentStock(String(p.currentStock));
       setMinStockAlert(String(p.minStockAlert));
       setIsActive(p.isActive);
+      setPriceIncludesGST(p.priceIncludesGST !== false); // default true
       setUsePricingSlabs(p.usePricingSlabs ?? false);
+      // Load product sub-units
+      if (p.productSubUnit1) {
+        setProductSubUnit1({
+          unitId: p.productSubUnit1.unitId,
+          name: p.productSubUnit1.name,
+          conversionRate: String(p.productSubUnit1.conversionRate),
+          mrp: p.productSubUnit1.mrp ? String(p.productSubUnit1.mrp) : "",
+          sellingPrice: p.productSubUnit1.sellingPrice
+            ? String(p.productSubUnit1.sellingPrice)
+            : "",
+          costPrice: p.productSubUnit1.costPrice
+            ? String(p.productSubUnit1.costPrice)
+            : "",
+        });
+        setShowSubUnitPanel(true);
+      }
+      if (p.productSubUnit2) {
+        setProductSubUnit2({
+          unitId: p.productSubUnit2.unitId,
+          name: p.productSubUnit2.name,
+          conversionRate: String(p.productSubUnit2.conversionRate),
+          mrp: p.productSubUnit2.mrp ? String(p.productSubUnit2.mrp) : "",
+          sellingPrice: p.productSubUnit2.sellingPrice
+            ? String(p.productSubUnit2.sellingPrice)
+            : "",
+          costPrice: p.productSubUnit2.costPrice
+            ? String(p.productSubUnit2.costPrice)
+            : "",
+        });
+      }
+      if (p.productSubUnit3) {
+        setProductSubUnit3({
+          unitId: p.productSubUnit3.unitId,
+          name: p.productSubUnit3.name,
+          conversionRate: String(p.productSubUnit3.conversionRate),
+          mrp: p.productSubUnit3.mrp ? String(p.productSubUnit3.mrp) : "",
+          sellingPrice: p.productSubUnit3.sellingPrice
+            ? String(p.productSubUnit3.sellingPrice)
+            : "",
+          costPrice: p.productSubUnit3.costPrice
+            ? String(p.productSubUnit3.costPrice)
+            : "",
+        });
+      }
       setPricingSlabs(
         (p.pricingSlabs ?? []).map((s, i) => ({ ...s, _key: String(i) })),
       );
@@ -699,6 +783,13 @@ export function ProductsPage() {
       setPaperProductId(p.paperProductId);
       setIsActive(p.isActive);
       setUsePricingSlabs(p.usePricingSlabs ?? false);
+      setXeroxMaterials(
+        (p.materials ?? []).map((m) => ({
+          productId: m.productId,
+          quantity: String(m.quantity),
+          label: m.label,
+        })),
+      );
       setPricingSlabs(
         (p.pricingSlabs ?? []).map((s, i) => ({ ...s, _key: String(i) })),
       );
@@ -767,6 +858,58 @@ export function ProductsPage() {
           ? pricingSlabs.map(({ _key: _k, ...s }) => s)
           : [],
         pricingTiers: activeTiers.length > 0 ? activeTiers : undefined,
+        priceIncludesGST,
+        productSubUnit1:
+          productSubUnit1?.name && productSubUnit1?.conversionRate
+            ? {
+                unitId: productSubUnit1.unitId,
+                name: productSubUnit1.name,
+                conversionRate: Number(productSubUnit1.conversionRate),
+                mrp: productSubUnit1.mrp
+                  ? Number(productSubUnit1.mrp)
+                  : undefined,
+                sellingPrice: productSubUnit1.sellingPrice
+                  ? Number(productSubUnit1.sellingPrice)
+                  : undefined,
+                costPrice: productSubUnit1.costPrice
+                  ? Number(productSubUnit1.costPrice)
+                  : undefined,
+              }
+            : undefined,
+        productSubUnit2:
+          productSubUnit2?.name && productSubUnit2?.conversionRate
+            ? {
+                unitId: productSubUnit2.unitId,
+                name: productSubUnit2.name,
+                conversionRate: Number(productSubUnit2.conversionRate),
+                mrp: productSubUnit2.mrp
+                  ? Number(productSubUnit2.mrp)
+                  : undefined,
+                sellingPrice: productSubUnit2.sellingPrice
+                  ? Number(productSubUnit2.sellingPrice)
+                  : undefined,
+                costPrice: productSubUnit2.costPrice
+                  ? Number(productSubUnit2.costPrice)
+                  : undefined,
+              }
+            : undefined,
+        productSubUnit3:
+          productSubUnit3?.name && productSubUnit3?.conversionRate
+            ? {
+                unitId: productSubUnit3.unitId,
+                name: productSubUnit3.name,
+                conversionRate: Number(productSubUnit3.conversionRate),
+                mrp: productSubUnit3.mrp
+                  ? Number(productSubUnit3.mrp)
+                  : undefined,
+                sellingPrice: productSubUnit3.sellingPrice
+                  ? Number(productSubUnit3.sellingPrice)
+                  : undefined,
+                costPrice: productSubUnit3.costPrice
+                  ? Number(productSubUnit3.costPrice)
+                  : undefined,
+              }
+            : undefined,
       } as GeneralProduct;
     } else if (formType === "courier_awb") {
       if (!brandName) {
@@ -815,6 +958,13 @@ export function ProductsPage() {
         pricingSlabs: usePricingSlabs
           ? pricingSlabs.map(({ _key: _k, ...s }) => s)
           : [],
+        materials: xeroxMaterials
+          .filter((m) => m.productId && m.quantity)
+          .map((m) => ({
+            productId: m.productId,
+            quantity: Number(m.quantity),
+            label: m.label,
+          })),
       } as XeroxProduct;
     } else {
       if (!name || !price) {
@@ -1074,7 +1224,16 @@ export function ProductsPage() {
                     <TableCell className="text-xs">{p.category}</TableCell>
                     <TableCell className="text-xs">{p.unit}</TableCell>
                     <TableCell className="text-xs">
-                      {formatCurrency(p.sellingPrice)}
+                      <div className="flex flex-col">
+                        <span>{formatCurrency(p.sellingPrice)}</span>
+                        <span
+                          className={`text-[10px] ${p.priceIncludesGST === false ? "text-amber-600" : "text-green-600"}`}
+                        >
+                          {p.priceIncludesGST === false
+                            ? "Excl. GST"
+                            : "Incl. GST"}
+                        </span>
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs">{p.gstRate}%</TableCell>
                     <TableCell>
@@ -1842,6 +2001,721 @@ export function ProductsPage() {
                       );
                     })()}
                   </div>
+                  <div className="col-span-2">
+                    {/* Sub-unit Configuration Panel */}
+                    {unit && (
+                      <div className="border border-border rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setShowSubUnitPanel((v) => !v)}
+                          className="w-full flex items-center justify-between px-3 py-2 bg-muted/30 hover:bg-muted/50 transition-colors"
+                        >
+                          <span className="text-xs font-semibold text-foreground">
+                            Configure Sub-Units
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {showSubUnitPanel ? "▴ Hide" : "▾ Show"}
+                          </span>
+                        </button>
+                        {showSubUnitPanel && (
+                          <div className="p-3 space-y-3">
+                            <p className="text-xs text-muted-foreground">
+                              Set how many sub-units make 1 {unit}. Prices
+                              auto-calculate from parent.
+                            </p>
+                            {/* Sub-unit 1 */}
+                            <div className="border border-border/60 rounded-lg p-2.5 space-y-2 bg-background">
+                              <p className="text-xs font-semibold text-primary">
+                                Sub-Unit 1
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <Label className="text-[10px] text-muted-foreground">
+                                    Unit Name
+                                  </Label>
+                                  <Select
+                                    value={productSubUnit1?.unitId || ""}
+                                    onValueChange={(v) => {
+                                      const u = allUnits.find(
+                                        (u) => u.id === v,
+                                      );
+                                      if (!u) return;
+                                      const conv =
+                                        productSubUnit1?.conversionRate
+                                          ? Number(
+                                              productSubUnit1.conversionRate,
+                                            )
+                                          : 1;
+                                      setProductSubUnit1({
+                                        unitId: u.id,
+                                        name: u.name,
+                                        conversionRate:
+                                          productSubUnit1?.conversionRate ||
+                                          "1",
+                                        mrp:
+                                          sellingPrice && conv > 0
+                                            ? String(
+                                                (
+                                                  Number(sellingPrice) / conv
+                                                ).toFixed(2),
+                                              )
+                                            : "",
+                                        sellingPrice:
+                                          sellingPrice && conv > 0
+                                            ? String(
+                                                (
+                                                  Number(sellingPrice) / conv
+                                                ).toFixed(2),
+                                              )
+                                            : "",
+                                        costPrice:
+                                          purchasePrice && conv > 0
+                                            ? String(
+                                                (
+                                                  Number(purchasePrice) / conv
+                                                ).toFixed(2),
+                                              )
+                                            : "",
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-7 text-xs mt-0.5">
+                                      <SelectValue placeholder="Select unit" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {allUnits.map((u) => (
+                                        <SelectItem key={u.id} value={u.id}>
+                                          {u.name}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <Label className="text-[10px] text-muted-foreground">
+                                    1 {unit} = ?{" "}
+                                    {productSubUnit1?.name || "Sub-Unit"}
+                                  </Label>
+                                  <Input
+                                    type="number"
+                                    value={
+                                      productSubUnit1?.conversionRate || ""
+                                    }
+                                    onChange={(e) => {
+                                      const conv = Number(e.target.value);
+                                      setProductSubUnit1((prev) =>
+                                        prev
+                                          ? {
+                                              ...prev,
+                                              conversionRate: e.target.value,
+                                              mrp:
+                                                sellingPrice && conv > 0
+                                                  ? String(
+                                                      (
+                                                        Number(sellingPrice) /
+                                                        conv
+                                                      ).toFixed(2),
+                                                    )
+                                                  : prev.mrp,
+                                              sellingPrice:
+                                                sellingPrice && conv > 0
+                                                  ? String(
+                                                      (
+                                                        Number(sellingPrice) /
+                                                        conv
+                                                      ).toFixed(2),
+                                                    )
+                                                  : prev.sellingPrice,
+                                              costPrice:
+                                                purchasePrice && conv > 0
+                                                  ? String(
+                                                      (
+                                                        Number(purchasePrice) /
+                                                        conv
+                                                      ).toFixed(2),
+                                                    )
+                                                  : prev.costPrice,
+                                            }
+                                          : null,
+                                      );
+                                    }}
+                                    placeholder={`How many per ${unit}`}
+                                    className="h-7 text-xs mt-0.5"
+                                  />
+                                </div>
+                                {productSubUnit1?.unitId && (
+                                  <>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        MRP (₹)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={productSubUnit1.mrp}
+                                        onChange={(e) =>
+                                          setProductSubUnit1((p) =>
+                                            p
+                                              ? { ...p, mrp: e.target.value }
+                                              : null,
+                                          )
+                                        }
+                                        className="h-7 text-xs mt-0.5"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        Selling Price (₹)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={productSubUnit1.sellingPrice}
+                                        onChange={(e) =>
+                                          setProductSubUnit1((p) =>
+                                            p
+                                              ? {
+                                                  ...p,
+                                                  sellingPrice: e.target.value,
+                                                }
+                                              : null,
+                                          )
+                                        }
+                                        className="h-7 text-xs mt-0.5"
+                                      />
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        Cost Price (₹)
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        step="0.01"
+                                        value={productSubUnit1.costPrice}
+                                        onChange={(e) =>
+                                          setProductSubUnit1((p) =>
+                                            p
+                                              ? {
+                                                  ...p,
+                                                  costPrice: e.target.value,
+                                                }
+                                              : null,
+                                          )
+                                        }
+                                        className="h-7 text-xs mt-0.5"
+                                      />
+                                    </div>
+                                    <div className="flex items-end pb-0.5">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setProductSubUnit1(null);
+                                          setProductSubUnit2(null);
+                                          setProductSubUnit3(null);
+                                        }}
+                                        className="text-xs text-destructive hover:underline"
+                                      >
+                                        Remove
+                                      </button>
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                            {/* Sub-unit 2 */}
+                            {productSubUnit1?.unitId && (
+                              <div className="border border-border/60 rounded-lg p-2.5 space-y-2 bg-background">
+                                <p className="text-xs font-semibold text-primary">
+                                  Sub-Unit 2
+                                </p>
+                                {!productSubUnit2 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setProductSubUnit2({
+                                        unitId: "",
+                                        name: "",
+                                        conversionRate: "",
+                                        mrp: "",
+                                        sellingPrice: "",
+                                        costPrice: "",
+                                      })
+                                    }
+                                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                                  >
+                                    + Add Sub-Unit 2
+                                  </button>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        Unit Name
+                                      </Label>
+                                      <Select
+                                        value={productSubUnit2?.unitId || ""}
+                                        onValueChange={(v) => {
+                                          const u = allUnits.find(
+                                            (u) => u.id === v,
+                                          );
+                                          if (!u) return;
+                                          const conv =
+                                            productSubUnit2?.conversionRate
+                                              ? Number(
+                                                  productSubUnit2.conversionRate,
+                                                )
+                                              : 1;
+                                          const sub1SP =
+                                            productSubUnit1.sellingPrice
+                                              ? Number(
+                                                  productSubUnit1.sellingPrice,
+                                                )
+                                              : 0;
+                                          const sub1MRP = productSubUnit1.mrp
+                                            ? Number(productSubUnit1.mrp)
+                                            : 0;
+                                          const sub1CP =
+                                            productSubUnit1.costPrice
+                                              ? Number(
+                                                  productSubUnit1.costPrice,
+                                                )
+                                              : 0;
+                                          setProductSubUnit2({
+                                            unitId: u.id,
+                                            name: u.name,
+                                            conversionRate:
+                                              productSubUnit2?.conversionRate ||
+                                              "1",
+                                            mrp:
+                                              sub1MRP && conv > 0
+                                                ? String(
+                                                    (sub1MRP / conv).toFixed(2),
+                                                  )
+                                                : "",
+                                            sellingPrice:
+                                              sub1SP && conv > 0
+                                                ? String(
+                                                    (sub1SP / conv).toFixed(2),
+                                                  )
+                                                : "",
+                                            costPrice:
+                                              sub1CP && conv > 0
+                                                ? String(
+                                                    (sub1CP / conv).toFixed(2),
+                                                  )
+                                                : "",
+                                          });
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs mt-0.5">
+                                          <SelectValue placeholder="Select unit" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {allUnits.map((u) => (
+                                            <SelectItem key={u.id} value={u.id}>
+                                              {u.name}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        1 {productSubUnit1.name} = ?{" "}
+                                        {productSubUnit2?.name || "Sub-Unit 2"}
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        value={
+                                          productSubUnit2?.conversionRate || ""
+                                        }
+                                        onChange={(e) => {
+                                          const conv = Number(e.target.value);
+                                          const sub1SP =
+                                            productSubUnit1.sellingPrice
+                                              ? Number(
+                                                  productSubUnit1.sellingPrice,
+                                                )
+                                              : 0;
+                                          const sub1MRP = productSubUnit1.mrp
+                                            ? Number(productSubUnit1.mrp)
+                                            : 0;
+                                          const sub1CP =
+                                            productSubUnit1.costPrice
+                                              ? Number(
+                                                  productSubUnit1.costPrice,
+                                                )
+                                              : 0;
+                                          setProductSubUnit2((prev) =>
+                                            prev
+                                              ? {
+                                                  ...prev,
+                                                  conversionRate:
+                                                    e.target.value,
+                                                  mrp:
+                                                    sub1MRP && conv > 0
+                                                      ? String(
+                                                          (
+                                                            sub1MRP / conv
+                                                          ).toFixed(2),
+                                                        )
+                                                      : prev.mrp,
+                                                  sellingPrice:
+                                                    sub1SP && conv > 0
+                                                      ? String(
+                                                          (
+                                                            sub1SP / conv
+                                                          ).toFixed(2),
+                                                        )
+                                                      : prev.sellingPrice,
+                                                  costPrice:
+                                                    sub1CP && conv > 0
+                                                      ? String(
+                                                          (
+                                                            sub1CP / conv
+                                                          ).toFixed(2),
+                                                        )
+                                                      : prev.costPrice,
+                                                }
+                                              : null,
+                                          );
+                                        }}
+                                        placeholder={`How many per ${productSubUnit1.name}`}
+                                        className="h-7 text-xs mt-0.5"
+                                      />
+                                    </div>
+                                    {productSubUnit2?.unitId && (
+                                      <>
+                                        <div>
+                                          <Label className="text-[10px] text-muted-foreground">
+                                            MRP (₹)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={productSubUnit2.mrp}
+                                            onChange={(e) =>
+                                              setProductSubUnit2((p) =>
+                                                p
+                                                  ? {
+                                                      ...p,
+                                                      mrp: e.target.value,
+                                                    }
+                                                  : null,
+                                              )
+                                            }
+                                            className="h-7 text-xs mt-0.5"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-[10px] text-muted-foreground">
+                                            Selling Price (₹)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={productSubUnit2.sellingPrice}
+                                            onChange={(e) =>
+                                              setProductSubUnit2((p) =>
+                                                p
+                                                  ? {
+                                                      ...p,
+                                                      sellingPrice:
+                                                        e.target.value,
+                                                    }
+                                                  : null,
+                                              )
+                                            }
+                                            className="h-7 text-xs mt-0.5"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-[10px] text-muted-foreground">
+                                            Cost Price (₹)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={productSubUnit2.costPrice}
+                                            onChange={(e) =>
+                                              setProductSubUnit2((p) =>
+                                                p
+                                                  ? {
+                                                      ...p,
+                                                      costPrice: e.target.value,
+                                                    }
+                                                  : null,
+                                              )
+                                            }
+                                            className="h-7 text-xs mt-0.5"
+                                          />
+                                        </div>
+                                        <div className="flex items-end pb-0.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setProductSubUnit2(null);
+                                              setProductSubUnit3(null);
+                                            }}
+                                            className="text-xs text-destructive hover:underline"
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {/* Sub-unit 3 */}
+                            {productSubUnit2?.unitId && (
+                              <div className="border border-border/60 rounded-lg p-2.5 space-y-2 bg-background">
+                                <p className="text-xs font-semibold text-primary">
+                                  Sub-Unit 3
+                                </p>
+                                {!productSubUnit3 ? (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setProductSubUnit3({
+                                        unitId: "",
+                                        name: "",
+                                        conversionRate: "",
+                                        mrp: "",
+                                        sellingPrice: "",
+                                        costPrice: "",
+                                      })
+                                    }
+                                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                                  >
+                                    + Add Sub-Unit 3
+                                  </button>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        Unit Name
+                                      </Label>
+                                      <Select
+                                        value={productSubUnit3?.unitId || ""}
+                                        onValueChange={(v) => {
+                                          const u = allUnits.find(
+                                            (u) => u.id === v,
+                                          );
+                                          if (!u) return;
+                                          const conv =
+                                            productSubUnit3?.conversionRate
+                                              ? Number(
+                                                  productSubUnit3.conversionRate,
+                                                )
+                                              : 1;
+                                          const sub2SP =
+                                            productSubUnit2.sellingPrice
+                                              ? Number(
+                                                  productSubUnit2.sellingPrice,
+                                                )
+                                              : 0;
+                                          const sub2MRP = productSubUnit2.mrp
+                                            ? Number(productSubUnit2.mrp)
+                                            : 0;
+                                          const sub2CP =
+                                            productSubUnit2.costPrice
+                                              ? Number(
+                                                  productSubUnit2.costPrice,
+                                                )
+                                              : 0;
+                                          setProductSubUnit3({
+                                            unitId: u.id,
+                                            name: u.name,
+                                            conversionRate:
+                                              productSubUnit3?.conversionRate ||
+                                              "1",
+                                            mrp:
+                                              sub2MRP && conv > 0
+                                                ? String(
+                                                    (sub2MRP / conv).toFixed(2),
+                                                  )
+                                                : "",
+                                            sellingPrice:
+                                              sub2SP && conv > 0
+                                                ? String(
+                                                    (sub2SP / conv).toFixed(2),
+                                                  )
+                                                : "",
+                                            costPrice:
+                                              sub2CP && conv > 0
+                                                ? String(
+                                                    (sub2CP / conv).toFixed(2),
+                                                  )
+                                                : "",
+                                          });
+                                        }}
+                                      >
+                                        <SelectTrigger className="h-7 text-xs mt-0.5">
+                                          <SelectValue placeholder="Select unit" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {allUnits.map((u) => (
+                                            <SelectItem key={u.id} value={u.id}>
+                                              {u.name}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <Label className="text-[10px] text-muted-foreground">
+                                        1 {productSubUnit2.name} = ?{" "}
+                                        {productSubUnit3?.name || "Sub-Unit 3"}
+                                      </Label>
+                                      <Input
+                                        type="number"
+                                        value={
+                                          productSubUnit3?.conversionRate || ""
+                                        }
+                                        onChange={(e) => {
+                                          const conv = Number(e.target.value);
+                                          const sub2SP =
+                                            productSubUnit2.sellingPrice
+                                              ? Number(
+                                                  productSubUnit2.sellingPrice,
+                                                )
+                                              : 0;
+                                          const sub2MRP = productSubUnit2.mrp
+                                            ? Number(productSubUnit2.mrp)
+                                            : 0;
+                                          const sub2CP =
+                                            productSubUnit2.costPrice
+                                              ? Number(
+                                                  productSubUnit2.costPrice,
+                                                )
+                                              : 0;
+                                          setProductSubUnit3((prev) =>
+                                            prev
+                                              ? {
+                                                  ...prev,
+                                                  conversionRate:
+                                                    e.target.value,
+                                                  mrp:
+                                                    sub2MRP && conv > 0
+                                                      ? String(
+                                                          (
+                                                            sub2MRP / conv
+                                                          ).toFixed(2),
+                                                        )
+                                                      : prev.mrp,
+                                                  sellingPrice:
+                                                    sub2SP && conv > 0
+                                                      ? String(
+                                                          (
+                                                            sub2SP / conv
+                                                          ).toFixed(2),
+                                                        )
+                                                      : prev.sellingPrice,
+                                                  costPrice:
+                                                    sub2CP && conv > 0
+                                                      ? String(
+                                                          (
+                                                            sub2CP / conv
+                                                          ).toFixed(2),
+                                                        )
+                                                      : prev.costPrice,
+                                                }
+                                              : null,
+                                          );
+                                        }}
+                                        placeholder={`How many per ${productSubUnit2.name}`}
+                                        className="h-7 text-xs mt-0.5"
+                                      />
+                                    </div>
+                                    {productSubUnit3?.unitId && (
+                                      <>
+                                        <div>
+                                          <Label className="text-[10px] text-muted-foreground">
+                                            MRP (₹)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={productSubUnit3.mrp}
+                                            onChange={(e) =>
+                                              setProductSubUnit3((p) =>
+                                                p
+                                                  ? {
+                                                      ...p,
+                                                      mrp: e.target.value,
+                                                    }
+                                                  : null,
+                                              )
+                                            }
+                                            className="h-7 text-xs mt-0.5"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-[10px] text-muted-foreground">
+                                            Selling Price (₹)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={productSubUnit3.sellingPrice}
+                                            onChange={(e) =>
+                                              setProductSubUnit3((p) =>
+                                                p
+                                                  ? {
+                                                      ...p,
+                                                      sellingPrice:
+                                                        e.target.value,
+                                                    }
+                                                  : null,
+                                              )
+                                            }
+                                            className="h-7 text-xs mt-0.5"
+                                          />
+                                        </div>
+                                        <div>
+                                          <Label className="text-[10px] text-muted-foreground">
+                                            Cost Price (₹)
+                                          </Label>
+                                          <Input
+                                            type="number"
+                                            step="0.01"
+                                            value={productSubUnit3.costPrice}
+                                            onChange={(e) =>
+                                              setProductSubUnit3((p) =>
+                                                p
+                                                  ? {
+                                                      ...p,
+                                                      costPrice: e.target.value,
+                                                    }
+                                                  : null,
+                                              )
+                                            }
+                                            className="h-7 text-xs mt-0.5"
+                                          />
+                                        </div>
+                                        <div className="flex items-end pb-0.5">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              setProductSubUnit3(null)
+                                            }
+                                            className="text-xs text-destructive hover:underline"
+                                          >
+                                            Remove
+                                          </button>
+                                        </div>
+                                      </>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <Label className="text-xs">HSN Code</Label>
                     <Input
@@ -2023,9 +2897,24 @@ export function ProductsPage() {
                     quantity entered.
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Switch checked={isActive} onCheckedChange={setIsActive} />
-                  <Label className="text-xs">Active</Label>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={isActive} onCheckedChange={setIsActive} />
+                    <Label className="text-xs">Active</Label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={priceIncludesGST}
+                      onCheckedChange={setPriceIncludesGST}
+                    />
+                    <Label className="text-xs">
+                      Selling price{" "}
+                      <strong>
+                        {priceIncludesGST ? "includes" : "excludes"}
+                      </strong>{" "}
+                      GST
+                    </Label>
+                  </div>
                 </div>
               </>
             )}
@@ -2362,6 +3251,124 @@ export function ProductsPage() {
                         <Plus className="w-3 h-3 mr-1" /> Add Slab
                       </Button>
                     </div>
+                  )}
+                </div>
+                {/* Materials Used */}
+                <div className="border border-border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label className="text-xs font-semibold">
+                        Materials Used
+                      </Label>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        Add materials consumed per job (e.g. Spring, Film, A4
+                        Sheet)
+                      </p>
+                    </div>
+                    {xeroxMaterials.length < 4 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs"
+                        type="button"
+                        onClick={() =>
+                          setXeroxMaterials((prev) => [
+                            ...prev,
+                            { productId: "", quantity: "1", label: "" },
+                          ])
+                        }
+                        data-ocid="xerox.material.add_button"
+                      >
+                        + Add Material
+                      </Button>
+                    )}
+                  </div>
+                  {xeroxMaterials.map((mat, mi) => (
+                    <div
+                      key={`material-${mi}-${mat.productId}`}
+                      className="grid grid-cols-12 gap-1.5 items-center"
+                      data-ocid={`xerox.material.row.${mi + 1}`}
+                    >
+                      <div className="col-span-5">
+                        <Select
+                          value={mat.productId}
+                          onValueChange={(v) => {
+                            const updated = [...xeroxMaterials];
+                            updated[mi] = { ...updated[mi], productId: v };
+                            setXeroxMaterials(updated);
+                          }}
+                        >
+                          <SelectTrigger className="h-7 text-xs">
+                            <SelectValue placeholder="Select product" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {products
+                              .filter(
+                                (p) =>
+                                  p.type === "general" || p.type === "service",
+                              )
+                              .map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {(p as { name: string }).name}
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          type="text"
+                          value={mat.label}
+                          onChange={(e) => {
+                            const updated = [...xeroxMaterials];
+                            updated[mi] = {
+                              ...updated[mi],
+                              label: e.target.value,
+                            };
+                            setXeroxMaterials(updated);
+                          }}
+                          placeholder="Label (e.g. Spring)"
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          type="number"
+                          value={mat.quantity}
+                          onChange={(e) => {
+                            const updated = [...xeroxMaterials];
+                            updated[mi] = {
+                              ...updated[mi],
+                              quantity: e.target.value,
+                            };
+                            setXeroxMaterials(updated);
+                          }}
+                          placeholder="Qty"
+                          className="h-7 text-xs"
+                          min="1"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setXeroxMaterials((prev) =>
+                            prev.filter((_, i) => i !== mi),
+                          )
+                        }
+                        className="col-span-1 text-destructive hover:text-destructive/80 flex justify-center"
+                        data-ocid={`xerox.material.delete_button.${mi + 1}`}
+                      >
+                        <span className="text-sm">✕</span>
+                      </button>
+                    </div>
+                  ))}
+                  {xeroxMaterials.length === 0 && (
+                    <p
+                      className="text-xs text-muted-foreground text-center py-2"
+                      data-ocid="xerox.materials.empty_state"
+                    >
+                      No materials added yet. Click "+ Add Material" to add.
+                    </p>
                   )}
                 </div>
                 <div className="flex items-center gap-2">

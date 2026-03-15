@@ -404,6 +404,7 @@ export const exportAllData = (): string => {
     activeCompanyId: getActiveCompanyId(),
     // Manual contacts (global)
     manualContacts: getManualContacts(),
+    manualPickupContacts: getManualPickupContacts(),
   };
 
   // Export shared data (the actual data store used by the app)
@@ -428,6 +429,19 @@ export const exportAllData = (): string => {
   allData[`courierQueries_${SHARED_DATA_ID}`] =
     getCourierQueries(SHARED_DATA_ID);
 
+  allData[`leads_${SHARED_DATA_ID}`] = getLeads(SHARED_DATA_ID);
+  allData[DM_AUTOMATIONS_KEY] = getAutomations();
+  allData[DM_API_SETTINGS_KEY] = getDMApiSettings();
+  allData[`campaigns_${SHARED_DATA_ID}`] = getCampaigns(SHARED_DATA_ID);
+  allData[`employees_${SHARED_DATA_ID}`] = getEmployees(SHARED_DATA_ID);
+  allData[`attendance_${SHARED_DATA_ID}`] = getAttendance(SHARED_DATA_ID);
+  allData[`leaveRequests_${SHARED_DATA_ID}`] = getLeaveRequests(SHARED_DATA_ID);
+  allData[`assets_${SHARED_DATA_ID}`] = getAssets(SHARED_DATA_ID);
+  allData[`purchaseOrders_${SHARED_DATA_ID}`] =
+    getPurchaseOrders(SHARED_DATA_ID);
+  allData[`stockRequisitions_${SHARED_DATA_ID}`] =
+    getStockRequisitions(SHARED_DATA_ID);
+
   // Also export per-company settings for each company (these are legitimately per-company)
   for (const company of companies) {
     const cid = company.id;
@@ -436,17 +450,24 @@ export const exportAllData = (): string => {
     // Preserve invoice sequences per company/GSTIN
     if (company.gstin) {
       const gstin = company.gstin.trim().toUpperCase();
-      const gstVal = localStorage.getItem(`sks_gst_inv_seq_${gstin}`);
-      if (gstVal) allData[`__gst_seq_${gstin}`] = Number.parseInt(gstVal, 10);
+      const gstVal =
+        localStorage.getItem(`sks_gst_inv_seq_${gstin}`) ??
+        String(company.invoiceSeq ?? 1);
+      allData[`__gst_seq_${gstin}`] = Number.parseInt(gstVal, 10);
     }
-    const nonGstVal = localStorage.getItem(`sks_nongst_inv_seq_${cid}`);
-    if (nonGstVal)
-      allData[`__nongst_seq_${cid}`] = Number.parseInt(nonGstVal, 10);
+    const nonGstVal =
+      localStorage.getItem(`sks_nongst_inv_seq_${cid}`) ??
+      String(company.nonGstInvoiceSeq ?? 1);
+    allData[`__nongst_seq_${cid}`] = Number.parseInt(nonGstVal, 10);
   }
 
   // Also export bill sequence counter
-  const billSeqVal = localStorage.getItem("sks_bill_seq_shared");
-  if (billSeqVal) allData.__bill_seq_shared = Number.parseInt(billSeqVal, 10);
+  const billSeqVal = localStorage.getItem("sks_bill_seq_shared") ?? String(1);
+  allData.__bill_seq_shared = Number.parseInt(billSeqVal, 10);
+
+  // Export FY archives
+  const fyArchivesData = localStorage.getItem(FY_ARCHIVES_KEY);
+  if (fyArchivesData) allData.fyArchives = JSON.parse(fyArchivesData);
 
   // Export all SKS daily AWB counters (scan all keys)
   for (let i = 0; i < localStorage.length; i++) {
@@ -455,6 +476,14 @@ export const exportAllData = (): string => {
       allData[`__awb_daily_${key}`] = localStorage.getItem(key);
     }
   }
+
+  // Export theme, designations, permissions
+  const themeData = localStorage.getItem("sks_theme");
+  if (themeData) allData.__theme_settings = JSON.parse(themeData);
+  const desigData = localStorage.getItem("sks_designations");
+  if (desigData) allData.__user_designations = JSON.parse(desigData);
+  const permsData = localStorage.getItem("sks_role_permissions");
+  if (permsData) allData.__role_permissions = JSON.parse(permsData);
 
   return JSON.stringify(allData, null, 2);
 };
@@ -559,6 +588,19 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
     }
   }
 
+  // Merge manual pickup contacts
+  const incomingPickupContacts = Array.isArray(data.manualPickupContacts)
+    ? (data.manualPickupContacts as ManualPickupContact[])
+    : [];
+  if (incomingPickupContacts.length > 0) {
+    const localPickupContacts = getManualPickupContacts();
+    const localIds = new Set(localPickupContacts.map((c) => c.id));
+    const newPcs = incomingPickupContacts.filter((c) => !localIds.has(c.id));
+    if (newPcs.length > 0) {
+      setManualPickupContacts([...localPickupContacts, ...newPcs]);
+    }
+  }
+
   // Helper: get incoming array from backup, checking SHARED_DATA_ID first then per-company keys
   const getIncoming = <T>(baseKey: string, companyId: string): T[] => {
     if (Array.isArray(data[`${baseKey}_${SHARED_DATA_ID}`])) {
@@ -624,6 +666,31 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
   mergeSharedArray(getDesignPricing, setDesignPricing, "designPricing");
   mergeSharedArray(getCourierQueries, setCourierQueries, "courierQueries");
 
+  mergeSharedArray(getLeads, (id, d) => setLeads(d, id), "leads");
+  mergeSharedArray(getCampaigns, (id, d) => setCampaigns(d, id), "campaigns");
+  mergeSharedArray(getEmployees, (id, d) => setEmployees(d, id), "employees");
+  mergeSharedArray(
+    getAttendance,
+    (id, d) => setAttendance(d, id),
+    "attendance",
+  );
+  mergeSharedArray(
+    getLeaveRequests,
+    (id, d) => setLeaveRequests(d, id),
+    "leaveRequests",
+  );
+  mergeSharedArray(getAssets, (id, d) => setAssets(d, id), "assets");
+  mergeSharedArray(
+    getPurchaseOrders,
+    (id, d) => setPurchaseOrders(d, id),
+    "purchaseOrders",
+  );
+  mergeSharedArray(
+    getStockRequisitions,
+    (id, d) => setStockRequisitions(d, id),
+    "stockRequisitions",
+  );
+
   // Merge customer tariffs (Record<customerId, assignments[]>)
   const getIncomingMap = (
     baseKey: string,
@@ -661,6 +728,63 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
     if (changed) setCustomerTariffMap(SHARED_DATA_ID, local);
   }
 
+  // Merge FY archives
+  if (Array.isArray(data.fyArchives)) {
+    const localArchives = getFYArchives();
+    const localIds = new Set(localArchives.map((a) => a.id));
+    const newArchives = (data.fyArchives as FinanceYearArchive[]).filter(
+      (a) => !localIds.has(a.id),
+    );
+    if (newArchives.length > 0)
+      setFYArchives([...localArchives, ...newArchives]);
+  }
+
+  // Update sequences on existing companies if incoming > local
+  {
+    const updatedLocalCompanies = getCompanies();
+    let companiesChanged = false;
+    for (const incoming of incomingCompanies) {
+      const local = updatedLocalCompanies.find((c) => c.id === incoming.id);
+      if (local) {
+        let changed = false;
+        if ((incoming.invoiceSeq ?? 1) > (local.invoiceSeq ?? 1)) {
+          local.invoiceSeq = incoming.invoiceSeq;
+          changed = true;
+        }
+        if ((incoming.nonGstInvoiceSeq ?? 1) > (local.nonGstInvoiceSeq ?? 1)) {
+          local.nonGstInvoiceSeq = incoming.nonGstInvoiceSeq;
+          changed = true;
+        }
+        if ((incoming.billSeq ?? 1) > (local.billSeq ?? 1)) {
+          local.billSeq = incoming.billSeq;
+          changed = true;
+        }
+        if (changed) companiesChanged = true;
+      }
+    }
+    if (companiesChanged) setCompanies(updatedLocalCompanies);
+  }
+
+  // Merge invoice sequences (take the MAX to avoid going backwards)
+  for (const [key, val] of Object.entries(data)) {
+    let storageKey: string | null = null;
+    if (key.startsWith("__gst_seq_")) {
+      storageKey = `sks_gst_inv_seq_$key.replace("__gst_seq_", "")`;
+    } else if (key.startsWith("__nongst_seq_")) {
+      storageKey = `sks_nongst_inv_seq_$key.replace("__nongst_seq_", "")`;
+    } else if (key === "__bill_seq_shared") {
+      storageKey = "sks_bill_seq_shared";
+    }
+    if (storageKey) {
+      const current = Number.parseInt(
+        localStorage.getItem(storageKey) || "0",
+        10,
+      );
+      const backup = Number.parseInt(String(val) || "0", 10);
+      if (backup > current) localStorage.setItem(storageKey, String(backup));
+    }
+  }
+
   return summary;
 };
 
@@ -679,6 +803,21 @@ export const getManualContacts = (): ManualContact[] =>
 
 export const setManualContacts = (contacts: ManualContact[]): void =>
   set("sks_manual_contacts", contacts);
+
+// ─── Manual Pickup Contacts (autocomplete for manual pickup entries) ──────────
+export interface ManualPickupContact {
+  id: string;
+  name: string;
+  phone: string;
+  location?: string;
+}
+
+export const getManualPickupContacts = (): ManualPickupContact[] =>
+  get<ManualPickupContact[]>("sks_manual_pickup_contacts", []);
+
+export const setManualPickupContacts = (
+  contacts: ManualPickupContact[],
+): void => set("sks_manual_pickup_contacts", contacts);
 
 // ─── Finance Year Archive ─────────────────────────────────────────────────────
 export interface FinanceYearArchive {
@@ -915,6 +1054,12 @@ export const importAllData = (jsonString: string): void => {
       JSON.stringify(data.manualContacts),
     );
   }
+  if (Array.isArray(data.manualPickupContacts)) {
+    localStorage.setItem(
+      "sks_manual_pickup_contacts",
+      JSON.stringify(data.manualPickupContacts),
+    );
+  }
 
   // Restore active company (only if that company exists in the backup)
   if (data.activeCompanyId && typeof data.activeCompanyId === "string") {
@@ -1020,6 +1165,36 @@ export const importAllData = (jsonString: string): void => {
   if (courierQueries !== undefined)
     setCourierQueries(SHARED_DATA_ID, courierQueries);
 
+  const leads = pickArray<Lead>("leads", firstCid);
+  if (leads !== undefined) setLeads(leads, SHARED_DATA_ID);
+
+  const campaigns = pickArray<Campaign>("campaigns", firstCid);
+  if (campaigns !== undefined) setCampaigns(campaigns, SHARED_DATA_ID);
+
+  const employees = pickArray<Employee>("employees", firstCid);
+  if (employees !== undefined) setEmployees(employees, SHARED_DATA_ID);
+
+  const attendance = pickArray<AttendanceRecord>("attendance", firstCid);
+  if (attendance !== undefined) setAttendance(attendance, SHARED_DATA_ID);
+
+  const leaveRequests = pickArray<LeaveRequest>("leaveRequests", firstCid);
+  if (leaveRequests !== undefined)
+    setLeaveRequests(leaveRequests, SHARED_DATA_ID);
+
+  const assets = pickArray<Asset>("assets", firstCid);
+  if (assets !== undefined) setAssets(assets, SHARED_DATA_ID);
+
+  const purchaseOrders = pickArray<PurchaseOrder>("purchaseOrders", firstCid);
+  if (purchaseOrders !== undefined)
+    setPurchaseOrders(purchaseOrders, SHARED_DATA_ID);
+
+  const stockRequisitions = pickArray<StockRequisition>(
+    "stockRequisitions",
+    firstCid,
+  );
+  if (stockRequisitions !== undefined)
+    setStockRequisitions(stockRequisitions, SHARED_DATA_ID);
+
   // Restore settings (per-company settings are legitimate per-company)
   // Also restore shared settings
   if (data[`settings_${SHARED_DATA_ID}`] !== undefined) {
@@ -1027,6 +1202,11 @@ export const importAllData = (jsonString: string): void => {
       SHARED_DATA_ID,
       data[`settings_${SHARED_DATA_ID}`] as CompanySettings,
     );
+  }
+
+  // Restore FY archives
+  if (Array.isArray(data.fyArchives)) {
+    localStorage.setItem(FY_ARCHIVES_KEY, JSON.stringify(data.fyArchives));
   }
 
   // Restore per-company settings and invoice sequences
@@ -1053,4 +1233,285 @@ export const importAllData = (jsonString: string): void => {
       );
     }
   }
+
+  // Restore shared bill sequence
+  if (data.__bill_seq_shared !== undefined) {
+    localStorage.setItem("sks_bill_seq_shared", String(data.__bill_seq_shared));
+  }
+
+  // Restore theme, designations, permissions
+  if (data.__theme_settings) {
+    localStorage.setItem("sks_theme", JSON.stringify(data.__theme_settings));
+  }
+  if (Array.isArray(data.__user_designations)) {
+    localStorage.setItem(
+      "sks_designations",
+      JSON.stringify(data.__user_designations),
+    );
+  }
+  if (data.__role_permissions && typeof data.__role_permissions === "object") {
+    localStorage.setItem(
+      "sks_role_permissions",
+      JSON.stringify(data.__role_permissions),
+    );
+  }
 };
+
+// ─── Digital Marketing ────────────────────────────────────────────────────────
+export interface Lead {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  address?: string;
+  pincode?: string;
+  city?: string;
+  serviceType: "domestic-courier" | "international-courier" | "general-product";
+  productInterest?: string;
+  leadSource:
+    | "Walk-in"
+    | "Referral"
+    | "WhatsApp"
+    | "Online"
+    | "Social Media"
+    | "Cold Call"
+    | "Other";
+  status: "New" | "Contacted" | "Interested" | "Converted" | "Lost";
+  notes?: string;
+  assignedTo?: string;
+  createdAt: string;
+  updatedAt: string;
+  followUpDate?: string;
+  followUpNote?: string;
+  convertedBillId?: string;
+}
+
+export interface Campaign {
+  id: string;
+  name: string;
+  type: "WhatsApp" | "SMS" | "Email" | "Social Media" | "Flyer";
+  targetService:
+    | "domestic-courier"
+    | "international-courier"
+    | "general-product"
+    | "all";
+  description?: string;
+  startDate: string;
+  endDate?: string;
+  status: "Draft" | "Active" | "Completed" | "Paused";
+  reachCount: number;
+  convertedCount: number;
+  budget?: number;
+  notes?: string;
+  createdAt: string;
+}
+
+export const getLeads = (companyId = SHARED_DATA_ID): Lead[] =>
+  get<Lead[]>(`leads_${companyId}`, []);
+export const setLeads = (leads: Lead[], companyId = SHARED_DATA_ID): void =>
+  set(`leads_${companyId}`, leads);
+
+export const getCampaigns = (companyId = SHARED_DATA_ID): Campaign[] =>
+  get<Campaign[]>(`campaigns_${companyId}`, []);
+export const setCampaigns = (
+  campaigns: Campaign[],
+  companyId = SHARED_DATA_ID,
+): void => set(`campaigns_${companyId}`, campaigns);
+
+// ─── ERP ─────────────────────────────────────────────────────────────────────
+export interface Employee {
+  id: string;
+  employeeId: string;
+  name: string;
+  phone: string;
+  email?: string;
+  department: string;
+  designation: string;
+  joinDate: string;
+  salary: number;
+  salaryType: "Monthly" | "Daily" | "Hourly";
+  address?: string;
+  aadhar?: string;
+  pan?: string;
+  bankAccount?: string;
+  bankIfsc?: string;
+  status: "Active" | "Inactive" | "On Leave";
+  createdAt: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  employeeId: string;
+  date: string;
+  status: "Present" | "Absent" | "Half Day" | "Holiday" | "Leave";
+  checkIn?: string;
+  checkOut?: string;
+  notes?: string;
+}
+
+export interface LeaveRequest {
+  id: string;
+  employeeId: string;
+  leaveType: "Casual" | "Sick" | "Annual" | "Unpaid" | "Other";
+  fromDate: string;
+  toDate: string;
+  reason: string;
+  status: "Pending" | "Approved" | "Rejected";
+  appliedAt: string;
+  reviewedBy?: string;
+  reviewNote?: string;
+}
+
+export interface Asset {
+  id: string;
+  name: string;
+  category: string;
+  purchaseDate: string;
+  purchaseCost: number;
+  currentValue: number;
+  depreciationPercent: number;
+  location: string;
+  serialNumber?: string;
+  vendor?: string;
+  warrantyExpiry?: string;
+  status: "Active" | "Under Maintenance" | "Disposed";
+  notes?: string;
+  createdAt: string;
+}
+
+export interface PurchaseOrder {
+  id: string;
+  poNumber: string;
+  vendorId?: string;
+  vendorName: string;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    unit: string;
+    unitPrice: number;
+    gstRate: number;
+    amount: number;
+  }>;
+  subtotal: number;
+  gstAmount: number;
+  totalAmount: number;
+  expectedDelivery?: string;
+  status:
+    | "Draft"
+    | "Approved"
+    | "Ordered"
+    | "Partially Received"
+    | "Received"
+    | "Cancelled";
+  notes?: string;
+  createdAt: string;
+  approvedBy?: string;
+  linkedInvoiceId?: string;
+}
+
+export interface StockRequisition {
+  id: string;
+  reqNumber: string;
+  department: string;
+  requestedBy: string;
+  items: Array<{
+    productName: string;
+    quantity: number;
+    unit: string;
+    reason: string;
+  }>;
+  status: "Pending" | "Approved" | "Rejected" | "Fulfilled";
+  priority: "Low" | "Medium" | "High" | "Urgent";
+  requiredBy?: string;
+  notes?: string;
+  createdAt: string;
+  reviewedBy?: string;
+  reviewNote?: string;
+}
+
+export const getEmployees = (companyId = SHARED_DATA_ID): Employee[] =>
+  get<Employee[]>(`employees_${companyId}`, []);
+export const setEmployees = (
+  employees: Employee[],
+  companyId = SHARED_DATA_ID,
+): void => set(`employees_${companyId}`, employees);
+
+export const getAttendance = (companyId = SHARED_DATA_ID): AttendanceRecord[] =>
+  get<AttendanceRecord[]>(`attendance_${companyId}`, []);
+export const setAttendance = (
+  records: AttendanceRecord[],
+  companyId = SHARED_DATA_ID,
+): void => set(`attendance_${companyId}`, records);
+
+export const getLeaveRequests = (companyId = SHARED_DATA_ID): LeaveRequest[] =>
+  get<LeaveRequest[]>(`leaveRequests_${companyId}`, []);
+export const setLeaveRequests = (
+  requests: LeaveRequest[],
+  companyId = SHARED_DATA_ID,
+): void => set(`leaveRequests_${companyId}`, requests);
+
+export const getAssets = (companyId = SHARED_DATA_ID): Asset[] =>
+  get<Asset[]>(`assets_${companyId}`, []);
+export const setAssets = (assets: Asset[], companyId = SHARED_DATA_ID): void =>
+  set(`assets_${companyId}`, assets);
+
+export const getPurchaseOrders = (
+  companyId = SHARED_DATA_ID,
+): PurchaseOrder[] => get<PurchaseOrder[]>(`purchaseOrders_${companyId}`, []);
+export const setPurchaseOrders = (
+  orders: PurchaseOrder[],
+  companyId = SHARED_DATA_ID,
+): void => set(`purchaseOrders_${companyId}`, orders);
+
+export const getStockRequisitions = (
+  companyId = SHARED_DATA_ID,
+): StockRequisition[] =>
+  get<StockRequisition[]>(`stockRequisitions_${companyId}`, []);
+export const setStockRequisitions = (
+  reqs: StockRequisition[],
+  companyId = SHARED_DATA_ID,
+): void => set(`stockRequisitions_${companyId}`, reqs);
+
+// ─── Automated Campaigns (Digital Marketing) ─────────────────────────────────
+export interface AutomatedCampaign {
+  id: string;
+  name: string;
+  channel:
+    | "WhatsApp"
+    | "Email"
+    | "Facebook Post"
+    | "Instagram Post"
+    | "Telegram";
+  messageTemplate: string;
+  schedule: "One-time" | "Daily" | "Weekly" | "Monthly";
+  targetAudience:
+    | "All Customers"
+    | "Domestic Courier Leads"
+    | "International Leads"
+    | "Converted Customers";
+  startDateTime: string;
+  status: "Active" | "Paused" | "Draft";
+  lastRun?: string;
+  nextRun?: string;
+  createdAt: string;
+}
+
+const DM_AUTOMATIONS_KEY = "dm_automations_shared";
+const DM_API_SETTINGS_KEY = "dm_api_settings";
+
+export interface DMApiSettings {
+  whatsappApiKey?: string;
+  facebookApiToken?: string;
+  emailApiKey?: string;
+  telegramBotToken?: string;
+}
+
+export const getAutomations = (): AutomatedCampaign[] =>
+  get<AutomatedCampaign[]>(DM_AUTOMATIONS_KEY, []);
+export const setAutomations = (items: AutomatedCampaign[]): void =>
+  set(DM_AUTOMATIONS_KEY, items);
+
+export const getDMApiSettings = (): DMApiSettings =>
+  get<DMApiSettings>(DM_API_SETTINGS_KEY, {});
+export const setDMApiSettings = (settings: DMApiSettings): void =>
+  set(DM_API_SETTINGS_KEY, settings);

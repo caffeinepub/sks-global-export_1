@@ -66,11 +66,7 @@ import type {
   CompanySettings,
   Invoice,
 } from "../types";
-import {
-  downloadAsJPEG,
-  downloadAsPDF,
-  downloadAsPNG,
-} from "../utils/downloadHelpers";
+import { downloadAsJPEG, downloadAsPDF } from "../utils/downloadHelpers";
 import {
   amountToWords,
   exportToExcel,
@@ -615,13 +611,20 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
                   )}
                 </td>
                 <td style={{ ...S.td, fontSize: "9px" }}>
-                  {item.productType === "service" ? "9983" : "9967"}
+                  {(item as { hsnCode?: string }).hsnCode ||
+                    (item.productType === "service" ? "9983" : "9967")}
                 </td>
                 <td style={{ ...S.td, fontSize: "10px" }}>
                   {item.quantity} {item.unit}
                 </td>
                 <td style={{ ...S.tdR, fontSize: "10px" }}>
-                  {formatCurrency(item.unitPrice)}
+                  {isGst
+                    ? formatCurrency(
+                        item.totalPrice /
+                          item.quantity /
+                          (1 + (item.gstRate || 0) / 100),
+                      )
+                    : formatCurrency(item.unitPrice)}
                 </td>
                 {isGst && (
                   <td style={{ ...S.tdR, fontSize: "10px" }}>
@@ -1174,7 +1177,11 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
                   {item.quantity} {item.unit}
                 </td>
                 <td style={{ padding: "4px 6px", textAlign: "right" }}>
-                  {formatCurrency(item.unitPrice)}
+                  {formatCurrency(
+                    item.totalPrice /
+                      item.quantity /
+                      (1 + (item.gstRate || 0) / 100),
+                  )}
                 </td>
                 <td style={{ padding: "4px 6px", textAlign: "right" }}>
                   {item.gstRate > 0 ? `${item.gstRate}%` : "0%"}
@@ -1808,7 +1815,11 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
                   {item.quantity} {item.unit}
                 </td>
                 <td style={{ padding: "5px 7px", textAlign: "right" }}>
-                  {formatCurrency(item.unitPrice)}
+                  {formatCurrency(
+                    item.totalPrice /
+                      item.quantity /
+                      (1 + (item.gstRate || 0) / 100),
+                  )}
                 </td>
                 <td style={{ padding: "5px 7px", textAlign: "right" }}>
                   {item.gstRate > 0 ? `${item.gstRate}%` : "0%"}
@@ -2687,27 +2698,15 @@ ${html}
     }
   };
 
-  const handleDownloadPNG = async () => {
-    if (!invoice || !printRef.current) return;
-    setDownloading("png");
-    try {
-      await downloadAsPNG(printRef.current, `Invoice-${invoice.invoiceNo}.png`);
-    } catch {
-      toast.error("PNG download failed. Please try again.");
-    } finally {
-      setDownloading(null);
-    }
-  };
-
   return (
     <Dialog open={!!invoice} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[95vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[95vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Invoice {invoice?.invoiceNo}</DialogTitle>
         </DialogHeader>
 
         {invoice && (
-          <>
+          <div className="flex-1 overflow-y-auto min-h-0">
             {/* Template switcher */}
             <TemplateSwitcher
               selected={selectedTemplate}
@@ -2742,7 +2741,7 @@ ${html}
                 />
               )}
             </div>
-          </>
+          </div>
         )}
 
         <div className="flex flex-wrap gap-2 mt-4">
@@ -2770,15 +2769,6 @@ ${html}
           >
             <FileImage className="w-4 h-4 mr-2" />
             {downloading === "jpeg" ? "Downloading..." : "JPEG"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDownloadPNG}
-            disabled={printing || !!downloading}
-            data-ocid="invoice.download_png.button"
-          >
-            <FileImage className="w-4 h-4 mr-2" />
-            {downloading === "png" ? "Downloading..." : "PNG"}
           </Button>
           {invoice && (
             <>
@@ -2979,7 +2969,13 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
     const customer = customers.find((c) => c.id === firstItem.customerId);
 
     const allBillItems = selectedItems as BillItem[];
-    const subtotal = allBillItems.reduce((sum, i) => sum + i.totalPrice, 0);
+    // Taxable base (excl. GST) — reverse-calculate from GST-inclusive totalPrice
+    const subtotal = allBillItems.reduce(
+      (sum, i) => sum + (i.totalPrice * 100) / (100 + (i.gstRate || 0)),
+      0,
+    );
+    // Grand total = sum of all GST-inclusive item totals
+    const grandTotal = allBillItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
     const cgst =
       pendingInvoiceType === "gst"
@@ -3031,7 +3027,7 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       cgst,
       sgst,
       igst: 0,
-      total: subtotal,
+      total: grandTotal,
       paymentMethod: "cash",
       paymentStatus: "pending",
       createdAt: new Date().toISOString(),

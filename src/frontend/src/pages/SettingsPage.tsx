@@ -83,17 +83,24 @@ import {
   getSampleStockUpdateCSV,
   getSampleVendorsCSV,
 } from "../utils/excelHelpers";
-import { generateId, hashPassword } from "../utils/helpers";
+import {
+  generateCompanyPrefix,
+  generateId,
+  getCurrentFYCode,
+  hashPassword,
+} from "../utils/helpers";
 import type {
   BackupSummary,
   FinanceYearArchive,
   MergeSummary,
 } from "../utils/storage";
 import {
+  type DMApiSettings,
   SHARED_DATA_ID,
   exportAllData,
   getBills,
   getCurrentFYInfo,
+  getDMApiSettings,
   getExpenses,
   getFYArchives,
   getGSTInvoiceSeq,
@@ -103,13 +110,24 @@ import {
   importAllData,
   mergeImportData,
   parseBackupSummary,
+  setDMApiSettings,
   setFYArchives,
   setGSTInvoiceSeq,
   setLastBackupTime,
   setNonGSTInvoiceSeq,
 } from "../utils/storage";
+import {
+  applyTheme,
+  resetTheme,
+  themeLabels,
+  themes,
+} from "../utils/themeUtils";
 
 export function SettingsPage() {
+  const [dmApiSettings, setDmApiSettings] = useState<DMApiSettings>(() =>
+    getDMApiSettings(),
+  );
+  const [dmApiEdits, setDmApiEdits] = useState<DMApiSettings>({});
   const {
     activeCompany,
     companies,
@@ -186,12 +204,23 @@ export function SettingsPage() {
 
   // Settings form
   const [gstPrefix, setGstPrefix] = useState(
-    settings?.gstInvoicePrefix || "GST/",
+    settings?.gstInvoicePrefix ||
+      (activeCompany
+        ? `${generateCompanyPrefix(activeCompany.name)}${getCurrentFYCode()}INV`
+        : "GST/"),
   );
   const [nonGstPrefix, setNonGstPrefix] = useState(
-    settings?.nonGstInvoicePrefix || "INV/",
+    settings?.nonGstInvoicePrefix ||
+      (activeCompany
+        ? `${generateCompanyPrefix(activeCompany.name)}${getCurrentFYCode()}`
+        : "INV/"),
   );
-  const [billPrefix, setBillPrefix] = useState(settings?.billPrefix || "BILL/");
+  const [billPrefix, setBillPrefix] = useState(
+    settings?.billPrefix ||
+      (activeCompany
+        ? `${generateCompanyPrefix(activeCompany.name)}BILL`
+        : "BILL/"),
+  );
   const [billSeq, setBillSeq] = useState(String(settings?.billSeq || 1));
   const [autoBackup, setAutoBackup] = useState<boolean>(
     settings?.autoBackup ?? true,
@@ -355,11 +384,16 @@ export function SettingsPage() {
       bankBranch: compBankBranch || undefined,
       upiId: compUpiId || undefined,
       upiName: compUpiName || undefined,
-      invoicePrefix: editingCompany?.invoicePrefix || "GST/",
+      invoicePrefix:
+        editingCompany?.invoicePrefix ||
+        `${generateCompanyPrefix(compName)}${getCurrentFYCode()}INV`,
       invoiceSeq: editingCompany?.invoiceSeq || 1,
-      nonGstInvoicePrefix: editingCompany?.nonGstInvoicePrefix || "INV/",
+      nonGstInvoicePrefix:
+        editingCompany?.nonGstInvoicePrefix ||
+        `${generateCompanyPrefix(compName)}${getCurrentFYCode()}`,
       nonGstInvoiceSeq: editingCompany?.nonGstInvoiceSeq || 1,
-      billPrefix: editingCompany?.billPrefix || "BILL/",
+      billPrefix:
+        editingCompany?.billPrefix || `${generateCompanyPrefix(compName)}BILL`,
       billSeq: editingCompany?.billSeq || 1,
     };
     if (editingCompany) {
@@ -709,6 +743,31 @@ export function SettingsPage() {
           >
             <Calendar className="w-3.5 h-3.5 mr-1" /> Finance Year
           </TabsTrigger>
+          <TabsTrigger
+            value="apiIntegrations"
+            className="text-xs"
+            data-ocid="settings.api_integrations.tab"
+          >
+            🔗 API Integrations
+          </TabsTrigger>
+          {currentUser?.role === "admin" && (
+            <TabsTrigger
+              value="appearance"
+              className="text-xs"
+              data-ocid="settings.appearance.tab"
+            >
+              🎨 Appearance
+            </TabsTrigger>
+          )}
+          {currentUser?.role === "admin" && (
+            <TabsTrigger
+              value="permissions"
+              className="text-xs"
+              data-ocid="settings.permissions.tab"
+            >
+              🔐 Permissions
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Company Settings */}
@@ -820,13 +879,29 @@ export function SettingsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs">GST Invoice Prefix</Label>
-                    <Input
-                      value={gstPrefix}
-                      onChange={(e) => setGstPrefix(e.target.value)}
-                      className="mt-1 text-sm font-mono"
-                      placeholder="GST/"
-                      data-ocid="settings.gst_prefix.input"
-                    />
+                    <div className="mt-1 flex gap-1">
+                      <Input
+                        value={gstPrefix}
+                        onChange={(e) => setGstPrefix(e.target.value)}
+                        className="text-sm font-mono"
+                        placeholder="GST/"
+                        data-ocid="settings.gst_prefix.input"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs px-2 shrink-0"
+                        onClick={() =>
+                          activeCompany &&
+                          setGstPrefix(
+                            `${generateCompanyPrefix(activeCompany.name)}${getCurrentFYCode()}INV`,
+                          )
+                        }
+                        title="Auto-generate from company name"
+                      >
+                        🔄 Auto
+                      </Button>
+                    </div>
                   </div>
                   <div>
                     <Label className="text-xs">
@@ -890,13 +965,30 @@ export function SettingsPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <Label className="text-xs">Non-GST Invoice Prefix</Label>
-                    <Input
-                      value={nonGstPrefix}
-                      onChange={(e) => setNonGstPrefix(e.target.value)}
-                      className="mt-1 text-sm font-mono"
-                      placeholder="INV/"
-                      data-ocid="settings.nongst_prefix.input"
-                    />
+                    <div className="mt-1 flex gap-1">
+                      <Input
+                        value={nonGstPrefix}
+                        onChange={(e) => setNonGstPrefix(e.target.value)}
+                        className="text-sm font-mono"
+                        placeholder="INV/"
+                        data-ocid="settings.nongst_prefix.input"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs px-2 shrink-0"
+                        onClick={() =>
+                          activeCompany &&
+                          setNonGstPrefix(
+                            `${generateCompanyPrefix(activeCompany.name)}${getCurrentFYCode()}`,
+                          )
+                        }
+                        title="Auto-generate from company name"
+                        data-ocid="settings.nongst_prefix_auto.button"
+                      >
+                        🔄 Auto
+                      </Button>
+                    </div>
                   </div>
                   <div>
                     <Label className="text-xs">
@@ -954,26 +1046,72 @@ export function SettingsPage() {
               </div>
 
               {/* Bill settings */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label className="text-xs">Bill Prefix</Label>
-                  <Input
-                    value={billPrefix}
-                    onChange={(e) => setBillPrefix(e.target.value)}
-                    className="mt-1 text-sm font-mono"
-                    placeholder="BILL/"
-                    data-ocid="settings.bill_prefix.input"
-                  />
-                </div>
-                <div>
-                  <Label className="text-xs">Next Bill No</Label>
-                  <Input
-                    type="number"
-                    value={billSeq}
-                    onChange={(e) => setBillSeq(e.target.value)}
-                    className="mt-1 text-sm"
-                    data-ocid="settings.bill_seq.input"
-                  />
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 space-y-3">
+                <p className="text-xs font-semibold text-amber-800">
+                  Bill Series (per company)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs">Bill Prefix</Label>
+                    <div className="mt-1 flex gap-1">
+                      <Input
+                        value={billPrefix}
+                        onChange={(e) => setBillPrefix(e.target.value)}
+                        className="text-sm font-mono"
+                        placeholder="BILL/"
+                        data-ocid="settings.bill_prefix.input"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs px-2 shrink-0"
+                        onClick={() =>
+                          activeCompany &&
+                          setBillPrefix(
+                            `${generateCompanyPrefix(activeCompany.name)}BILL`,
+                          )
+                        }
+                        title="Auto-generate from company name"
+                        data-ocid="settings.bill_prefix_auto.button"
+                      >
+                        🔄 Auto
+                      </Button>
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Next Bill No (editable)</Label>
+                    <div className="mt-1 flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min="1"
+                        value={billSeq}
+                        onChange={(e) => setBillSeq(e.target.value)}
+                        className="text-sm font-mono w-28 border-amber-300"
+                        data-ocid="settings.bill_seq.input"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="text-xs border-amber-400 text-amber-700 hover:bg-amber-50"
+                        onClick={() => {
+                          if (!activeCompany) {
+                            toast.error("No active company");
+                            return;
+                          }
+                          const val = Number.parseInt(billSeq, 10);
+                          if (!Number.isNaN(val) && val >= 1) {
+                            updateCompany({ ...activeCompany, billSeq: val });
+                            toast.success(`Bill sequence set to ${val}`);
+                          } else {
+                            toast.error("Enter a valid number (minimum 1)");
+                          }
+                        }}
+                        data-ocid="settings.bill_seq.save_button"
+                      >
+                        Set
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div className="pt-2 border-t border-border">
@@ -1787,6 +1925,121 @@ export function SettingsPage() {
             )}
           </div>
         </TabsContent>
+
+        {/* API Integrations Tab */}
+        <TabsContent value="apiIntegrations" className="mt-4 space-y-6">
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">
+              Digital Marketing API Keys
+            </h3>
+            <p className="text-sm text-muted-foreground mt-1">
+              Configure API keys for automated campaigns in Digital Marketing →
+              Automation tab.
+            </p>
+          </div>
+          <div className="bg-white rounded-xl border border-border shadow-sm overflow-hidden">
+            <div className="p-5 space-y-5">
+              {(
+                [
+                  {
+                    key: "whatsappApiKey" as keyof DMApiSettings,
+                    label: "WhatsApp Business API Key",
+                    help: "How to get: Go to business.facebook.com → WhatsApp → API Setup → Create API Key",
+                  },
+                  {
+                    key: "facebookApiToken" as keyof DMApiSettings,
+                    label: "Facebook / Instagram Graph API Token",
+                    help: "How to get: Go to developers.facebook.com → My Apps → Select App → Access Token",
+                  },
+                  {
+                    key: "emailApiKey" as keyof DMApiSettings,
+                    label: "Email API Key (SendGrid)",
+                    help: "How to get: Go to app.sendgrid.com → Settings → API Keys → Create API Key (Full Access or Restricted - Mail Send)",
+                  },
+                  {
+                    key: "telegramBotToken" as keyof DMApiSettings,
+                    label: "Telegram Bot Token",
+                    help: "How to get: Open Telegram → Search @BotFather → Send /newbot → Follow steps to get token",
+                  },
+                ] as { key: keyof DMApiSettings; label: string; help: string }[]
+              ).map(({ key, label, help }) => (
+                <div key={key} className="space-y-2">
+                  <Label className="font-medium">{label}</Label>
+                  <p className="text-xs text-muted-foreground bg-muted/40 rounded px-3 py-2">
+                    {help}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      className="flex-1 px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground"
+                      placeholder={
+                        dmApiSettings[key]
+                          ? "••••••••••••••••"
+                          : "Enter API key…"
+                      }
+                      value={dmApiEdits[key] ?? ""}
+                      onChange={(e) =>
+                        setDmApiEdits((prev) => ({
+                          ...prev,
+                          [key]: e.target.value,
+                        }))
+                      }
+                      data-ocid={`settings.api_${key}.input`}
+                    />
+                    {dmApiSettings[key] && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          const updated = { ...dmApiSettings };
+                          delete updated[key];
+                          setDmApiSettings(updated);
+                          setDMApiSettings(updated);
+                          toast.success(`${label} removed`);
+                        }}
+                        className="text-destructive hover:text-destructive"
+                        data-ocid={`settings.api_${key}.delete_button`}
+                      >
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                  {dmApiSettings[key] && (
+                    <p className="text-xs text-success">✓ Key saved</p>
+                  )}
+                </div>
+              ))}
+              <div className="flex justify-end pt-2 border-t border-border">
+                <Button
+                  onClick={() => {
+                    const merged = { ...dmApiSettings, ...dmApiEdits };
+                    setDmApiSettings(merged);
+                    setDMApiSettings(merged);
+                    setDmApiEdits({});
+                    toast.success("API settings saved");
+                  }}
+                  data-ocid="settings.api.save_button"
+                >
+                  Save API Settings
+                </Button>
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* Appearance Tab — Admin Only */}
+        {currentUser?.role === "admin" && (
+          <TabsContent value="appearance" className="mt-4">
+            <AppearanceTab />
+          </TabsContent>
+        )}
+
+        {/* Permissions Tab — Admin Only */}
+        {currentUser?.role === "admin" && (
+          <TabsContent value="permissions" className="mt-4">
+            <PermissionsTab />
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Import Backup Dialog — two options */}
@@ -1806,7 +2059,7 @@ export function SettingsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Upload className="w-5 h-5 text-amber-600" />
@@ -2102,7 +2355,7 @@ export function SettingsPage() {
           }
         }}
       >
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <RefreshCw className="w-5 h-5 text-blue-600" />
@@ -2385,7 +2638,7 @@ export function SettingsPage() {
 
       {/* Company Form Dialog */}
       <Dialog open={showCompanyForm} onOpenChange={setShowCompanyForm}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingCompany ? "Edit" : "Add"} Company</DialogTitle>
           </DialogHeader>
@@ -2583,7 +2836,7 @@ export function SettingsPage() {
           if (!open) setShowUserForm(false);
         }}
       >
-        <DialogContent>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingUser ? "Edit" : "Add"} User</DialogTitle>
           </DialogHeader>
@@ -2836,6 +3089,329 @@ export function SettingsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ─── Appearance Tab Component ────────────────────────────────────────────────
+function AppearanceTab() {
+  const saved = (() => {
+    try {
+      return JSON.parse(localStorage.getItem("sks_theme") || "{}");
+    } catch {
+      return {};
+    }
+  })();
+  const [activeTheme, setActiveTheme] = useState<string>(
+    saved.name || "professional",
+  );
+  const [customPrimary, setCustomPrimary] = useState<string>(
+    saved.customPrimary || "",
+  );
+
+  const handleApply = (name: string, cp?: string) => {
+    setActiveTheme(name);
+    applyTheme(name, cp);
+    toast.success(`Theme "${themeLabels[name]}" applied`);
+  };
+
+  const handleReset = () => {
+    resetTheme();
+    setActiveTheme("professional");
+    setCustomPrimary("");
+    toast.success("Theme reset to default");
+  };
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="bg-white rounded-xl border border-border p-6 shadow-xs space-y-5">
+        <div>
+          <h3 className="text-sm font-semibold">Application Theme</h3>
+          <p className="text-xs text-muted-foreground mt-1">
+            Choose a colour theme for the entire application. Only admins can
+            change this.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {Object.entries(themes).map(([key, t]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => handleApply(key, customPrimary || undefined)}
+              data-ocid={`settings.theme_${key}.button`}
+              className={`rounded-xl border-2 p-3 text-left transition-all ${activeTheme === key ? "border-primary shadow-md scale-[1.02]" : "border-border hover:border-primary/40"}`}
+            >
+              <div className="flex gap-1.5 mb-2">
+                <div
+                  className="w-5 h-5 rounded-full"
+                  style={{ background: t.primary }}
+                />
+                <div
+                  className="w-5 h-5 rounded-full"
+                  style={{ background: t.secondary }}
+                />
+                <div
+                  className="w-5 h-5 rounded-full"
+                  style={{ background: t.accent }}
+                />
+              </div>
+              <p className="text-xs font-semibold">{themeLabels[key]}</p>
+              <div
+                className="w-full h-2 rounded mt-1"
+                style={{ background: t.sidebar }}
+              />
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-2 pt-2 border-t border-border">
+          <label htmlFor="custom-color-picker" className="text-xs font-medium">
+            Custom Primary Colour Override
+          </label>
+          <div className="flex gap-2 items-center">
+            <input
+              type="color"
+              value={
+                customPrimary ||
+                themes[activeTheme as keyof typeof themes]?.primary ||
+                "#1e40af"
+              }
+              onChange={(e) => setCustomPrimary(e.target.value)}
+              className="w-10 h-10 rounded cursor-pointer border border-border"
+              data-ocid="settings.custom_color.input"
+            />
+            <span className="text-xs font-mono text-muted-foreground">
+              {customPrimary || "Default"}
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                handleApply(activeTheme, customPrimary || undefined)
+              }
+              className="ml-auto px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90"
+              data-ocid="settings.apply_theme.button"
+            >
+              Apply
+            </button>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleReset}
+          className="text-xs text-muted-foreground underline hover:text-foreground"
+          data-ocid="settings.reset_theme.button"
+        >
+          Reset to Default Theme
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Permissions Tab Component ────────────────────────────────────────────────
+const MODULES = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "billing", label: "Billing POS" },
+  { key: "bills", label: "Bills" },
+  { key: "invoices", label: "Invoices" },
+  { key: "customers", label: "Customers" },
+  { key: "vendors", label: "Vendors" },
+  { key: "products", label: "Products" },
+  { key: "inventory", label: "Inventory" },
+  { key: "pickups", label: "Pickups" },
+  { key: "reports", label: "Reports" },
+  { key: "design", label: "Design Studio" },
+  { key: "marketing", label: "Digital Marketing" },
+  { key: "erp", label: "ERP" },
+  { key: "settings", label: "Settings" },
+];
+
+type RolePerms = Record<string, boolean>;
+type AllPerms = { manager: RolePerms; operator: RolePerms };
+
+function getDefaultPerms(): AllPerms {
+  const all = Object.fromEntries(MODULES.map((m) => [m.key, true]));
+  const ops = Object.fromEntries(
+    MODULES.map((m) => [m.key, !["settings", "erp"].includes(m.key)]),
+  );
+  return { manager: all, operator: ops };
+}
+
+function loadPerms(): AllPerms {
+  try {
+    const s = localStorage.getItem("sks_role_permissions");
+    if (s) return JSON.parse(s);
+  } catch {
+    /* ignore */
+  }
+  return getDefaultPerms();
+}
+
+function savePerms(p: AllPerms) {
+  localStorage.setItem("sks_role_permissions", JSON.stringify(p));
+}
+
+function PermissionsTab() {
+  const [perms, setPerms] = useState<AllPerms>(loadPerms);
+  const [designations, setDesignations] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem("sks_designations") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [newDesig, setNewDesig] = useState("");
+
+  const BUILTIN_DESIGNATIONS = [
+    "Delivery & Pickup",
+    "Receptionist",
+    "Supervisor",
+    "Accountant",
+    "Manager",
+    "Cashier",
+    "Sales Executive",
+  ];
+  const allDesignations = [
+    ...BUILTIN_DESIGNATIONS,
+    ...designations.filter((d) => !BUILTIN_DESIGNATIONS.includes(d)),
+  ];
+
+  const togglePerm = (role: "manager" | "operator", module: string) => {
+    const updated = {
+      ...perms,
+      [role]: { ...perms[role], [module]: !perms[role][module] },
+    };
+    setPerms(updated);
+    savePerms(updated);
+    toast.success("Permission updated");
+  };
+
+  const addDesig = () => {
+    if (!newDesig.trim()) return;
+    if (allDesignations.includes(newDesig.trim())) {
+      toast.error("Already exists");
+      return;
+    }
+    const updated = [...designations, newDesig.trim()];
+    setDesignations(updated);
+    localStorage.setItem("sks_designations", JSON.stringify(updated));
+    setNewDesig("");
+    toast.success("Designation added");
+  };
+
+  const removeDesig = (d: string) => {
+    if (BUILTIN_DESIGNATIONS.includes(d)) return;
+    const updated = designations.filter((x) => x !== d);
+    setDesignations(updated);
+    localStorage.setItem("sks_designations", JSON.stringify(updated));
+  };
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      {/* Designations */}
+      <div className="bg-white rounded-xl border border-border p-6 shadow-xs space-y-4">
+        <h3 className="text-sm font-semibold">User Designations</h3>
+        <p className="text-xs text-muted-foreground">
+          Manage designations for staff roles like Delivery & Pickup,
+          Receptionist, etc.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {allDesignations.map((d) => (
+            <span
+              key={d}
+              className="flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted text-xs font-medium border border-border"
+            >
+              {d}
+              {!BUILTIN_DESIGNATIONS.includes(d) && (
+                <button
+                  type="button"
+                  onClick={() => removeDesig(d)}
+                  className="text-muted-foreground hover:text-destructive ml-1"
+                  data-ocid="settings.designation.delete_button"
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newDesig}
+            onChange={(e) => setNewDesig(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && addDesig()}
+            placeholder="New designation name..."
+            className="flex-1 px-3 py-1.5 text-sm border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary/30"
+            data-ocid="settings.designation.input"
+          />
+          <button
+            type="button"
+            onClick={addDesig}
+            className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md text-xs font-medium hover:bg-primary/90"
+            data-ocid="settings.designation.submit_button"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Role Permissions Matrix */}
+      <div className="bg-white rounded-xl border border-border p-6 shadow-xs space-y-4">
+        <h3 className="text-sm font-semibold">Role Permissions</h3>
+        <p className="text-xs text-muted-foreground">
+          Control which modules each role can access. Admin always has full
+          access.
+        </p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left py-2 pr-4 font-semibold text-muted-foreground">
+                  Module
+                </th>
+                <th className="text-center px-4 py-2 font-semibold">Admin</th>
+                <th className="text-center px-4 py-2 font-semibold">Manager</th>
+                <th className="text-center px-4 py-2 font-semibold">
+                  Operator
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {MODULES.map((m) => (
+                <tr
+                  key={m.key}
+                  className="border-b border-border/50 hover:bg-muted/20"
+                >
+                  <td className="py-2 pr-4 font-medium">{m.label}</td>
+                  <td className="text-center px-4">
+                    <span className="text-green-600 font-bold">✓</span>
+                  </td>
+                  <td className="text-center px-4">
+                    <input
+                      type="checkbox"
+                      checked={perms.manager[m.key] ?? true}
+                      onChange={() => togglePerm("manager", m.key)}
+                      className="cursor-pointer accent-primary"
+                      data-ocid={`settings.perm_manager_${m.key}.checkbox`}
+                    />
+                  </td>
+                  <td className="text-center px-4">
+                    <input
+                      type="checkbox"
+                      checked={perms.operator[m.key] ?? false}
+                      onChange={() => togglePerm("operator", m.key)}
+                      className="cursor-pointer accent-primary"
+                      data-ocid={`settings.perm_operator_${m.key}.checkbox`}
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   );
 }

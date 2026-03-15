@@ -46,11 +46,15 @@ import {
   generateId,
   getTodayStr,
 } from "../utils/helpers";
+import {
+  type ManualPickupContact,
+  getManualPickupContacts,
+  setManualPickupContacts,
+} from "../utils/storage";
 
 export function PickupsPage() {
   const {
     pickups,
-    products,
     customers,
     addPickup,
     updatePickup,
@@ -62,11 +66,8 @@ export function PickupsPage() {
   const [filterStatus, setFilterStatus] = useState("all");
 
   // Form state
-  const [serviceLabel, setServiceLabel] = useState("");
   const [scheduledDate, setScheduledDate] = useState(getTodayStr());
-  const [scheduledTime, setScheduledTime] = useState("14:00");
-  const [estimatedPieces, setEstimatedPieces] = useState("");
-  const [estimatedBoxes, setEstimatedBoxes] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("18:00");
   const [notes, setNotes] = useState("");
 
   // Customer state
@@ -76,22 +77,18 @@ export function PickupsPage() {
   const [selectedCustomerId, setSelectedCustomerId] = useState("");
   const [walkingName, setWalkingName] = useState("");
   const [walkingPhone, setWalkingPhone] = useState("");
-
-  // Confirm state
-  const [confirmedPieces, setConfirmedPieces] = useState("");
-  const [confirmedBoxes, setConfirmedBoxes] = useState("");
-
-  // Build service options: own brand courier + partner courier brands + general products + xerox + services
-  const courierBrands = products.filter((p) => p.type === "courier_awb");
-  const ownBrandCouriers = courierBrands.filter(
-    (p) => (p as { isOwnBrand?: boolean }).isOwnBrand,
+  const [walkingLocation, setWalkingLocation] = useState("");
+  const [manualPickupContacts, setManualPickupContactsState] = useState<
+    ManualPickupContact[]
+  >(() => getManualPickupContacts());
+  const [nameSuggestions, setNameSuggestions] = useState<ManualPickupContact[]>(
+    [],
   );
-  const partnerBrands = courierBrands.filter(
-    (p) => !(p as { isOwnBrand?: boolean }).isOwnBrand,
-  );
-  const generalProducts = products.filter((p) => p.type === "general");
-  const xeroxProducts = products.filter((p) => p.type === "xerox");
-  const serviceProducts = products.filter((p) => p.type === "service");
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+
+  // Confirm state (pieces/boxes)
+  const [pickedQtyInput, setPickedQtyInput] = useState("");
+  const [pickedUnit, setPickedUnit] = useState<"pieces" | "boxes">("pieces");
 
   const registeredCustomers = customers.filter(
     (c) => c.customerType === "registered" && c.isActive,
@@ -108,24 +105,19 @@ export function PickupsPage() {
   }, [pickups, filterStatus]);
 
   const resetForm = () => {
-    setServiceLabel("");
     setScheduledDate(getTodayStr());
-    setScheduledTime("14:00");
-    setEstimatedPieces("");
-    setEstimatedBoxes("");
+    setScheduledTime("18:00");
     setNotes("");
     setCustomerMode("registered");
     setSelectedCustomerId("");
     setWalkingName("");
     setWalkingPhone("");
+    setWalkingLocation("");
+    setNameSuggestions([]);
+    setShowNameSuggestions(false);
   };
 
   const handleAddPickup = () => {
-    if (!serviceLabel || !estimatedPieces) {
-      toast.error("Please select a service and enter estimated pieces");
-      return;
-    }
-
     let customerName: string | undefined;
     let customerPhone: string | undefined;
     let customerId: string | undefined;
@@ -145,21 +137,39 @@ export function PickupsPage() {
       customerName = walkingName || undefined;
       customerPhone = walkingPhone || undefined;
       customerType = "walking";
+      // Save manual pickup contact for autocomplete
+      if (walkingName || walkingPhone) {
+        const existing = manualPickupContacts.find(
+          (c) => c.phone === walkingPhone && c.name === walkingName,
+        );
+        if (!existing) {
+          const newContact: ManualPickupContact = {
+            id: generateId(),
+            name: walkingName || "",
+            phone: walkingPhone || "",
+            location: walkingLocation || undefined,
+          };
+          const updated = [...manualPickupContacts, newContact];
+          setManualPickupContacts(updated);
+          setManualPickupContactsState(updated);
+        }
+      }
     }
 
     const pickup: CourierPickup = {
       id: generateId(),
       companyId: activeCompanyId,
-      courierBrand: serviceLabel,
-      serviceLabel,
+      courierBrand: "",
       customerId,
       customerName,
       customerPhone,
       customerType,
+      customerLocation:
+        customerMode === "walking" ? walkingLocation || undefined : undefined,
       scheduledDate,
       scheduledTime,
-      estimatedPieces: Number(estimatedPieces),
-      estimatedBoxes: Number(estimatedBoxes) || 1,
+      estimatedPieces: 0,
+      estimatedBoxes: 0,
       status: "pending",
       notes: notes || undefined,
     };
@@ -173,17 +183,20 @@ export function PickupsPage() {
     if (!confirmPickupId) return;
     const pickup = pickups.find((p) => p.id === confirmPickupId);
     if (!pickup) return;
+    const qty = Number(pickedQtyInput) || 1;
     updatePickup({
       ...pickup,
       status: "confirmed",
-      confirmedPieces: Number(confirmedPieces) || pickup.estimatedPieces,
-      confirmedBoxes: Number(confirmedBoxes) || pickup.estimatedBoxes,
+      confirmedPieces: pickedUnit === "pieces" ? qty : pickup.estimatedPieces,
+      confirmedBoxes: pickedUnit === "boxes" ? qty : pickup.estimatedBoxes,
+      pickedQty: qty,
+      pickedUnit,
       confirmedAt: new Date().toISOString(),
     });
     toast.success("Pickup confirmed!");
     setConfirmPickupId(null);
-    setConfirmedPieces("");
-    setConfirmedBoxes("");
+    setPickedQtyInput("");
+    setPickedUnit("pieces");
   };
 
   const handleCancelPickup = (id: string) => {
@@ -254,16 +267,16 @@ export function PickupsPage() {
                     {p.customerName || "—"}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {p.serviceLabel || p.courierBrand} • {p.scheduledTime} •{" "}
-                    {p.estimatedPieces} pcs, {p.estimatedBoxes} boxes
+                    {p.scheduledTime} • {p.estimatedPieces} pcs,{" "}
+                    {p.estimatedBoxes} boxes
                   </p>
                 </div>
                 <Button
                   size="sm"
                   onClick={() => {
                     setConfirmPickupId(p.id);
-                    setConfirmedPieces(String(p.estimatedPieces));
-                    setConfirmedBoxes(String(p.estimatedBoxes));
+                    setPickedQtyInput(String(p.estimatedPieces));
+                    setPickedUnit("pieces");
                   }}
                   className="bg-green-600 hover:bg-green-700 text-xs"
                 >
@@ -297,7 +310,6 @@ export function PickupsPage() {
             <TableHeader>
               <TableRow className="bg-muted/30">
                 <TableHead className="text-xs">Customer</TableHead>
-                <TableHead className="text-xs">Service / Product</TableHead>
                 <TableHead className="text-xs">Date</TableHead>
                 <TableHead className="text-xs">Time</TableHead>
                 <TableHead className="text-xs">Est. Pieces</TableHead>
@@ -357,14 +369,7 @@ export function PickupsPage() {
                         </div>
                       </div>
                     </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Package className="w-4 h-4 text-primary" />
-                        <span className="text-xs font-medium">
-                          {pickup.serviceLabel || pickup.courierBrand}
-                        </span>
-                      </div>
-                    </TableCell>
+
                     <TableCell className="text-xs">
                       {formatDate(pickup.scheduledDate)}
                     </TableCell>
@@ -405,12 +410,10 @@ export function PickupsPage() {
                               className="text-xs h-7 text-green-700 hover:bg-green-50"
                               onClick={() => {
                                 setConfirmPickupId(pickup.id);
-                                setConfirmedPieces(
+                                setPickedQtyInput(
                                   String(pickup.estimatedPieces),
                                 );
-                                setConfirmedBoxes(
-                                  String(pickup.estimatedBoxes),
-                                );
+                                setPickedUnit("pieces");
                               }}
                             >
                               <CheckCircle2 className="w-3 h-3 mr-1" /> Confirm
@@ -485,7 +488,7 @@ export function PickupsPage() {
                       : "bg-white border-border text-muted-foreground hover:bg-muted"
                   }`}
                 >
-                  Walking Customer
+                  Manual Entry
                 </button>
               </div>
 
@@ -510,124 +513,115 @@ export function PickupsPage() {
                   </Select>
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label className="text-xs">Name</Label>
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Label className="text-xs">Name *</Label>
                     <Input
                       value={walkingName}
-                      onChange={(e) => setWalkingName(e.target.value)}
+                      onChange={(e) => {
+                        setWalkingName(e.target.value);
+                        const q = e.target.value.toLowerCase();
+                        if (q.length >= 1) {
+                          const manualMatches = manualPickupContacts.filter(
+                            (c) =>
+                              c.name.toLowerCase().includes(q) ||
+                              c.phone.includes(q),
+                          );
+                          const registeredMatches = registeredCustomers
+                            .filter(
+                              (c) =>
+                                c.name.toLowerCase().includes(q) ||
+                                c.phone?.includes(q),
+                            )
+                            .map((c) => ({
+                              id: c.id,
+                              name: c.name,
+                              phone: c.phone || "",
+                              location: c.address || undefined,
+                            }));
+                          const combined = [
+                            ...registeredMatches,
+                            ...manualMatches.filter(
+                              (m) =>
+                                !registeredMatches.find(
+                                  (r) => r.name === m.name,
+                                ),
+                            ),
+                          ].slice(0, 8);
+                          setNameSuggestions(combined);
+                          setShowNameSuggestions(combined.length > 0);
+                        } else {
+                          setShowNameSuggestions(false);
+                        }
+                      }}
+                      onFocus={() => {
+                        if (!walkingName) {
+                          const combined = [
+                            ...registeredCustomers.slice(0, 4).map((c) => ({
+                              id: c.id,
+                              name: c.name,
+                              phone: c.phone || "",
+                              location: c.address || undefined,
+                            })),
+                            ...manualPickupContacts.slice(0, 4),
+                          ].slice(0, 8);
+                          if (combined.length > 0) {
+                            setNameSuggestions(combined);
+                            setShowNameSuggestions(true);
+                          }
+                        }
+                      }}
+                      onBlur={() =>
+                        setTimeout(() => setShowNameSuggestions(false), 200)
+                      }
                       placeholder="Customer name"
                       className="mt-1 text-sm"
                     />
+                    {showNameSuggestions && nameSuggestions.length > 0 && (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-border rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {nameSuggestions.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => {
+                              setWalkingName(c.name);
+                              setWalkingPhone(c.phone);
+                              setWalkingLocation(c.location || "");
+                              setShowNameSuggestions(false);
+                            }}
+                            className="w-full text-left px-3 py-2 text-xs hover:bg-muted flex flex-col"
+                          >
+                            <span className="font-medium">{c.name}</span>
+                            <span className="text-muted-foreground">
+                              {c.phone}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <Label className="text-xs">Phone</Label>
-                    <Input
-                      value={walkingPhone}
-                      onChange={(e) => setWalkingPhone(e.target.value)}
-                      placeholder="Mobile number"
-                      className="mt-1 text-sm"
-                    />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs">Phone / Mobile</Label>
+                      <Input
+                        value={walkingPhone}
+                        onChange={(e) => setWalkingPhone(e.target.value)}
+                        placeholder="Mobile number"
+                        className="mt-1 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Location (optional)</Label>
+                      <Input
+                        value={walkingLocation}
+                        onChange={(e) => setWalkingLocation(e.target.value)}
+                        placeholder="Address or maps link"
+                        className="mt-1 text-sm"
+                      />
+                    </div>
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* Service / Product */}
-            <div>
-              <Label className="text-sm font-semibold">
-                Service / Product*
-              </Label>
-              <Select value={serviceLabel} onValueChange={setServiceLabel}>
-                <SelectTrigger className="mt-1 text-sm">
-                  <SelectValue placeholder="Select service or product" />
-                </SelectTrigger>
-                <SelectContent>
-                  {ownBrandCouriers.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        Own Brand Courier
-                      </div>
-                      {ownBrandCouriers.map((p) => (
-                        <SelectItem
-                          key={p.id}
-                          value={(p as { brandName: string }).brandName}
-                        >
-                          {(p as { brandName: string }).brandName}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                  {partnerBrands.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        Partner Courier Brands
-                      </div>
-                      {partnerBrands.map((p) => (
-                        <SelectItem
-                          key={p.id}
-                          value={(p as { brandName: string }).brandName}
-                        >
-                          {(p as { brandName: string }).brandName}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                  {generalProducts.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        General Products
-                      </div>
-                      {generalProducts.map((p) => (
-                        <SelectItem
-                          key={p.id}
-                          value={(p as { name: string }).name}
-                        >
-                          {(p as { name: string }).name}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                  {xeroxProducts.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        Xerox & Printout
-                      </div>
-                      {xeroxProducts.map((p) => (
-                        <SelectItem
-                          key={p.id}
-                          value={(p as { name: string }).name}
-                        >
-                          {(p as { name: string }).name}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                  {serviceProducts.length > 0 && (
-                    <>
-                      <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                        Services
-                      </div>
-                      {serviceProducts.map((p) => (
-                        <SelectItem
-                          key={p.id}
-                          value={(p as { name: string }).name}
-                        >
-                          {(p as { name: string }).name}
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-                  {courierBrands.length === 0 &&
-                    generalProducts.length === 0 &&
-                    xeroxProducts.length === 0 &&
-                    serviceProducts.length === 0 && (
-                      <SelectItem value="__none__" disabled>
-                        No products found — add products first
-                      </SelectItem>
-                    )}
-                </SelectContent>
-              </Select>
             </div>
 
             {/* Schedule */}
@@ -647,24 +641,6 @@ export function PickupsPage() {
                   type="time"
                   value={scheduledTime}
                   onChange={(e) => setScheduledTime(e.target.value)}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Estimated Pieces*</Label>
-                <Input
-                  type="number"
-                  value={estimatedPieces}
-                  onChange={(e) => setEstimatedPieces(e.target.value)}
-                  className="mt-1 text-sm"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Estimated Boxes</Label>
-                <Input
-                  type="number"
-                  value={estimatedBoxes}
-                  onChange={(e) => setEstimatedBoxes(e.target.value)}
                   className="mt-1 text-sm"
                 />
               </div>
@@ -705,39 +681,76 @@ export function PickupsPage() {
         open={!!confirmPickupId}
         onOpenChange={(open) => !open && setConfirmPickupId(null)}
       >
-        <DialogContent>
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Confirm Pickup</DialogTitle>
+            <DialogTitle>Confirm Pickup — How Much Was Picked?</DialogTitle>
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <Label>Confirmed Pieces</Label>
+              <Label className="text-sm font-medium">Quantity Picked</Label>
               <Input
                 type="number"
-                value={confirmedPieces}
-                onChange={(e) => setConfirmedPieces(e.target.value)}
-                className="mt-1"
+                min="1"
+                value={pickedQtyInput}
+                onChange={(e) => setPickedQtyInput(e.target.value)}
+                placeholder="Enter quantity"
+                className="mt-1 text-base font-bold text-center h-12"
+                autoFocus
               />
             </div>
             <div>
-              <Label>Confirmed Boxes</Label>
-              <Input
-                type="number"
-                value={confirmedBoxes}
-                onChange={(e) => setConfirmedBoxes(e.target.value)}
-                className="mt-1"
-              />
+              <Label className="text-sm font-medium">Unit</Label>
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setPickedUnit("pieces")}
+                  className={`flex-1 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    pickedUnit === "pieces"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-white text-muted-foreground hover:border-primary/50"
+                  }`}
+                  data-ocid="pickups.confirm.pieces.toggle"
+                >
+                  📦 Pieces
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPickedUnit("boxes")}
+                  className={`flex-1 py-2 rounded-lg border-2 text-sm font-semibold transition-all ${
+                    pickedUnit === "boxes"
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-white text-muted-foreground hover:border-primary/50"
+                  }`}
+                  data-ocid="pickups.confirm.boxes.toggle"
+                >
+                  🗃 Boxes
+                </button>
+              </div>
             </div>
+            {pickedQtyInput && (
+              <div className="bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm text-green-800 text-center font-medium">
+                {pickedQtyInput} {pickedUnit} picked
+              </div>
+            )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmPickupId(null)}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setConfirmPickupId(null);
+                setPickedQtyInput("");
+                setPickedUnit("pieces");
+              }}
+              data-ocid="pickups.confirm.cancel_button"
+            >
               Cancel
             </Button>
             <Button
               onClick={handleConfirmPickup}
               className="bg-green-600 hover:bg-green-700"
+              data-ocid="pickups.confirm.confirm_button"
             >
-              Confirm
+              Confirm Pickup
             </Button>
           </DialogFooter>
         </DialogContent>

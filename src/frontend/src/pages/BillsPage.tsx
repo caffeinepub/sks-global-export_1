@@ -46,6 +46,7 @@ import {
   FileSpreadsheet,
   FileText,
   MapPin,
+  MessageCircle,
   Pencil,
   Printer,
   Search,
@@ -58,11 +59,7 @@ import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { PaymentQRCode } from "../components/PaymentQRCode";
 import { useAppStore } from "../hooks/useAppStore";
 import type { Bill, BillItem, Invoice, PaymentLog } from "../types";
-import {
-  downloadAsJPEG,
-  downloadAsPDF,
-  downloadAsPNG,
-} from "../utils/downloadHelpers";
+import { downloadAsJPEG, downloadAsPDF } from "../utils/downloadHelpers";
 import {
   exportToExcel,
   formatCurrency,
@@ -574,18 +571,6 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     }
   };
 
-  const handleBillDownloadPNG = async () => {
-    if (!viewBill || !billPrintRef.current) return;
-    setBillDownloading("png");
-    try {
-      await downloadAsPNG(billPrintRef.current, `Bill-${viewBill.billNo}.png`);
-    } catch {
-      toast.error("PNG download failed. Please try again.");
-    } finally {
-      setBillDownloading(null);
-    }
-  };
-
   // ─── Excel Export ────────────────────────────────────────────────────────────
   const handleExportExcel = () => {
     const data = filteredBills.map((b) => ({
@@ -609,13 +594,21 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
 
   const getStatusBadge = (status: string) => {
     const classes: Record<string, string> = {
-      paid: "status-paid",
-      pending: "status-pending",
-      partial: "status-partial",
+      paid: "bg-emerald-100 text-emerald-700 border-emerald-200 font-semibold",
+      pending: "bg-amber-100 text-amber-700 border-amber-200 font-semibold",
+      partial: "bg-blue-100 text-blue-700 border-blue-200 font-semibold",
+    };
+    const labels: Record<string, string> = {
+      paid: "✅ Paid",
+      pending: "⏳ Pending",
+      partial: "🔄 Partial",
     };
     return (
-      <Badge variant="outline" className={`text-xs ${classes[status] || ""}`}>
-        {status}
+      <Badge
+        variant="outline"
+        className={`text-xs ${classes[status] || "bg-gray-100 text-gray-700"}`}
+      >
+        {labels[status] || status}
       </Badge>
     );
   };
@@ -1197,15 +1190,34 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
               <FileImage className="w-4 h-4 mr-2" />
               {billDownloading === "jpeg" ? "Downloading..." : "JPEG"}
             </Button>
-            <Button
-              variant="outline"
-              onClick={handleBillDownloadPNG}
-              disabled={!!billDownloading}
-              data-ocid="bills.download_png.button"
-            >
-              <FileImage className="w-4 h-4 mr-2" />
-              {billDownloading === "png" ? "Downloading..." : "PNG"}
-            </Button>
+            {viewBill &&
+              (() => {
+                const customer = customers.find(
+                  (c) =>
+                    c.phone &&
+                    (c.name === viewBill.customerName ||
+                      c.id === viewBill.customerId),
+                );
+                const phone = customer?.phone?.replace(/\D/g, "") || "";
+                if (!phone) return null;
+                const msg = `Dear ${viewBill.customerName},\nYour bill details from SKS Global Export:\n📄 Bill No: ${viewBill.billNo}\n📅 Date: ${new Date(viewBill.date).toLocaleDateString("en-IN")}\n💵 Amount: ₹${viewBill.total}\n✅ Paid: ₹${viewBill.amountPaid}\n🔴 Balance: ₹${viewBill.balanceDue}\n\nThank you for your business! 🙏`;
+                return (
+                  <Button
+                    variant="outline"
+                    className="border-green-400 text-green-700 hover:bg-green-50"
+                    onClick={() =>
+                      window.open(
+                        `https://wa.me/91${phone.slice(-10)}?text=${encodeURIComponent(msg)}`,
+                        "_blank",
+                      )
+                    }
+                    data-ocid="bills.whatsapp.button"
+                  >
+                    <MessageCircle className="w-4 h-4 mr-2" />
+                    WhatsApp
+                  </Button>
+                );
+              })()}
             <Button
               onClick={() => setViewBill(null)}
               data-ocid="bills.view.close_button"

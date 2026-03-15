@@ -27,11 +27,14 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertTriangle,
+  Copy,
   Download,
+  Eye,
   Package,
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
   Truck,
   Upload,
@@ -378,6 +381,10 @@ export function InventoryPage() {
   // Edit / Delete AWB range state
   const [editAWBRange, setEditAWBRange] = useState<AWBSerialRange | null>(null);
   const [deleteAWBId, setDeleteAWBId] = useState<string | null>(null);
+  // View Serials dialog
+  const [viewSerialsRange, setViewSerialsRange] =
+    useState<AWBSerialRange | null>(null);
+  const [serialSearchQuery, setSerialSearchQuery] = useState("");
 
   // ── Bulk AWB Import ────────────────────────────────────────────────────────
   const [showBulkAWB, setShowBulkAWB] = useState(false);
@@ -1051,6 +1058,19 @@ export function InventoryPage() {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  onClick={() => {
+                                    setViewSerialsRange(range);
+                                    setSerialSearchQuery("");
+                                  }}
+                                  className="text-xs h-7 text-blue-600 border-blue-200 hover:bg-blue-50"
+                                  title="View Serial Numbers"
+                                  data-ocid={`inventory.awb.view_button.${rIdx + 1}`}
+                                >
+                                  <Eye className="w-3 h-3" />
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
                                   onClick={() => setEditAWBRange(range)}
                                   className="text-xs h-7"
                                   title="Edit Range"
@@ -1362,6 +1382,145 @@ export function InventoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* View Serials Dialog */}
+      {viewSerialsRange && (
+        <Dialog
+          open={!!viewSerialsRange}
+          onOpenChange={(o) => !o && setViewSerialsRange(null)}
+        >
+          <DialogContent className="max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                AWB Serials — {viewSerialsRange.brandName}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="text-xs text-muted-foreground mb-2">
+              Range:{" "}
+              <span className="font-mono font-semibold">
+                {viewSerialsRange.fromSerial} → {viewSerialsRange.toSerial}
+              </span>
+              {viewSerialsRange.productTypeName && (
+                <span className="ml-2">
+                  ({viewSerialsRange.productTypeName})
+                </span>
+              )}
+            </div>
+            {/* Stats */}
+            <div className="flex gap-4 mb-3">
+              <div className="flex-1 bg-muted/30 rounded-lg p-2 text-center">
+                <p className="text-sm font-bold">
+                  {viewSerialsRange.availableSerials.length +
+                    viewSerialsRange.usedSerials.length}
+                </p>
+                <p className="text-xs text-muted-foreground">Total</p>
+              </div>
+              <div className="flex-1 bg-red-50 rounded-lg p-2 text-center">
+                <p className="text-sm font-bold text-red-600">
+                  {viewSerialsRange.usedSerials.length}
+                </p>
+                <p className="text-xs text-muted-foreground">Used</p>
+              </div>
+              <div className="flex-1 bg-green-50 rounded-lg p-2 text-center">
+                <p className="text-sm font-bold text-green-600">
+                  {viewSerialsRange.availableSerials.length}
+                </p>
+                <p className="text-xs text-muted-foreground">Available</p>
+              </div>
+            </div>
+            {/* Search */}
+            <div className="relative mb-2">
+              <Search className="absolute left-2.5 top-2.5 w-3.5 h-3.5 text-muted-foreground" />
+              <Input
+                className="pl-8 text-sm h-8"
+                placeholder="Search serial numbers..."
+                value={serialSearchQuery}
+                onChange={(e) => setSerialSearchQuery(e.target.value)}
+              />
+            </div>
+            {/* Copy All Available */}
+            <Button
+              size="sm"
+              variant="outline"
+              className="mb-2 text-xs self-start"
+              onClick={() => {
+                const filtered = viewSerialsRange.availableSerials.filter(
+                  (s) =>
+                    !serialSearchQuery ||
+                    s.toLowerCase().includes(serialSearchQuery.toLowerCase()),
+                );
+                navigator.clipboard.writeText(filtered.join("\n"));
+                toast.success(`Copied ${filtered.length} serial numbers`);
+              }}
+              data-ocid="inventory.awb.copy_all_button"
+            >
+              <Copy className="w-3 h-3 mr-1" />
+              Copy All Available{serialSearchQuery ? " (filtered)" : ""}
+            </Button>
+            {/* Serial List */}
+            <div className="flex-1 overflow-y-auto border border-border rounded-lg">
+              {(() => {
+                const allSerials = [
+                  ...viewSerialsRange.availableSerials.map((s) => ({
+                    serial: s,
+                    used: false,
+                  })),
+                  ...viewSerialsRange.usedSerials.map((s) => ({
+                    serial: s,
+                    used: true,
+                  })),
+                ].filter(
+                  ({ serial }) =>
+                    !serialSearchQuery ||
+                    serial
+                      .toLowerCase()
+                      .includes(serialSearchQuery.toLowerCase()),
+                );
+                if (allSerials.length === 0)
+                  return (
+                    <div className="flex items-center justify-center h-20 text-sm text-muted-foreground">
+                      No serials match your search
+                    </div>
+                  );
+                return (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-1 p-2">
+                    {allSerials.map(({ serial, used }) => (
+                      <div
+                        key={serial}
+                        className={`flex items-center justify-between px-2 py-1 rounded text-xs font-mono ${used ? "bg-red-50 text-red-700" : "bg-green-50 text-green-700"}`}
+                      >
+                        <span className="truncate">{serial}</span>
+                        {!used && (
+                          <button
+                            type="button"
+                            className="ml-1 text-muted-foreground hover:text-foreground flex-shrink-0"
+                            onClick={() => {
+                              navigator.clipboard.writeText(serial);
+                              toast.success(`Copied: ${serial}`);
+                            }}
+                            title="Copy"
+                          >
+                            <Copy className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <DialogFooter className="mt-2">
+              <Button
+                variant="outline"
+                onClick={() => setViewSerialsRange(null)}
+                data-ocid="inventory.awb.close_button"
+              >
+                Close
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Edit AWB Range Dialog */}
       {editAWBRange && (

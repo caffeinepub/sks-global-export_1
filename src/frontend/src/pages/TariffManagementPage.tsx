@@ -83,6 +83,9 @@ interface SlabWithKey extends TariffWeightSlab {
 }
 
 interface TariffFormState {
+  tariffName: string;
+  showInBilling: boolean;
+  billingCategory: string;
   brandId: string;
   brandName: string;
   productType: string;
@@ -105,6 +108,9 @@ interface TariffFormState {
 }
 
 const emptyForm = (): TariffFormState => ({
+  tariffName: "",
+  showInBilling: true,
+  billingCategory: "",
   brandId: "",
   brandName: "",
   productType: "Express",
@@ -185,6 +191,7 @@ export function TariffManagementPage() {
 
   const [filterBrand, setFilterBrand] = useState("all");
   const [filterProductType, setFilterProductType] = useState("");
+  const [filterTariffName, setFilterTariffName] = useState("");
   const [filterTransportMode, setFilterTransportMode] = useState("all");
 
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -214,9 +221,14 @@ export function TariffManagementPage() {
     const matchMode =
       filterTransportMode === "all" ||
       (t.transportMode ?? "Both") === filterTransportMode;
-    return matchBrand && matchType && matchMode;
+    const displayName = t.tariffName ?? `${t.brandName} ${t.productType}`;
+    const matchName =
+      !filterTariffName ||
+      displayName.toLowerCase().includes(filterTariffName.toLowerCase());
+    return matchBrand && matchType && matchMode && matchName;
   });
 
+  // Group by brand name for display
   const grouped = filtered.reduce<Record<string, CourierTariff[]>>(
     (acc, tariff) => {
       const key = tariff.brandName;
@@ -257,6 +269,9 @@ export function TariffManagementPage() {
     const addlSlab = allSlabs.find((s) => s.maxGrams === null);
 
     setForm({
+      tariffName: tariff.tariffName ?? "",
+      showInBilling: tariff.showInBilling !== false,
+      billingCategory: tariff.billingCategory ?? "",
       brandId: tariff.brandId,
       brandName: tariff.brandName,
       productType: tariff.productType,
@@ -281,6 +296,10 @@ export function TariffManagementPage() {
   };
 
   const handleSave = () => {
+    if (!form.tariffName.trim()) {
+      toast.error("Tariff name is required");
+      return;
+    }
     if (!form.brandId) {
       toast.error("Please select a courier brand");
       return;
@@ -317,6 +336,9 @@ export function TariffManagementPage() {
     const tariff: CourierTariff = {
       id: editingTariff?.id ?? generateId(),
       companyId: activeCompanyId,
+      tariffName: form.tariffName.trim() || undefined,
+      showInBilling: form.showInBilling,
+      billingCategory: form.billingCategory.trim() || undefined,
       brandId: form.brandId,
       brandName: form.brandName,
       productType: form.productType.trim(),
@@ -516,6 +538,17 @@ export function TariffManagementPage() {
               </SelectContent>
             </Select>
           </div>
+          <div className="w-full sm:w-56">
+            <Label className="text-xs mb-1 block text-muted-foreground">
+              Search Tariff Name
+            </Label>
+            <Input
+              value={filterTariffName}
+              onChange={(e) => setFilterTariffName(e.target.value)}
+              placeholder="SPL Rate, Standard…"
+              data-ocid="tariff.name.search_input"
+            />
+          </div>
           <div className="flex-1">
             <Label className="text-xs mb-1 block text-muted-foreground">
               Filter by Product Type
@@ -579,7 +612,8 @@ export function TariffManagementPage() {
                 <Table data-ocid="tariff.table">
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Product Type</TableHead>
+                      <TableHead>Tariff Name</TableHead>
+                      <TableHead>Brand / Product Type</TableHead>
                       <TableHead>Transport</TableHead>
                       <TableHead>Zone</TableHead>
                       <TableHead>Pricing</TableHead>
@@ -597,12 +631,41 @@ export function TariffManagementPage() {
                         className={cn(!tariff.isActive && "opacity-60")}
                       >
                         <TableCell>
-                          <Badge
-                            variant="outline"
-                            className="text-xs font-medium text-primary border-primary/30"
-                          >
-                            {tariff.productType}
-                          </Badge>
+                          <div className="space-y-0.5">
+                            <p className="font-semibold text-foreground text-sm">
+                              {tariff.tariffName ||
+                                `${tariff.brandName} ${tariff.productType}`}
+                            </p>
+                            {tariff.showInBilling === false && (
+                              <Badge
+                                variant="outline"
+                                className="text-xs text-muted-foreground"
+                              >
+                                Hidden from billing
+                              </Badge>
+                            )}
+                            {tariff.billingCategory && (
+                              <Badge
+                                variant="secondary"
+                                className="text-xs ml-1"
+                              >
+                                {tariff.billingCategory}
+                              </Badge>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-0.5">
+                            <p className="text-xs font-medium text-foreground">
+                              {tariff.brandName}
+                            </p>
+                            <Badge
+                              variant="outline"
+                              className="text-xs font-medium text-primary border-primary/30"
+                            >
+                              {tariff.productType}
+                            </Badge>
+                          </div>
                         </TableCell>
                         <TableCell>
                           {transportModeBadge(
@@ -703,6 +766,63 @@ export function TariffManagementPage() {
           </DialogHeader>
 
           <div className="space-y-5 py-2">
+            {/* Tariff Name */}
+            <div className="space-y-1.5">
+              <Label>
+                Tariff Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                value={form.tariffName}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, tariffName: e.target.value }))
+                }
+                placeholder="e.g. SPL Rate, SPL1 Rate, Standard Rate, Customer Special"
+                data-ocid="tariff.name.input"
+              />
+              <p className="text-xs text-muted-foreground">
+                A descriptive name for this tariff (e.g. Standard, SPL Rate,
+                Zone A Rate)
+              </p>
+            </div>
+
+            {/* Billing Options */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label>Billing Category (optional)</Label>
+                <Input
+                  value={form.billingCategory}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      billingCategory: e.target.value,
+                    }))
+                  }
+                  placeholder="e.g. Common, Special, Customer Specific"
+                  data-ocid="tariff.billing_category.input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Show in Billing/Booking</Label>
+                <div className="flex items-center gap-3 pt-2">
+                  <Switch
+                    checked={form.showInBilling}
+                    onCheckedChange={(v) =>
+                      setForm((prev) => ({ ...prev, showInBilling: v }))
+                    }
+                    data-ocid="tariff.show_in_billing.switch"
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    {form.showInBilling
+                      ? "Visible in POS booking"
+                      : "Hidden from POS (internal use)"}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Turn OFF for internal/special rate tariffs
+                </p>
+              </div>
+            </div>
+
             {/* Brand & Product Type */}
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5">

@@ -65,11 +65,7 @@ import type {
   PurchaseInvoiceItem,
   Vendor,
 } from "../types";
-import {
-  downloadAsJPEG,
-  downloadAsPDF,
-  downloadAsPNG,
-} from "../utils/downloadHelpers";
+import { downloadAsJPEG, downloadAsPDF } from "../utils/downloadHelpers";
 import {
   amountToWords,
   exportToExcel,
@@ -271,14 +267,6 @@ function PurchaseInvoiceView({
     }
   };
 
-  const handlePNG = () => {
-    if (viewRef.current) {
-      downloadAsPNG(viewRef.current, `PurchaseInv_${inv.invoiceNo}.png`).catch(
-        () => toast.error("PNG download failed."),
-      );
-    }
-  };
-
   return (
     <div data-ocid="purchase_invoices.view.dialog" className="space-y-4">
       {/* Action bar */}
@@ -306,14 +294,6 @@ function PurchaseInvoiceView({
           data-ocid="purchase_invoices.view.jpeg.button"
         >
           <FileImage className="w-3.5 h-3.5 mr-1.5" /> JPEG
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={handlePNG}
-          data-ocid="purchase_invoices.view.png.button"
-        >
-          <FileImage className="w-3.5 h-3.5 mr-1.5" /> PNG
         </Button>
         <Button
           size="sm"

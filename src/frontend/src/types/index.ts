@@ -76,6 +76,31 @@ export interface GeneralProduct {
   usePricingSlabs?: boolean;
   pricingSlabs?: PricingSlab[];
   pricingTiers?: PricingTier[]; // named tier pricing (retail/super_retail/wholesale/super_wholesale)
+  priceIncludesGST?: boolean; // if true (default), sellingPrice already includes GST
+  productSubUnit1?: {
+    unitId: string;
+    name: string;
+    conversionRate: number;
+    mrp?: number;
+    sellingPrice?: number;
+    costPrice?: number;
+  };
+  productSubUnit2?: {
+    unitId: string;
+    name: string;
+    conversionRate: number;
+    mrp?: number;
+    sellingPrice?: number;
+    costPrice?: number;
+  };
+  productSubUnit3?: {
+    unitId: string;
+    name: string;
+    conversionRate: number;
+    mrp?: number;
+    sellingPrice?: number;
+    costPrice?: number;
+  };
 }
 
 // Individual product under a courier brand (each brand can have many products)
@@ -158,6 +183,9 @@ export interface XeroxProduct {
   isActive: boolean;
   usePricingSlabs?: boolean;
   pricingSlabs?: PricingSlab[];
+  xeroxRanges?: { from: number; to: number; price: number }[];
+  useXeroxRanges?: boolean;
+  materials?: Array<{ productId: string; quantity: number; label: string }>;
 }
 
 export interface ServiceProduct {
@@ -354,6 +382,9 @@ export interface CourierPickup {
   confirmedPieces?: number;
   confirmedBoxes?: number;
   confirmedAt?: string;
+  pickedQty?: number;
+  pickedUnit?: "pieces" | "boxes";
+  customerLocation?: string;
   notes?: string;
 }
 
@@ -423,6 +454,9 @@ export interface CourierTariff {
   maxWeightKg?: number; // optional weight cap for warnings
   isGSTInclusive: boolean;
   isActive: boolean;
+  tariffName?: string; // e.g. "SPL Rate", "SPL1 Rate", "Standard"
+  showInBilling?: boolean; // if false, hidden from POS billing
+  billingCategory?: string; // e.g. "Common", "Special Rates", "Customer Specific"
 }
 
 // ─── Design Studio ────────────────────────────────────────────────────────────
@@ -497,6 +531,7 @@ export interface ProductSubUnit {
   conversionRate: number; // how many of the base unit make 1 of this sub-unit
   mrp?: number;
   sellingPrice?: number;
+  costPrice?: number;
 }
 
 export interface ProductUnit {

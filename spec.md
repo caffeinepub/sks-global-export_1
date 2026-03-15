@@ -1,41 +1,36 @@
 # SKS Global Export
 
 ## Current State
-Full-featured courier + billing management app. Version 61 in production. Key files:
-- `POSBillingPage.tsx` — POS billing with slab/tier pricing, discounts, courier booking
-- `InvoicesPage.tsx` — Invoice generation, 3 templates, invoice history with edit
-- `ProductsPage.tsx` — Product CRUD with MRP, pricing tiers, slabs
-- `barcodeLoader.ts` — Loads QRCode from CDN (unpkg) — fails in deployed environment
-- Invoice edit dialog — only allows editing paymentStatus, paymentMethod, notes
+Version 69 is live. The app has GST Invoice auto-prefix but it only generates for GST invoices. Non-GST Invoice and Billing sequences are not getting the same auto-prefix logic. All three (GST Invoice, Non-GST Invoice, Billing) must have separate, independent prefix+sequence per company. Pickup Schedule currently shows Service and Product Details fields that are not needed. Sub-windows, dialogs, and print/invoice preview windows lack consistent width/height constraints and scrollbars for overflow content. The app is not fully responsive for tablet and mobile. There is no admin-controlled theme/color template system. User role/permission settings exist but designations (Delivery & Pickup, Receptionist, Supervisor, etc.) are not configurable. Backup/restore does not fully include theme settings or user designation data.
 
 ## Requested Changes (Diff)
 
 ### Add
-- `priceIncludesGST?: boolean` field to `GeneralProduct`, `XeroxProduct`, `ServiceProduct` in types
-- MRP display in POS product cards (show MRP alongside selling price)
-- Price type indicator in product form: "Price includes GST" / "Price excludes GST" toggle
-- Full invoice edit: editable fields for Date, Invoice No, Customer Name, Customer Address, Customer GSTIN, Payment Status, Payment Method, Notes, and inline item editing (productName, description, qty, unitPrice, gstRate)
-- Self-contained QR code generation (replace CDN-based barcodeLoader QR with bundled pure-JS implementation using qrcode npm package)
+- Invoice auto-prefix generator for Non-GST Invoice: same logic as GST (company initials + FY + sequence), separate prefix field
+- Invoice auto-prefix generator for Billing: company initials + BILL + sequence (no FY), separate prefix field
+- Each company has 3 independent prefix+sequence configurations: GST Invoice, Non-GST Invoice, Billing
+- Settings > Appearance tab: admin-only theme templates (Minimal, Professional, Dark, Vibrant) and primary color picker
+- Settings > Users tab: user designations (configurable list: Delivery & Pickup, Receptionist, Supervisor, Accountant, Manager, custom)
+- User creation/edit form includes designation field dropdown
+- Role-based permissions matrix in Settings > Users: per-role permission toggles for each module
+- Backup/restore includes theme settings and user designations
 
 ### Modify
-- **Slab price display in POS**: The `Slab ×N` badge only shows when `slabPrice !== gp.sellingPrice`. Fix: always show the slab badge when `usePricingSlabs === true` and slabs exist, regardless of whether resolved price equals base price. Also ensure the product card shows the resolved slab price at qty=1 prominently.
-- **Invoice Unit Price → Unit Rate**: In GST invoice templates (all 3 templates), rename column "Unit Price" to "Unit Rate". The Unit Rate must be the GST-EXCLUDING price: if item stores price including GST, calculate `unitRate = totalPrice / quantity / (1 + gstRate/100)`. The Amount column should also show the pre-GST amount, and GST is added in the totals section.
-- **Billed product invoice unit price**: When invoice is created from billed products, if an item has discountAmount, the effective unit rate shown in invoice should be `(totalPrice / quantity)` not the original `unitPrice`. Store this as `effectiveUnitRate` on the invoice item, and display `effectiveUnitRate` instead of `unitPrice` in all invoice templates.
-- **Invoice QR code**: Replace `barcodeLoader.ts` QR loading (CDN-based) with bundled qrcode npm package. The `QRCodeDisplay` component and `generateQRDataUrl` utility should use the npm package directly via `import QRCode from 'qrcode'`.
-- **Export/Import Backup**: Ensure `priceIncludesGST` field is included when products are exported and restored.
-- Products page: Add "Price includes GST" checkbox/toggle in General Product, Xerox, and Service product forms. When checked, show note "Selling price entered includes GST".
+- Settings > Invoice Settings: show all three prefix/sequence panels (GST Invoice, Non-GST Invoice, Billing) with Auto-generate buttons for each
+- Sub-windows and dialogs: add max-height with overflow-y-auto, max-width constraints, proper responsive sizing
+- Print preview and invoice preview windows: fixed A4 dimensions with scroll wrapper
+- Pickup Schedule form: remove Service Type and Product Details fields entirely; keep Name (required), Mobile (optional), Location (optional), Date (auto current), Time (default 6pm)
+- App layout: sidebar collapses to hamburger on mobile, all tables/forms use responsive breakpoints
 
 ### Remove
-- CDN fallback for QRCode loading (replace entirely with npm bundled version)
+- Service and Product Details fields from Pickup Schedule form
 
 ## Implementation Plan
-1. Update `barcodeLoader.ts` to use `import QRCode from 'qrcode'` instead of CDN; update `QRCodeDisplay.tsx` and `generateQRDataUrl` helper
-2. Update `types/index.ts`: add `priceIncludesGST?: boolean` to GeneralProduct, XeroxProduct, ServiceProduct; add `effectiveUnitRate?: number` to InvoiceItem / BillItem when used in invoice
-3. Update `ProductsPage.tsx`: add `priceIncludesGST` toggle in product forms
-4. Update `POSBillingPage.tsx`: fix slab badge to always show when slabs active; show MRP in product cards
-5. Update `InvoicesPage.tsx`:
-   a. When generating invoice from billed items, compute `effectiveUnitRate = totalPrice / quantity` per item
-   b. Rename "Unit Price" → "Unit Rate" in all 3 templates
-   c. For GST invoices: display Unit Rate as pre-GST value = `effectiveUnitRate / (1 + gstRate/100)` (or `totalPrice / qty / (1 + gstRate/100)`)
-   d. Expand invoice edit dialog to support full editing: date, invoiceNo, customerName, customerAddress, customerGstin, paymentStatus, paymentMethod, notes, and per-item editing (productName, description, qty, unitPrice, gstRate) with recalculated totals
-6. Verify backup export/import includes `priceIncludesGST`
+1. Update SettingsPage.tsx: add Non-GST and Billing prefix auto-generation logic (matching GST logic pattern), update invoice sequence storage per company with three separate keys
+2. Update POSBillingPage.tsx and InvoicesPage.tsx: use company-specific prefix for generating bill/invoice numbers
+3. Update PickupsPage.tsx: remove serviceType, productDetails fields from form
+4. Add global CSS/Tailwind responsive utilities: all dialogs get max-h-[90vh] overflow-y-auto, all tables get overflow-x-auto
+5. Add theme system: CSS custom properties driven theme, Settings > Appearance tab with 4 presets + color picker, stored in localStorage, applied at app root, admin-only
+6. Update Settings > Users: add designations list management, add designation field to user form, add permissions matrix per role
+7. Update backup export/import: include themeSettings, userDesignations in backup payload
+8. Ensure App.tsx applies theme CSS variables from stored settings on load

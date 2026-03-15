@@ -3,6 +3,7 @@ import {
   BarChart2,
   Box,
   Boxes,
+  Briefcase,
   Building2,
   ChevronDown,
   ChevronLeft,
@@ -11,6 +12,8 @@ import {
   Layers,
   LayoutDashboard,
   MapPin,
+  Megaphone,
+  Menu,
   MessageSquare,
   Package,
   Palette,
@@ -25,8 +28,9 @@ import {
   UserCheck,
   Users,
   Wallet,
+  X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../hooks/useAppStore";
 
 interface NavItem {
@@ -75,6 +79,18 @@ const navItems: NavItem[] = [
     children: [{ label: "Design Studio", icon: Layers, path: "design-studio" }],
   },
   { label: "Reports", icon: BarChart2, path: "reports" },
+  { label: "Digital Marketing", icon: Megaphone, path: "digital-marketing" },
+  {
+    label: "ERP",
+    icon: Briefcase,
+    path: "erp",
+    children: [
+      { label: "HR & Payroll", icon: Users, path: "erp" },
+      { label: "Assets", icon: Building2, path: "erp" },
+      { label: "Purchase Orders", icon: ShoppingCart, path: "erp" },
+      { label: "Stock Requisitions", icon: Boxes, path: "erp" },
+    ],
+  },
   { label: "Settings", icon: Settings, path: "settings" },
 ];
 
@@ -86,11 +102,25 @@ interface SidebarProps {
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   const { currentUser } = useAppStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
     "billing",
     "inventory",
     "design",
   ]);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Close mobile sidebar on outside click
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (overlayRef.current && e.target === overlayRef.current) {
+        setMobileOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [mobileOpen]);
 
   const toggleGroup = (path: string) => {
     setExpandedGroups((prev) =>
@@ -106,7 +136,15 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
     return isActive(item.path);
   };
 
-  return (
+  const handleNavigate = (page: string, parentPath?: string) => {
+    onNavigate(page);
+    setMobileOpen(false);
+    if (parentPath) {
+      setExpandedGroups((prev) => prev.filter((p) => p !== parentPath));
+    }
+  };
+
+  const sidebarContent = (
     <aside
       className={cn(
         "flex flex-col h-full bg-sidebar text-sidebar-foreground transition-all duration-300 shadow-sidebar",
@@ -138,13 +176,20 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="text-sidebar-foreground/60 hover:text-sidebar-foreground flex-shrink-0 p-1 rounded hover:bg-sidebar-accent/30 transition-colors"
+          className="text-sidebar-foreground/60 hover:text-sidebar-foreground flex-shrink-0 p-1 rounded hover:bg-sidebar-accent/30 transition-colors hidden md:flex"
         >
           {collapsed ? (
             <ChevronRight className="w-4 h-4" />
           ) : (
             <ChevronLeft className="w-4 h-4" />
           )}
+        </button>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="text-sidebar-foreground/60 hover:text-sidebar-foreground flex-shrink-0 p-1 rounded hover:bg-sidebar-accent/30 transition-colors md:hidden"
+        >
+          <X className="w-4 h-4" />
         </button>
       </div>
 
@@ -203,8 +248,8 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
                       return (
                         <button
                           type="button"
-                          key={child.path}
-                          onClick={() => onNavigate(child.path)}
+                          key={`${item.path}-${child.path}`}
+                          onClick={() => handleNavigate(child.path, item.path)}
                           className={cn(
                             "w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors",
                             isActive(child.path)
@@ -227,7 +272,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
             <button
               type="button"
               key={item.path}
-              onClick={() => onNavigate(item.path)}
+              onClick={() => handleNavigate(item.path)}
               className={cn(
                 "w-full flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors",
                 isActive(item.path)
@@ -252,5 +297,33 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
         </div>
       )}
     </aside>
+  );
+
+  return (
+    <>
+      {/* Mobile hamburger button — shown in header area on mobile */}
+      <button
+        type="button"
+        onClick={() => setMobileOpen(true)}
+        className="md:hidden fixed top-4 left-4 z-40 w-9 h-9 rounded-lg bg-sidebar text-sidebar-foreground flex items-center justify-center shadow-md"
+        aria-label="Open menu"
+        data-ocid="sidebar.open_modal_button"
+      >
+        <Menu className="w-4 h-4" />
+      </button>
+
+      {/* Desktop sidebar — always visible */}
+      <div className="hidden md:flex h-full">{sidebarContent}</div>
+
+      {/* Mobile sidebar — slide-in drawer */}
+      {mobileOpen && (
+        <div
+          ref={overlayRef}
+          className="fixed inset-0 z-50 bg-black/50 md:hidden"
+        >
+          <div className="h-full w-64 flex">{sidebarContent}</div>
+        </div>
+      )}
+    </>
   );
 }

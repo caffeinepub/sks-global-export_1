@@ -1025,6 +1025,25 @@ export function CustomersPage() {
                               </Button>
                             </>
                           )}
+                          {c.phone && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-green-600"
+                              title="Send WhatsApp to customer"
+                              onClick={() => {
+                                const phone = c.phone.replace(/\D/g, "");
+                                const msg = `Hi ${c.name},\nYour account with SKS Global Export:\n📋 Account: ${c.id.slice(-6).toUpperCase()}\n📞 Phone: ${c.phone}\n📍 Address: ${c.address || "N/A"}\n💰 Total Purchases: ₹${c.totalPurchases}\n\nThank you for your business! 🙏`;
+                                window.open(
+                                  `https://wa.me/91${phone}?text=${encodeURIComponent(msg)}`,
+                                  "_blank",
+                                );
+                              }}
+                              data-ocid={`customers.whatsapp_direct.button.${idx + 1}`}
+                            >
+                              <MessageCircle className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                           {c.customerType === "registered" && (
                             <Button
                               variant="ghost"
@@ -1247,8 +1266,6 @@ export function CustomersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* View Customer History */}
       <Dialog
         open={!!viewCustomer}
         onOpenChange={(open) => !open && setViewCustomer(null)}
@@ -1331,6 +1348,71 @@ export function CustomersPage() {
                   </div>
                 )}
               </div>
+
+              {/* Advanced WhatsApp Section */}
+              {viewCustomer.phone && (
+                <div className="rounded-xl border border-green-200 bg-green-50/60 p-4">
+                  <h4 className="text-sm font-semibold mb-3 flex items-center gap-2 text-green-800">
+                    <MessageCircle className="w-4 h-4" />
+                    Advanced WhatsApp Features
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="bg-green-600 hover:bg-green-700 text-white gap-1.5"
+                      onClick={() => {
+                        const phone = viewCustomer.phone.replace(/\D/g, "");
+                        const msg = `Hi ${viewCustomer.name},\nYour account with SKS Global Export:\n📋 Account: ${viewCustomer.id.slice(-6).toUpperCase()}\n📞 Phone: ${viewCustomer.phone}\n📍 Address: ${viewCustomer.address || "N/A"}\n💰 Total Purchases: ₹${viewCustomer.totalPurchases}\n\nThank you for your business! 🙏`;
+                        window.open(
+                          `https://wa.me/91${phone.slice(-10)}?text=${encodeURIComponent(msg)}`,
+                          "_blank",
+                        );
+                      }}
+                      data-ocid="customers.whatsapp_details.button"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      Share Your Details
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-green-400 text-green-700 hover:bg-green-50 gap-1.5"
+                      onClick={() => {
+                        const phone = viewCustomer.phone.replace(/\D/g, "");
+                        const outstanding = viewCustomer.totalPurchases || 0;
+                        const msg = `Dear ${viewCustomer.name},\n\nThis is a friendly payment reminder from SKS Global Export.\n\n💰 Outstanding Balance: ₹${outstanding}\n📅 Kindly clear the dues at your earliest convenience.\n\nFor queries, please contact us directly.\n\nThank you! 🙏`;
+                        window.open(
+                          `https://wa.me/91${phone.slice(-10)}?text=${encodeURIComponent(msg)}`,
+                          "_blank",
+                        );
+                      }}
+                      data-ocid="customers.whatsapp_reminder.button"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      Send Payment Reminder
+                    </Button>
+                    {viewCustomer.locationLink && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-green-400 text-green-700 hover:bg-green-50 gap-1.5"
+                        onClick={() => {
+                          const phone = viewCustomer.phone.replace(/\D/g, "");
+                          const msg = `📍 Location of ${viewCustomer.name}:\n${viewCustomer.locationLink}`;
+                          window.open(
+                            `https://wa.me/91${phone.slice(-10)}?text=${encodeURIComponent(msg)}`,
+                            "_blank",
+                          );
+                        }}
+                        data-ocid="customers.whatsapp_location_direct.button"
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        Share Location
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Custom Tariff Rates Section */}
               {viewCustomer.customerType === "registered" &&
@@ -1430,8 +1512,6 @@ export function CustomersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {/* Delete Confirm */}
       <AlertDialog
         open={!!deleteId}
         onOpenChange={(open) => !open && setDeleteId(null)}
@@ -1457,8 +1537,6 @@ export function CustomersPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-
-      {/* Customer Tariff Dialog */}
       {tariffCustomer && (
         <CustomerTariffDialog
           customer={tariffCustomer}
@@ -1469,8 +1547,6 @@ export function CustomersPage() {
           }}
         />
       )}
-
-      {/* Import Customers Dialog */}
       <Dialog
         open={showImportDialog}
         onOpenChange={(open) => {

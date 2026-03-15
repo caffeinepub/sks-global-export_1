@@ -249,6 +249,7 @@ interface CourierFormState {
   receiverName: string;
   receiverPhone: string;
   receiverAddress: string;
+  senderPincode: string;
   receiverPincode: string;
   weight: string;
   length: string;
@@ -307,6 +308,11 @@ export function POSBillingPage({
   const [date, setDate] = useState(getTodayStr());
   const [productSearch, setProductSearch] = useState("");
   const [slipItem, setSlipItem] = useState<BillItem | null>(null);
+  // Sub-unit selection dialog
+  const [subUnitDialog, setSubUnitDialog] = useState<{
+    product: GeneralProduct;
+  } | null>(null);
+  const [selectedSubUnit, setSelectedSubUnit] = useState<string>("parent");
 
   // Bill-level discount
   const [billDiscount, setBillDiscount] = useState(0);
@@ -369,6 +375,10 @@ export function POSBillingPage({
 
   // Courier brand selection and detail form
   const [selectedBrand, setSelectedBrand] = useState<CourierBrand | null>(null);
+  // Walking customer courier: simplified mode state
+  const [walkingManualAmount, setWalkingManualAmount] = useState("");
+  const [walkingPincodeError, setWalkingPincodeError] = useState(false);
+  const [showCourierFullDetails, setShowCourierFullDetails] = useState(false);
   const [selectedCourierProductId, setSelectedCourierProductId] =
     useState<string>("");
   const [courierForm, setCourierForm] = useState<CourierFormState>({
@@ -378,6 +388,7 @@ export function POSBillingPage({
     receiverName: "",
     receiverPhone: "",
     receiverAddress: "",
+    senderPincode: "",
     receiverPincode: "",
     weight: "",
     length: "",
@@ -397,10 +408,17 @@ export function POSBillingPage({
       return;
     }
     if (selectedCustomer) {
+      setShowCourierFullDetails(true);
+      const addr =
+        (selectedCustomer as { address?: string; addressLine1?: string })
+          .address ||
+        (selectedCustomer as { addressLine1?: string }).addressLine1 ||
+        "";
       setCourierForm((prev) => ({
         ...prev,
         senderName: prev.senderName || selectedCustomer.name,
         senderPhone: prev.senderPhone || selectedCustomer.phone,
+        senderAddress: prev.senderAddress || addr,
       }));
     } else if (walkingName) {
       setCourierForm((prev) => ({
@@ -550,8 +568,22 @@ export function POSBillingPage({
   const addCourierWithDetails = () => {
     if (!selectedBrand) return;
 
-    if (!courierForm.senderName || !courierForm.receiverName) {
-      toast.error("Sender and receiver names are required");
+    // For walking customers, validate pincodes are entered
+    if (!selectedCustomer) {
+      if (!courierForm.senderPincode || !courierForm.receiverPincode) {
+        setWalkingPincodeError(true);
+        toast.error(
+          "From Pincode and To Pincode are required for courier booking",
+        );
+        return;
+      }
+      setWalkingPincodeError(false);
+    }
+
+    if (!selectedCustomer && !courierForm.receiverName) {
+      // Walking customer - receiver name is not strictly required but AWB must be set
+    } else if (selectedCustomer && !courierForm.senderName) {
+      toast.error("Sender name is required");
       return;
     }
 
@@ -637,8 +669,11 @@ export function POSBillingPage({
       selectedCourierProduct && selectedCourierProduct.sellingPrice > 0
         ? selectedCourierProduct.sellingPrice
         : selectedBrand.sellingPrice;
-    let unitPrice = basePrice;
-    let totalPrice = basePrice;
+    let unitPrice =
+      walkingManualAmount && !selectedCustomer
+        ? Number(walkingManualAmount)
+        : basePrice;
+    let totalPrice = unitPrice;
 
     const customerOverride =
       courierForm.useTariff && courierForm.weight
@@ -793,6 +828,7 @@ export function POSBillingPage({
       receiverName: "",
       receiverPhone: "",
       receiverAddress: "",
+      senderPincode: "",
       receiverPincode: "",
       weight: "",
       length: "",
@@ -841,14 +877,21 @@ export function POSBillingPage({
       } else {
         resolvedPrice = existing.unitPrice;
       }
+      // If sellingPrice excludes GST, convert to GST-inclusive for billing
+      const gstMult2 =
+        product.priceIncludesGST === false
+          ? 1 + (product.gstRate || 0) / 100
+          : 1;
+      const gstInclusivePrice2 = resolvedPrice * gstMult2;
       setBillItems(
         billItems.map((i) =>
           i.productId === product.id
             ? {
                 ...i,
                 quantity: newQty,
-                unitPrice: resolvedPrice,
-                totalPrice: newQty * resolvedPrice - (i.discountAmount || 0),
+                unitPrice: gstInclusivePrice2,
+                totalPrice:
+                  newQty * gstInclusivePrice2 - (i.discountAmount || 0),
                 ...(tierLabel ? { tierLabel } : {}),
               }
             : i,
@@ -874,6 +917,12 @@ export function POSBillingPage({
       } else {
         resolvedPrice = product.sellingPrice;
       }
+      // If sellingPrice excludes GST, convert to GST-inclusive for billing
+      const gstMult =
+        product.priceIncludesGST === false
+          ? 1 + (product.gstRate || 0) / 100
+          : 1;
+      const gstInclusivePrice = resolvedPrice * gstMult;
       const item: BillItem = {
         id: generateId(),
         productId: product.id,
@@ -881,8 +930,8 @@ export function POSBillingPage({
         productName: product.name,
         quantity: 1,
         unit: product.unit,
-        unitPrice: resolvedPrice,
-        totalPrice: resolvedPrice,
+        unitPrice: gstInclusivePrice,
+        totalPrice: gstInclusivePrice,
         gstRate: product.gstRate,
         ...(tierLabel ? { tierLabel } : {}),
       };
@@ -1480,7 +1529,14 @@ export function POSBillingPage({
                   <button
                     type="button"
                     key={p.id}
-                    onClick={() => addGeneralProduct(p)}
+                    onClick={() => {
+                      if (p.productSubUnit1) {
+                        setSubUnitDialog({ product: p });
+                        setSelectedSubUnit("parent");
+                      } else {
+                        addGeneralProduct(p);
+                      }
+                    }}
                     className="text-left p-3 rounded-lg border border-border hover:border-primary hover:bg-primary/5 transition-colors"
                   >
                     <p className="text-xs font-semibold text-foreground truncate">
@@ -1625,17 +1681,6 @@ export function POSBillingPage({
                   (() => {
                     const isOwnBrand =
                       (selectedBrand as CourierBrand).isOwnBrand === true;
-                    const volWt = calcVolumetricWeight(
-                      courierForm.length,
-                      courierForm.width,
-                      courierForm.height,
-                    );
-                    const chargeableWt = calcChargeableWeight(
-                      courierForm.weight,
-                      courierForm.length,
-                      courierForm.width,
-                      courierForm.height,
-                    );
                     const style = getBrandStyle(selectedBrand.brandName);
 
                     // Preview the SKS AWB that will be generated
@@ -1963,75 +2008,242 @@ export function POSBillingPage({
                           </div>
                         )}
 
-                        {/* Sender & Receiver */}
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div className="space-y-2">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                              Sender Details
-                            </p>
-                            <Input
-                              value={courierForm.senderName}
-                              onChange={(e) =>
-                                setCourierForm((p) => ({
-                                  ...p,
-                                  senderName: e.target.value,
-                                }))
-                              }
-                              placeholder="Sender Name*"
-                              className="text-xs h-8"
-                            />
-                            <Input
-                              value={courierForm.senderPhone}
-                              onChange={(e) =>
-                                setCourierForm((p) => ({
-                                  ...p,
-                                  senderPhone: e.target.value,
-                                }))
-                              }
-                              placeholder="Phone"
-                              className="text-xs h-8"
-                            />
-                            <Input
-                              value={courierForm.senderAddress}
-                              onChange={(e) =>
-                                setCourierForm((p) => ({
-                                  ...p,
-                                  senderAddress: e.target.value,
-                                }))
-                              }
-                              placeholder="Address"
-                              className="text-xs h-8"
-                            />
+                        {/* Pincode Row — always visible */}
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div>
+                              <label
+                                htmlFor="courier-sender-pincode"
+                                className="text-xs font-medium text-muted-foreground block mb-1"
+                              >
+                                From Pincode (Sender){" "}
+                                {!selectedCustomer && (
+                                  <span className="text-destructive">*</span>
+                                )}
+                              </label>
+                              <input
+                                id="courier-sender-pincode"
+                                className={`border rounded px-2 py-1.5 text-sm w-full ${walkingPincodeError && !courierForm.senderPincode ? "border-red-500" : "border-border"}`}
+                                placeholder="Sender pincode"
+                                maxLength={6}
+                                value={courierForm.senderPincode}
+                                onChange={(e) =>
+                                  setCourierForm((p) => ({
+                                    ...p,
+                                    senderPincode: e.target.value.replace(
+                                      /\D/g,
+                                      "",
+                                    ),
+                                  }))
+                                }
+                                data-ocid="courier.sender_pincode.input"
+                              />
+                            </div>
+                            <div>
+                              <label
+                                htmlFor="courier-receiver-pincode"
+                                className="text-xs font-medium text-muted-foreground block mb-1"
+                              >
+                                To Pincode (Receiver){" "}
+                                {!selectedCustomer && (
+                                  <span className="text-destructive">*</span>
+                                )}
+                              </label>
+                              <div>
+                                <input
+                                  id="courier-receiver-pincode"
+                                  className={`border rounded px-2 py-1.5 text-sm w-full ${walkingPincodeError && !courierForm.receiverPincode ? "border-red-500" : "border-border"}`}
+                                  placeholder="Receiver pincode"
+                                  maxLength={6}
+                                  value={courierForm.receiverPincode}
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(
+                                      /\D/g,
+                                      "",
+                                    );
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      receiverPincode: val,
+                                    }));
+                                    if (val.length === 6) {
+                                      setPincodeLoading(true);
+                                      fetchPincodeData(val).then((data) => {
+                                        setPincodeData(data);
+                                        setPincodeLoading(false);
+                                        if (data) {
+                                          setCourierForm((prev) => ({
+                                            ...prev,
+                                            receiverAddress:
+                                              prev.receiverAddress ||
+                                              formatPincodeAddress(data),
+                                          }));
+                                        }
+                                      });
+                                    } else {
+                                      setPincodeData(null);
+                                    }
+                                  }}
+                                  data-ocid="courier.receiver_pincode.input"
+                                />
+                              </div>
+                            </div>
                           </div>
-                          <div className="space-y-2">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                              <ArrowRight className="w-3 h-3" /> Receiver
-                              Details
-                            </p>
-                            <Input
-                              value={courierForm.receiverName}
-                              onChange={(e) =>
-                                setCourierForm((p) => ({
-                                  ...p,
-                                  receiverName: e.target.value,
-                                }))
+                          {/* Pincode lookup result */}
+                          {pincodeLoading && (
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                              <svg
+                                className="animate-spin w-3 h-3"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                aria-label="Loading"
+                                role="img"
+                              >
+                                <circle
+                                  className="opacity-25"
+                                  cx="12"
+                                  cy="12"
+                                  r="10"
+                                  stroke="currentColor"
+                                  strokeWidth="4"
+                                />
+                                <path
+                                  className="opacity-75"
+                                  fill="currentColor"
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                />
+                              </svg>
+                              Looking up pincode...
+                            </div>
+                          )}
+                          {pincodeData && !pincodeLoading && (
+                            <div className="text-xs bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 flex items-center gap-2 flex-wrap">
+                              <span className="text-green-800 font-medium">
+                                {pincodeData.area}
+                              </span>
+                              <span className="text-green-700">
+                                {pincodeData.city}, {pincodeData.state}
+                              </span>
+                              {pincodeData.isMetro ? (
+                                <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                  Metro
+                                </span>
+                              ) : (
+                                <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                  Non-Metro
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {/* Show Full Details toggle */}
+                          <div className="flex items-center justify-between pt-1">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setShowCourierFullDetails((v) => !v)
                               }
-                              placeholder="Receiver Name*"
-                              className="text-xs h-8"
-                            />
-                            <Input
-                              value={courierForm.receiverPhone}
-                              onChange={(e) =>
-                                setCourierForm((p) => ({
-                                  ...p,
-                                  receiverPhone: e.target.value,
-                                }))
-                              }
-                              placeholder="Phone"
-                              className="text-xs h-8"
-                            />
-                            <div className="space-y-1">
-                              <div className="grid grid-cols-2 gap-1.5">
+                              className="text-xs text-primary hover:underline flex items-center gap-1 font-medium"
+                              data-ocid="courier.full_details.toggle"
+                            >
+                              {showCourierFullDetails
+                                ? "Hide Full Details ▴"
+                                : "Show Full Details ▾"}
+                            </button>
+                            {!selectedCustomer && (
+                              <span className="text-xs text-muted-foreground">
+                                Walking customer — enter details optionally
+                              </span>
+                            )}
+                          </div>
+                          {/* Walking customer: manual amount */}
+                          {!selectedCustomer && (
+                            <div>
+                              <label
+                                htmlFor="walking-amount2"
+                                className="text-xs font-medium text-muted-foreground block mb-1"
+                              >
+                                Amount (₹)
+                              </label>
+                              <input
+                                id="walking-amount2"
+                                type="number"
+                                className="border rounded px-2 py-1.5 text-sm w-full border-border"
+                                placeholder="Enter amount manually"
+                                value={walkingManualAmount}
+                                onChange={(e) =>
+                                  setWalkingManualAmount(e.target.value)
+                                }
+                                data-ocid="courier.walking.amount.input"
+                              />
+                            </div>
+                          )}
+                          {/* Full Sender & Receiver details — shown when expanded */}
+                          {showCourierFullDetails && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border border-border/50 rounded-lg p-3 bg-muted/10">
+                              <div className="space-y-2">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                                  Sender Details
+                                </p>
+                                <Input
+                                  value={courierForm.senderName}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      senderName: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Sender Name*"
+                                  className="text-xs h-8"
+                                />
+                                <Input
+                                  value={courierForm.senderPhone}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      senderPhone: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Phone"
+                                  className="text-xs h-8"
+                                />
+                                <Input
+                                  value={courierForm.senderAddress}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      senderAddress: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Address"
+                                  className="text-xs h-8"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                                  <ArrowRight className="w-3 h-3" /> Receiver
+                                  Details
+                                </p>
+                                <Input
+                                  value={courierForm.receiverName}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      receiverName: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Receiver Name*"
+                                  className="text-xs h-8"
+                                />
+                                <Input
+                                  value={courierForm.receiverPhone}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      receiverPhone: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Phone"
+                                  className="text-xs h-8"
+                                />
                                 <Input
                                   value={courierForm.receiverAddress}
                                   onChange={(e) =>
@@ -2043,94 +2255,15 @@ export function POSBillingPage({
                                   placeholder="Address"
                                   className="text-xs h-8"
                                 />
-                                <div>
-                                  <Input
-                                    value={courierForm.receiverPincode}
-                                    onChange={(e) => {
-                                      const val = e.target.value;
-                                      setCourierForm((p) => ({
-                                        ...p,
-                                        receiverPincode: val,
-                                      }));
-                                      if (/^\d{6}$/.test(val)) {
-                                        setPincodeLoading(true);
-                                        fetchPincodeData(val).then((data) => {
-                                          setPincodeData(data);
-                                          setPincodeLoading(false);
-                                          if (data) {
-                                            setCourierForm((prev) => ({
-                                              ...prev,
-                                              receiverAddress:
-                                                prev.receiverAddress ||
-                                                formatPincodeAddress(data),
-                                            }));
-                                          }
-                                        });
-                                      } else {
-                                        setPincodeData(null);
-                                      }
-                                    }}
-                                    placeholder="Pincode"
-                                    className="text-xs h-8"
-                                    maxLength={6}
-                                    data-ocid="courier.receiver_pincode.input"
-                                  />
-                                </div>
                               </div>
-                              {/* Pincode lookup result */}
-                              {pincodeLoading && (
-                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
-                                  <svg
-                                    className="animate-spin w-3 h-3"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    aria-label="Loading"
-                                    role="img"
-                                  >
-                                    <circle
-                                      className="opacity-25"
-                                      cx="12"
-                                      cy="12"
-                                      r="10"
-                                      stroke="currentColor"
-                                      strokeWidth="4"
-                                    />
-                                    <path
-                                      className="opacity-75"
-                                      fill="currentColor"
-                                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                    />
-                                  </svg>
-                                  Looking up pincode...
-                                </div>
-                              )}
-                              {pincodeData && !pincodeLoading && (
-                                <div className="text-xs bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 flex items-center gap-2 flex-wrap mt-1">
-                                  <span className="text-green-800 font-medium">
-                                    {pincodeData.area}
-                                  </span>
-                                  <span className="text-green-700">
-                                    {pincodeData.city}, {pincodeData.state}
-                                  </span>
-                                  {pincodeData.isMetro ? (
-                                    <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                                      Metro
-                                    </span>
-                                  ) : (
-                                    <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                                      Non-Metro
-                                    </span>
-                                  )}
-                                </div>
-                              )}
                             </div>
-                          </div>
+                          )}
                         </div>
 
                         {/* Shipment Details */}
                         <div className="space-y-2">
                           <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                            <Weight className="w-3 h-3" /> Shipment Details
+                            <span>⚖</span> Shipment Details
                           </p>
                           <div className="grid grid-cols-4 gap-1.5">
                             <div>
@@ -2203,21 +2336,32 @@ export function POSBillingPage({
                               />
                             </div>
                           </div>
-
-                          {/* Volumetric display */}
                           {(courierForm.length ||
                             courierForm.width ||
                             courierForm.height) && (
                             <div className="flex gap-3 text-xs bg-muted/40 p-2 rounded-lg">
                               <span className="text-muted-foreground">
                                 Volumetric:{" "}
-                                <strong>{volWt.toFixed(2)} kg</strong>
+                                <strong>
+                                  {calcVolumetricWeight(
+                                    courierForm.length,
+                                    courierForm.width,
+                                    courierForm.height,
+                                  ).toFixed(2)}{" "}
+                                  kg
+                                </strong>
                               </span>
                               <span className="text-muted-foreground">|</span>
                               <span className="text-muted-foreground">
                                 Chargeable:{" "}
                                 <strong className="text-foreground">
-                                  {chargeableWt.toFixed(2)} kg
+                                  {calcChargeableWeight(
+                                    courierForm.weight,
+                                    courierForm.length,
+                                    courierForm.width,
+                                    courierForm.height,
+                                  ).toFixed(2)}{" "}
+                                  kg
                                 </strong>
                               </span>
                             </div>
@@ -2264,7 +2408,7 @@ export function POSBillingPage({
                                       transportModes?: string;
                                     }
                                   ).transportModes ?? "Both";
-                                if (tm === "Air") {
+                                if (tm === "Air")
                                   return (
                                     <div className="h-8 px-3 rounded-md border border-border bg-blue-50 flex items-center">
                                       <span className="text-xs font-semibold text-blue-700">
@@ -2272,8 +2416,7 @@ export function POSBillingPage({
                                       </span>
                                     </div>
                                   );
-                                }
-                                if (tm === "Surface") {
+                                if (tm === "Surface")
                                   return (
                                     <div className="h-8 px-3 rounded-md border border-border bg-green-50 flex items-center">
                                       <span className="text-xs font-semibold text-green-700">
@@ -2281,7 +2424,6 @@ export function POSBillingPage({
                                       </span>
                                     </div>
                                   );
-                                }
                                 return (
                                   <Select
                                     value={courierForm.serviceMode || "Air"}
@@ -2323,10 +2465,10 @@ export function POSBillingPage({
                           )}
                         </div>
 
-                        {/* Tariff Toggle */}
-                        {brandsWithTariffs.has(
-                          selectedBrand.brandName.toLowerCase(),
-                        ) &&
+                        {selectedCustomer &&
+                          brandsWithTariffs.has(
+                            selectedBrand.brandName.toLowerCase(),
+                          ) &&
                           (() => {
                             const brandTariffs = tariffs.filter(
                               (t) =>
@@ -3398,6 +3540,137 @@ export function POSBillingPage({
           </Button>
         </div>
       </div>
+
+      {/* Sub-Unit Selection Dialog */}
+      {subUnitDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-2xl p-6 w-80 space-y-4">
+            <h3 className="text-base font-bold text-foreground">
+              Select Unit — {subUnitDialog.product.name}
+            </h3>
+            <p className="text-xs text-muted-foreground">
+              Choose which unit to add to the bill
+            </p>
+            <div className="space-y-2">
+              <button
+                type="button"
+                onClick={() => setSelectedSubUnit("parent")}
+                className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedSubUnit === "parent" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+              >
+                <p className="text-sm font-semibold">
+                  {subUnitDialog.product.unit}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  ₹{subUnitDialog.product.sellingPrice} per{" "}
+                  {subUnitDialog.product.unit}
+                </p>
+              </button>
+              {subUnitDialog.product.productSubUnit1 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubUnit("sub1")}
+                  className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedSubUnit === "sub1" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                >
+                  <p className="text-sm font-semibold">
+                    {subUnitDialog.product.productSubUnit1.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    ₹
+                    {subUnitDialog.product.productSubUnit1.sellingPrice ??
+                      "N/A"}{" "}
+                    per {subUnitDialog.product.productSubUnit1.name} (1{" "}
+                    {subUnitDialog.product.unit} ={" "}
+                    {subUnitDialog.product.productSubUnit1.conversionRate}{" "}
+                    {subUnitDialog.product.productSubUnit1.name})
+                  </p>
+                </button>
+              )}
+              {subUnitDialog.product.productSubUnit2 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubUnit("sub2")}
+                  className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedSubUnit === "sub2" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                >
+                  <p className="text-sm font-semibold">
+                    {subUnitDialog.product.productSubUnit2.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    ₹
+                    {subUnitDialog.product.productSubUnit2.sellingPrice ??
+                      "N/A"}{" "}
+                    per {subUnitDialog.product.productSubUnit2.name}
+                  </p>
+                </button>
+              )}
+              {subUnitDialog.product.productSubUnit3 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedSubUnit("sub3")}
+                  className={`w-full text-left p-3 rounded-lg border transition-colors ${selectedSubUnit === "sub3" ? "border-primary bg-primary/5" : "border-border hover:border-primary/50"}`}
+                >
+                  <p className="text-sm font-semibold">
+                    {subUnitDialog.product.productSubUnit3.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    ₹
+                    {subUnitDialog.product.productSubUnit3.sellingPrice ??
+                      "N/A"}{" "}
+                    per {subUnitDialog.product.productSubUnit3.name}
+                  </p>
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setSubUnitDialog(null)}
+                className="flex-1 py-2 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const p = subUnitDialog.product;
+                  let unitName = p.unit;
+                  let price = p.sellingPrice;
+                  if (selectedSubUnit === "sub1" && p.productSubUnit1) {
+                    unitName = p.productSubUnit1.name;
+                    price = p.productSubUnit1.sellingPrice ?? p.sellingPrice;
+                  } else if (selectedSubUnit === "sub2" && p.productSubUnit2) {
+                    unitName = p.productSubUnit2.name;
+                    price = p.productSubUnit2.sellingPrice ?? p.sellingPrice;
+                  } else if (selectedSubUnit === "sub3" && p.productSubUnit3) {
+                    unitName = p.productSubUnit3.name;
+                    price = p.productSubUnit3.sellingPrice ?? p.sellingPrice;
+                  }
+                  const gstMult =
+                    p.priceIncludesGST === false
+                      ? 1 + (p.gstRate || 0) / 100
+                      : 1;
+                  const finalPrice = price * gstMult;
+                  const item: BillItem = {
+                    id: generateId(),
+                    productId: p.id,
+                    productType: "general",
+                    productName: p.name,
+                    quantity: 1,
+                    unit: unitName,
+                    unitPrice: finalPrice,
+                    totalPrice: finalPrice,
+                    gstRate: p.gstRate,
+                  };
+                  setBillItems((prev) => [...prev, item]);
+                  setSubUnitDialog(null);
+                }}
+                className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Add to Bill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Courier Slip Print Dialog */}
       {slipItem && (

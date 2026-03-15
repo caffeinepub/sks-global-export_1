@@ -314,3 +314,26 @@ export const debounce = <T extends (...args: unknown[]) => void>(
     timer = setTimeout(() => fn(...args), delay);
   }) as T;
 };
+
+// Generate company prefix from company name (max 3 chars)
+export function generateCompanyPrefix(companyName: string): string {
+  const words = companyName.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return "CO";
+  if (words.length === 1) return words[0].slice(0, 3).toUpperCase();
+  // Take first letter of each word, up to 3 letters
+  return words
+    .slice(0, 3)
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase();
+}
+
+// Get current financial year code e.g. "25-26"
+export function getCurrentFYCode(): string {
+  const now = new Date();
+  const month = now.getMonth(); // 0=Jan, 3=Apr
+  const year = now.getFullYear();
+  const fyStart = month >= 3 ? year : year - 1;
+  const fyEnd = fyStart + 1;
+  return `${String(fyStart).slice(-2)}-${String(fyEnd).slice(-2)}`;
+}

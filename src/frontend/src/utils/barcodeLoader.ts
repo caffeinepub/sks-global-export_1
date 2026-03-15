@@ -1,54 +1,36 @@
 /**
- * Loaders for QRCode and JsBarcode via CDN.
- * Uses CDN fallback for both since neither is a bundled npm dependency.
+ * Loaders for QRCode (npm) and JsBarcode (CDN).
+ * QRCode is now loaded via the bundled npm package for reliability.
  */
 
-// ─── QR Code via CDN ──────────────────────────────────────────────────────────
+import type QRCodeLib from "qrcode";
 
-type QRCodeLib = {
-  toCanvas: (
-    canvas: HTMLCanvasElement,
-    text: string,
-    options?: {
-      width?: number;
-      errorCorrectionLevel?: string;
-      color?: { dark?: string; light?: string };
-    },
-  ) => Promise<void>;
-  toDataURL: (
-    text: string,
-    options?: {
-      width?: number;
-      margin?: number;
-      errorCorrectionLevel?: string;
-      color?: { dark?: string; light?: string };
-    },
-  ) => Promise<string>;
-  toString: (
-    text: string,
-    options?: {
-      type?: string;
-      width?: number;
-      margin?: number;
-      errorCorrectionLevel?: string;
-      color?: { dark?: string; light?: string };
-    },
-  ) => Promise<string>;
-};
+// ─── QR Code via npm ─────────────────────────────────────────────────────────
 
-let qrPromise: Promise<QRCodeLib> | null = null;
+let qrCodePromise: Promise<typeof QRCodeLib> | null = null;
 
-export async function loadQRCode(): Promise<QRCodeLib> {
-  if (!qrPromise) {
-    qrPromise = loadScript(
-      "https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js",
-    ).then(() => {
-      const lib = (window as unknown as Record<string, unknown>).QRCode;
-      if (!lib) throw new Error("QRCode not found after script load");
-      return lib as QRCodeLib;
-    });
+export async function loadQRCode(): Promise<typeof QRCodeLib> {
+  if (!qrCodePromise) {
+    qrCodePromise = import("qrcode").then((m) => m.default || m);
   }
-  return qrPromise;
+  return qrCodePromise;
+}
+
+// ─── JsBarcode via CDN ────────────────────────────────────────────────────────
+
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      resolve();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+    document.head.appendChild(script);
+  });
 }
 
 // Cache promise so we only load jsbarcode script once
@@ -68,21 +50,6 @@ type JsBarcodeLib = (
     margin?: number;
   },
 ) => void;
-
-function loadScript(src: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[src="${src}"]`);
-    if (existing) {
-      resolve();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = src;
-    script.onload = () => resolve();
-    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
-    document.head.appendChild(script);
-  });
-}
 
 export async function loadJsBarcode(): Promise<JsBarcodeLib> {
   if (!jsbarcodePromise) {

@@ -1,5 +1,5 @@
 import { Toaster } from "@/components/ui/sonner";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { BackupPromptDialog } from "./components/BackupPromptDialog";
@@ -17,6 +17,8 @@ import { CustomerTariffsPage } from "./pages/CustomerTariffsPage";
 import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DesignStudioPage } from "./pages/DesignStudioPage";
+import { DigitalMarketingPage } from "./pages/DigitalMarketingPage";
+import { ERPPage } from "./pages/ERPPage";
 import { ExpensesPage } from "./pages/ExpensesPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
@@ -31,6 +33,7 @@ import { TariffManagementPage } from "./pages/TariffManagementPage";
 import { VendorsPage } from "./pages/VendorsPage";
 import { seedInitialData } from "./utils/seedData";
 import { getLastBackupTime, migrateToSharedData } from "./utils/storage";
+import { loadSavedTheme } from "./utils/themeUtils";
 
 // Simple page store
 interface PageStore {
@@ -48,12 +51,27 @@ function AppLayout() {
   const { isAuthenticated, activeCompanyId, loadCompanyData, logout } =
     useAppStore();
 
+  const [quickOpen, setQuickOpen] = useState(false);
+  const quickRef = useRef<HTMLDivElement>(null);
+
   // Backup prompt state
   const [backupPrompt, setBackupPrompt] = useState<{
     open: boolean;
     reason: "logout" | "close";
     onProceed: () => void;
   }>({ open: false, reason: "logout", onProceed: () => {} });
+
+  // Close quick actions on click outside
+  useEffect(() => {
+    if (!quickOpen) return;
+    const handleClick = (e: MouseEvent) => {
+      if (quickRef.current && !quickRef.current.contains(e.target as Node)) {
+        setQuickOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [quickOpen]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: loadCompanyData is stable from zustand
   useEffect(() => {
@@ -156,6 +174,10 @@ function AppLayout() {
         return <CustomerTariffsPage />;
       case "expenses":
         return <ExpensesPage />;
+      case "digital-marketing":
+        return <DigitalMarketingPage />;
+      case "erp":
+        return <ERPPage />;
       case "design-studio":
         return (
           <DesignStudioPage
@@ -188,6 +210,49 @@ function AppLayout() {
           <main className="flex-1 overflow-y-auto">{renderPage()}</main>
         </div>
       </div>
+      {/* Quick Actions Floating Button */}
+      <div
+        ref={quickRef}
+        className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 items-end"
+      >
+        <div
+          className={`flex flex-col gap-2 items-end transition-all duration-200 ${quickOpen ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}
+        >
+          <button
+            type="button"
+            onClick={() => navigate("billing/new")}
+            className="flex items-center gap-2 bg-white border border-border shadow-lg rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
+            data-ocid="quick_actions.new_bill.button"
+          >
+            <span>🧾</span> New Bill
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("customers")}
+            className="flex items-center gap-2 bg-white border border-border shadow-lg rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
+            data-ocid="quick_actions.customers.button"
+          >
+            <span>👤</span> Customers
+          </button>
+          <button
+            type="button"
+            onClick={() => navigate("pickups")}
+            className="flex items-center gap-2 bg-white border border-border shadow-lg rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
+            data-ocid="quick_actions.pickups.button"
+          >
+            <span>📦</span> Schedule Pickup
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={() => setQuickOpen((o) => !o)}
+          className="w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform"
+          title="Quick Actions"
+          data-ocid="quick_actions.button"
+        >
+          ⚡
+        </button>
+      </div>
       <BackupPromptDialog
         open={backupPrompt.open}
         reason={backupPrompt.reason}
@@ -203,6 +268,7 @@ export default function App() {
   useEffect(() => {
     migrateToSharedData();
     seedInitialData();
+    loadSavedTheme();
   }, []);
 
   const { isAuthenticated } = useAppStore();
