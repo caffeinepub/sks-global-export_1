@@ -97,7 +97,7 @@ const TRACKING_STATUS_COLORS: Record<string, string> = {
   rto: "bg-red-100 text-red-700",
 };
 
-export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
+export function BillsPage({ onNavigate }: BillsPageProps) {
   const {
     bills,
     customers,
@@ -115,7 +115,6 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
   const [filterStatus, setFilterStatus] = useState("all");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [viewBill, setViewBill] = useState<Bill | null>(null);
-  const [editBill, setEditBill] = useState<Bill | null>(null);
   const [deleteBillId, setDeleteBillId] = useState<string | null>(null);
   const [deleteBulkConfirm, setDeleteBulkConfirm] = useState(false);
   const [slipItem, setSlipItem] = useState<{
@@ -151,37 +150,10 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
     useState<BillItem["trackingStatus"]>("booked");
 
   // Edit form state
-  const [editPaymentStatus, setEditPaymentStatus] =
-    useState<Bill["paymentStatus"]>("paid");
-  const [editPaymentMethod, setEditPaymentMethod] =
-    useState<Bill["paymentMethod"]>("cash");
-  const [editAmountPaid, setEditAmountPaid] = useState("");
-  const [editBalanceDue, setEditBalanceDue] = useState("");
-  const [editNotes, setEditNotes] = useState("");
 
   const openEditBill = (bill: Bill) => {
-    setEditBill(bill);
-    setEditPaymentStatus(bill.paymentStatus);
-    setEditPaymentMethod(bill.paymentMethod);
-    setEditAmountPaid(String(bill.amountPaid));
-    setEditBalanceDue(String(bill.balanceDue));
-    setEditNotes(bill.notes || "");
-  };
-
-  const handleSaveEditBill = () => {
-    if (!editBill) return;
-    const amountPaid = Number.parseFloat(editAmountPaid) || 0;
-    const balanceDue = Number.parseFloat(editBalanceDue) || 0;
-    updateBill({
-      ...editBill,
-      paymentStatus: editPaymentStatus,
-      paymentMethod: editPaymentMethod,
-      amountPaid,
-      balanceDue,
-      notes: editNotes,
-    });
-    toast.success(`Bill ${editBill.billNo} updated successfully`);
-    setEditBill(null);
+    localStorage.setItem("pos_edit_bill_id", bill.id);
+    onNavigate("billing/edit");
   };
 
   const handleDeleteBill = () => {
@@ -1223,105 +1195,6 @@ export function BillsPage({ onNavigate: _onNavigate }: BillsPageProps) {
               data-ocid="bills.view.close_button"
             >
               Close
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Bill Dialog */}
-      <Dialog
-        open={!!editBill}
-        onOpenChange={(open) => !open && setEditBill(null)}
-      >
-        <DialogContent className="max-w-md" data-ocid="bills.edit.dialog">
-          <DialogHeader>
-            <DialogTitle>Edit Bill — {editBill?.billNo}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label className="text-xs">Payment Status</Label>
-              <Select
-                value={editPaymentStatus}
-                onValueChange={(v) =>
-                  setEditPaymentStatus(v as Bill["paymentStatus"])
-                }
-              >
-                <SelectTrigger data-ocid="bills.edit.status.select">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="partial">Partial</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Payment Method</Label>
-              <Select
-                value={editPaymentMethod}
-                onValueChange={(v) =>
-                  setEditPaymentMethod(v as Bill["paymentMethod"])
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="upi">UPI</SelectItem>
-                  <SelectItem value="card">Card</SelectItem>
-                  <SelectItem value="credit">Credit</SelectItem>
-                  <SelectItem value="mixed">Mixed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs">Amount Paid (₹)</Label>
-                <Input
-                  type="number"
-                  value={editAmountPaid}
-                  onChange={(e) => setEditAmountPaid(e.target.value)}
-                  placeholder="0.00"
-                  data-ocid="bills.edit.amount_paid.input"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">Balance Due (₹)</Label>
-                <Input
-                  type="number"
-                  value={editBalanceDue}
-                  onChange={(e) => setEditBalanceDue(e.target.value)}
-                  placeholder="0.00"
-                  data-ocid="bills.edit.balance_due.input"
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs">Notes</Label>
-              <Textarea
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                placeholder="Add notes..."
-                rows={3}
-                data-ocid="bills.edit.notes.textarea"
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setEditBill(null)}
-              data-ocid="bills.edit.cancel_button"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSaveEditBill}
-              data-ocid="bills.edit.save_button"
-            >
-              Save Changes
             </Button>
           </DialogFooter>
         </DialogContent>

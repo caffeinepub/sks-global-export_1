@@ -41,6 +41,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  ClipboardList,
   Clock,
   MessageSquare,
   Pencil,
@@ -64,9 +65,11 @@ import type {
 import { formatDate, formatDateTime, generateId } from "../utils/helpers";
 import {
   SHARED_DATA_ID,
+  addTask,
   getCourierQueries,
   setCourierQueries,
 } from "../utils/storage";
+import { TasksPage } from "./TasksPage";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -136,6 +139,8 @@ export function CourierQueriesPage() {
   const [dateTo, setDateTo] = useState("");
 
   // ── Dialogs ──
+  const [createTaskForQuery, setCreateTaskForQuery] =
+    useState<CourierQuery | null>(null);
   const [raiseOpen, setRaiseOpen] = useState(false);
   const [editQuery, setEditQuery] = useState<CourierQuery | null>(null);
   const [viewQuery, setViewQuery] = useState<CourierQuery | null>(null);
@@ -768,6 +773,16 @@ export function CourierQueriesPage() {
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-purple-600 hover:text-purple-700 hover:bg-purple-50"
+                            title="Create Task"
+                            onClick={() => setCreateTaskForQuery(q)}
+                            data-ocid={`queries.create_task.button.${idx + 1}`}
+                          >
+                            <ClipboardList className="w-3.5 h-3.5" />
+                          </Button>
                         </div>
                       </TableCell>
                     </TableRow>
@@ -1052,6 +1067,28 @@ export function CourierQueriesPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      {/* Create Task from Query Dialog */}
+      {createTaskForQuery && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h3 className="font-semibold">Create Task from Query</h3>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={() => setCreateTaskForQuery(null)}
+              >
+                ✕
+              </button>
+            </div>
+            <TasksPage
+              initialSourceRef={createTaskForQuery.id}
+              initialDescription={`Query: ${createTaskForQuery.subject} | AWB: ${createTaskForQuery.awbNo || "—"} | Customer: ${createTaskForQuery.customerName}`}
+              initialSource="query"
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

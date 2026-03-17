@@ -29,6 +29,7 @@ import {
   BookUser,
   Building2,
   ChevronDown,
+  ClipboardList,
   Database,
   KeyRound,
   LogOut,
@@ -49,6 +50,7 @@ import { getTodayStr, hashPassword, verifyPassword } from "../../utils/helpers";
 import {
   getLastBackupTime,
   getManualContacts,
+  getTasks,
   setManualContacts,
 } from "../../utils/storage";
 import type { ManualContact } from "../../utils/storage";
@@ -113,6 +115,13 @@ export function Header({
   const [confirmPwd, setConfirmPwd] = useState("");
   const [notifOpen, setNotifOpen] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<string[]>([]);
+
+  // Task badge state
+  const myPendingTasks = getTasks().filter(
+    (t) => t.assignedTo === currentUser?.username && t.status !== "done",
+  );
+  const taskIconColor =
+    myPendingTasks.length > 0 ? "text-red-500" : "text-green-500";
 
   // Quick Contacts state
   const [contactsOpen, setContactsOpen] = useState(false);
@@ -379,6 +388,23 @@ export function Header({
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
+
+        {/* Tasks Icon */}
+        <Button
+          variant="ghost"
+          size="icon"
+          className="relative"
+          onClick={() => onNavigate("tasks")}
+          data-ocid="header.tasks.button"
+          title="My Tasks"
+        >
+          <ClipboardList className={`w-5 h-5 ${taskIconColor}`} />
+          {myPendingTasks.length > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[10px] flex items-center justify-center">
+              {myPendingTasks.length > 9 ? "9+" : myPendingTasks.length}
+            </span>
+          )}
+        </Button>
 
         {/* Quick Contacts */}
         <Popover

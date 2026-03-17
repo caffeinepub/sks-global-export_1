@@ -485,6 +485,8 @@ export const exportAllData = (): string => {
   const permsData = localStorage.getItem("sks_role_permissions");
   if (permsData) allData.__role_permissions = JSON.parse(permsData);
 
+  // Export tasks
+  allData.__tasks = getTasks();
   return JSON.stringify(allData, null, 2);
 };
 
@@ -785,6 +787,15 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
     }
   }
 
+  // Merge tasks
+  if (Array.isArray(data.__tasks)) {
+    const localTasks = getTasks();
+    const localTaskIds = new Set(localTasks.map((t) => t.id));
+    const newTasks = (data.__tasks as Task[]).filter(
+      (t) => !localTaskIds.has(t.id),
+    );
+    if (newTasks.length > 0) saveTasks([...localTasks, ...newTasks]);
+  }
   return summary;
 };
 
@@ -1255,6 +1266,10 @@ export const importAllData = (jsonString: string): void => {
       JSON.stringify(data.__role_permissions),
     );
   }
+  // Restore tasks
+  if (Array.isArray(data.__tasks)) {
+    saveTasks(data.__tasks as Task[]);
+  }
 };
 
 // ─── Digital Marketing ────────────────────────────────────────────────────────
@@ -1515,3 +1530,46 @@ export const getDMApiSettings = (): DMApiSettings =>
   get<DMApiSettings>(DM_API_SETTINGS_KEY, {});
 export const setDMApiSettings = (settings: DMApiSettings): void =>
   set(DM_API_SETTINGS_KEY, settings);
+
+// ─── Task Management ──────────────────────────────────────────────────────────
+
+export interface Task {
+  id: string;
+  title: string;
+  description: string;
+  assignedTo: string; // username
+  assignedBy: string; // username
+  priority: "low" | "medium" | "high" | "urgent";
+  dueDate: string;
+  status: "pending" | "noted" | "done";
+  source: "manual" | "query" | "followup";
+  sourceRef?: string; // query ID if from query
+  createdAt: string;
+  notedAt?: string;
+  doneAt?: string;
+}
+
+const TASKS_KEY = "sks_tasks";
+
+export const getTasks = (): Task[] => get<Task[]>(TASKS_KEY, []);
+
+export const saveTasks = (tasks: Task[]): void => set(TASKS_KEY, tasks);
+
+export const addTask = (task: Task): void => {
+  const tasks = getTasks();
+  set(TASKS_KEY, [...tasks, task]);
+};
+
+export const updateTask = (partial: Partial<Task> & { id: string }): void => {
+  const tasks = getTasks().map((t) =>
+    t.id === partial.id ? { ...t, ...partial } : t,
+  );
+  set(TASKS_KEY, tasks);
+};
+
+export const deleteTask = (id: string): void => {
+  set(
+    TASKS_KEY,
+    getTasks().filter((t) => t.id !== id),
+  );
+};

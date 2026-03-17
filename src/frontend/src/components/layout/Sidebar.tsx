@@ -8,6 +8,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
   FileText,
   Layers,
   LayoutDashboard,
@@ -32,6 +33,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAppStore } from "../../hooks/useAppStore";
+import { getTasks } from "../../utils/storage";
 
 interface NavItem {
   label: string;
@@ -68,6 +70,7 @@ const navItems: NavItem[] = [
   { label: "Schedule Pickup", icon: Truck, path: "pickups" },
   { label: "Courier Tracking", icon: MapPin, path: "courier-tracking" },
   { label: "Query Follow-up", icon: MessageSquare, path: "courier-queries" },
+  { label: "Tasks", icon: ClipboardList, path: "tasks" },
   { label: "Tariff Rates", icon: Tag, path: "tariffs" },
   { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
   { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
@@ -101,6 +104,9 @@ interface SidebarProps {
 
 export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   const { currentUser } = useAppStore();
+  const pendingTaskCount = getTasks().filter(
+    (t) => t.assignedTo === currentUser?.username && t.status !== "done",
+  ).length;
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([
@@ -282,7 +288,14 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
               title={collapsed ? item.label : undefined}
             >
               <Icon className="w-4 h-4 flex-shrink-0" />
-              {!collapsed && <span className="font-medium">{item.label}</span>}
+              {!collapsed && (
+                <span className="flex-1 font-medium flex items-center gap-1">
+                  {item.label}
+                  {item.path === "tasks" && pendingTaskCount > 0 && (
+                    <span className="ml-auto w-2 h-2 rounded-full bg-red-500" />
+                  )}
+                </span>
+              )}
             </button>
           );
         })}

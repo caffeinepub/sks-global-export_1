@@ -1,5 +1,11 @@
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Toaster } from "@/components/ui/sonner";
-import { useEffect, useRef, useState } from "react";
+import { Keyboard } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { create } from "zustand";
 import { BackupPromptDialog } from "./components/BackupPromptDialog";
@@ -30,9 +36,14 @@ import { PurchaseInvoicesPage } from "./pages/PurchaseInvoicesPage";
 import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { TariffManagementPage } from "./pages/TariffManagementPage";
+import { TasksPage } from "./pages/TasksPage";
 import { VendorsPage } from "./pages/VendorsPage";
 import { seedInitialData } from "./utils/seedData";
-import { getLastBackupTime, migrateToSharedData } from "./utils/storage";
+import {
+  getLastBackupTime,
+  getTasks,
+  migrateToSharedData,
+} from "./utils/storage";
 import { loadSavedTheme } from "./utils/themeUtils";
 
 // Simple page store
@@ -46,13 +57,25 @@ const usePageStore = create<PageStore>((set) => ({
   navigate: (page: string) => set({ currentPage: page }),
 }));
 
+const SHORTCUTS = [
+  { key: "Alt+B", label: "New Bill (POS)" },
+  { key: "Alt+C", label: "Customers" },
+  { key: "Alt+P", label: "Schedule Pickup" },
+  { key: "Alt+I", label: "Invoices" },
+  { key: "Alt+Q", label: "Query Follow-up" },
+  { key: "Alt+D", label: "Dashboard" },
+  { key: "Alt+T", label: "Tasks" },
+];
+
 function AppLayout() {
   const { currentPage, navigate } = usePageStore();
-  const { isAuthenticated, activeCompanyId, loadCompanyData, logout } =
-    useAppStore();
-
-  const [quickOpen, setQuickOpen] = useState(false);
-  const quickRef = useRef<HTMLDivElement>(null);
+  const {
+    isAuthenticated,
+    activeCompanyId,
+    loadCompanyData,
+    logout,
+    currentUser,
+  } = useAppStore();
 
   // Backup prompt state
   const [backupPrompt, setBackupPrompt] = useState<{
@@ -60,18 +83,6 @@ function AppLayout() {
     reason: "logout" | "close";
     onProceed: () => void;
   }>({ open: false, reason: "logout", onProceed: () => {} });
-
-  // Close quick actions on click outside
-  useEffect(() => {
-    if (!quickOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (quickRef.current && !quickRef.current.contains(e.target as Node)) {
-        setQuickOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [quickOpen]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: loadCompanyData is stable from zustand
   useEffect(() => {
@@ -107,6 +118,74 @@ function AppLayout() {
     }
   }, [isAuthenticated]);
 
+  // Auto-show tasks on login — once per session
+  // biome-ignore lint/correctness/useExhaustiveDependencies: navigate is stable
+  useEffect(() => {
+    if (!isAuthenticated || !currentUser) return;
+    const alreadyShown = sessionStorage.getItem("tasksShownThisSession");
+    if (alreadyShown) return;
+    const myTasks = getTasks().filter(
+      (t) => t.assignedTo === currentUser.username && t.status !== "done",
+    );
+    if (myTasks.length === 0) return;
+    sessionStorage.setItem("tasksShownThisSession", "1");
+    setTimeout(() => {
+      const hasPending = myTasks.some((t) => t.status === "pending");
+      const hasNoted = myTasks.some((t) => t.status === "noted");
+      if (hasPending) {
+        toast.warning("📋 Your Boss assigned a task for you", {
+          duration: 5000,
+          action: { label: "View Tasks", onClick: () => navigate("tasks") },
+        });
+      } else if (hasNoted) {
+        toast.info("📋 Your task is pending", {
+          duration: 5000,
+          action: { label: "View Tasks", onClick: () => navigate("tasks") },
+        });
+      }
+      navigate("tasks");
+    }, 1500);
+  }, [isAuthenticated, currentUser]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!e.altKey) return;
+      switch (e.key.toLowerCase()) {
+        case "b":
+          e.preventDefault();
+          navigate("billing/new");
+          break;
+        case "c":
+          e.preventDefault();
+          navigate("customers");
+          break;
+        case "p":
+          e.preventDefault();
+          navigate("pickups");
+          break;
+        case "i":
+          e.preventDefault();
+          navigate("invoices");
+          break;
+        case "q":
+          e.preventDefault();
+          navigate("courier-queries");
+          break;
+        case "d":
+          e.preventDefault();
+          navigate("dashboard");
+          break;
+        case "t":
+          e.preventDefault();
+          navigate("tasks");
+          break;
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [navigate]);
+
   // Intercept tab/window close — show native browser confirmation
   useEffect(() => {
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
@@ -138,6 +217,8 @@ function AppLayout() {
         return <DashboardPage onNavigate={navigate} />;
       case "billing/new":
         return <POSBillingPage onNavigate={navigate} />;
+      case "billing/edit":
+        return <POSBillingPage onNavigate={navigate} editMode />;
       case "bills":
         return <BillsPage onNavigate={navigate} />;
       case "invoices":
@@ -178,6 +259,8 @@ function AppLayout() {
         return <DigitalMarketingPage />;
       case "erp":
         return <ERPPage />;
+      case "tasks":
+        return <TasksPage onNavigate={navigate} />;
       case "design-studio":
         return (
           <DesignStudioPage
@@ -210,49 +293,39 @@ function AppLayout() {
           <main className="flex-1 overflow-y-auto">{renderPage()}</main>
         </div>
       </div>
-      {/* Quick Actions Floating Button */}
-      <div
-        ref={quickRef}
-        className="fixed bottom-6 right-6 z-50 flex flex-col gap-2 items-end"
-      >
-        <div
-          className={`flex flex-col gap-2 items-end transition-all duration-200 ${quickOpen ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2 pointer-events-none"}`}
+      {/* Keyboard Shortcuts Help Button */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="fixed bottom-4 right-4 z-50 w-8 h-8 rounded-full bg-muted text-muted-foreground border border-border shadow-md flex items-center justify-center hover:bg-accent transition-colors"
+            title="Keyboard Shortcuts"
+            data-ocid="shortcuts.help.button"
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent
+          side="top"
+          align="end"
+          className="w-64 p-3"
+          data-ocid="shortcuts.help.popover"
         >
-          <button
-            type="button"
-            onClick={() => navigate("billing/new")}
-            className="flex items-center gap-2 bg-white border border-border shadow-lg rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
-            data-ocid="quick_actions.new_bill.button"
-          >
-            <span>🧾</span> New Bill
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("customers")}
-            className="flex items-center gap-2 bg-white border border-border shadow-lg rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
-            data-ocid="quick_actions.customers.button"
-          >
-            <span>👤</span> Customers
-          </button>
-          <button
-            type="button"
-            onClick={() => navigate("pickups")}
-            className="flex items-center gap-2 bg-white border border-border shadow-lg rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-primary hover:text-primary-foreground transition-colors"
-            data-ocid="quick_actions.pickups.button"
-          >
-            <span>📦</span> Schedule Pickup
-          </button>
-        </div>
-        <button
-          type="button"
-          onClick={() => setQuickOpen((o) => !o)}
-          className="w-12 h-12 rounded-full bg-primary text-primary-foreground shadow-xl flex items-center justify-center text-xl hover:scale-105 transition-transform"
-          title="Quick Actions"
-          data-ocid="quick_actions.button"
-        >
-          ⚡
-        </button>
-      </div>
+          <p className="text-xs font-semibold mb-2 text-foreground">
+            ⌨️ Keyboard Shortcuts
+          </p>
+          <div className="space-y-1">
+            {SHORTCUTS.map((s) => (
+              <div key={s.key} className="flex justify-between text-xs">
+                <span className="text-muted-foreground">{s.label}</span>
+                <kbd className="bg-muted px-1.5 py-0.5 rounded text-xs font-mono">
+                  {s.key}
+                </kbd>
+              </div>
+            ))}
+          </div>
+        </PopoverContent>
+      </Popover>
       <BackupPromptDialog
         open={backupPrompt.open}
         reason={backupPrompt.reason}

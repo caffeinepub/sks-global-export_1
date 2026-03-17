@@ -44,6 +44,7 @@ import type {
   CourierTariff,
   Customer,
   GeneralProduct,
+  Invoice,
   PricingSlab,
   ServiceProduct,
   XeroxProduct,
@@ -272,10 +273,12 @@ type AWBStatus =
 
 interface POSBillingPageProps {
   onNavigate: (page: string) => void;
+  editMode?: boolean;
 }
 
 export function POSBillingPage({
-  onNavigate: _onNavigate,
+  onNavigate,
+  editMode = false,
 }: POSBillingPageProps) {
   const {
     products,
@@ -284,6 +287,9 @@ export function POSBillingPage({
     awbSerials,
     updateAWBSerial,
     addBill,
+    updateBill,
+    invoices,
+    updateInvoice,
     settings,
     updateSettings,
     activeCompanyId,
@@ -292,6 +298,16 @@ export function POSBillingPage({
   } = useAppStore();
 
   const [paperSize, setPaperSize] = useState<"A6" | "A5">("A6");
+
+  // Edit mode: load bill ID from localStorage
+  const editBillId = editMode
+    ? localStorage.getItem("pos_edit_bill_id") || ""
+    : "";
+  const editBillData = editBillId
+    ? bills.find((b) => b.id === editBillId)
+    : undefined;
+  const [billNoOverride, setBillNoOverride] = useState("");
+  const [editLinkedInvoiceDialog, setEditLinkedInvoiceDialog] = useState(false);
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
     null,
@@ -400,6 +416,27 @@ export function POSBillingPage({
     tariffProductType: "Express",
     useTariff: false,
   });
+
+  // Pre-populate fields when editing an existing bill
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount
+  useEffect(() => {
+    if (!editMode || !editBillData) return;
+    setBillNoOverride(editBillData.billNo);
+    setDate(editBillData.date);
+    setBillItems(editBillData.items);
+    setNotes(editBillData.notes || "");
+    setPaymentMethod(editBillData.paymentMethod);
+    setAmountPaid(String(editBillData.amountPaid));
+    setBillDiscount(editBillData.billDiscount || 0);
+    if (editBillData.additionalCharges)
+      setAdditionalCharges(editBillData.additionalCharges);
+    if (editBillData.customerType === "registered") {
+      const cust = customers.find((c) => c.id === editBillData.customerId);
+      if (cust) setSelectedCustomer(cust);
+    } else {
+      setWalkingName(editBillData.customerName);
+    }
+  }, []);
 
   // Auto-fill sender details when customer is selected and a brand is chosen.
   useEffect(() => {
@@ -695,10 +732,16 @@ export function POSBillingPage({
       );
       const gstRate = selectedBrand.gstRate || 0;
       if (matchedTariff?.isGSTInclusive && gstRate > 0) {
-        const basePrice =
+        // tariff price already includes GST
+        const taxableBase =
           Math.round((customerOverride / (1 + gstRate / 100)) * 100) / 100;
-        unitPrice = basePrice;
-        totalPrice = basePrice;
+        unitPrice = taxableBase; // pre-GST unit price
+        totalPrice = customerOverride; // GST-inclusive total
+      } else if (gstRate > 0) {
+        // tariff price excludes GST — add GST
+        unitPrice = customerOverride;
+        totalPrice =
+          Math.round(customerOverride * (1 + gstRate / 100) * 100) / 100;
       } else {
         unitPrice = customerOverride;
         totalPrice = customerOverride;
@@ -723,10 +766,16 @@ export function POSBillingPage({
         );
         const gstRate = selectedBrand.gstRate || 0;
         if (matchedTariff?.isGSTInclusive && gstRate > 0) {
-          const basePrice =
+          // tariff price already includes GST
+          const taxableBase =
             Math.round((tariffResult.price / (1 + gstRate / 100)) * 100) / 100;
-          unitPrice = basePrice;
-          totalPrice = basePrice;
+          unitPrice = taxableBase; // pre-GST unit price
+          totalPrice = tariffResult.price; // GST-inclusive total
+        } else if (gstRate > 0) {
+          // tariff price excludes GST — add GST
+          unitPrice = tariffResult.price;
+          totalPrice =
+            Math.round(tariffResult.price * (1 + gstRate / 100) * 100) / 100;
         } else {
           unitPrice = tariffResult.price;
           totalPrice = tariffResult.price;
@@ -1166,8 +1215,14 @@ export function POSBillingPage({
     const visibleTotal = visibleCharges.reduce((sum, c) => sum + c.amount, 0);
     const finalTotal = Math.max(0, finalSubtotal + visibleTotal - billDiscount);
 
-    const billNo = generateBillNo(settings.billPrefix, settings.billSeq);
-    const customerId = selectedCustomer?.id || `walking_${generateId()}`;
+    const billNo =
+      editMode && billNoOverride
+        ? billNoOverride
+        : generateBillNo(settings.billPrefix, settings.billSeq);
+    const customerId =
+      editMode && editBillData
+        ? editBillData.customerId
+        : selectedCustomer?.id || `walking_${generateId()}`;
     const customerName =
       selectedCustomer?.name || walkingName || "Walking Customer";
     const customerType = selectedCustomer
@@ -1197,25 +1252,47 @@ export function POSBillingPage({
       createdBy: currentUser?.username,
     };
 
-    addBill(bill);
-    updateSettings({ ...settings, billSeq: settings.billSeq + 1 });
-    setSettings(activeCompanyId, {
-      ...settings,
-      billSeq: settings.billSeq + 1,
-    });
-
-    toast.success(`Bill ${billNo} saved successfully!`);
-
-    // Reset
-    setBillItems([]);
-    setSelectedCustomer(null);
-    setWalkingName("");
-    setWalkingPhone("");
-    setNotes("");
-    setAmountPaid("");
-    setPaymentMethod("cash");
-    setBillDiscount(0);
-    setAdditionalCharges([]);
+    if (editMode && editBillData) {
+      updateBill({ ...bill, id: editBillData.id, billNo: editBillData.billNo });
+      // Check for linked invoice
+      const linked = invoices.find((inv) =>
+        inv.billIds?.includes(editBillData.id),
+      );
+      if (linked) {
+        setEditLinkedInvoiceDialog(true);
+        // Store the updated bill for use in the invoice update dialog
+        localStorage.setItem(
+          "pos_pending_invoice_update",
+          JSON.stringify({
+            invoiceId: linked.id,
+            grandTotal: finalTotal,
+            paymentStatus: bill.paymentStatus,
+            amountPaid: paid,
+          }),
+        );
+      }
+      toast.success(`Bill ${editBillData.billNo} updated successfully!`);
+      localStorage.removeItem("pos_edit_bill_id");
+      onNavigate("bills");
+    } else {
+      addBill(bill);
+      updateSettings({ ...settings, billSeq: settings.billSeq + 1 });
+      setSettings(activeCompanyId, {
+        ...settings,
+        billSeq: settings.billSeq + 1,
+      });
+      toast.success(`Bill ${billNo} saved successfully!`);
+      // Reset
+      setBillItems([]);
+      setSelectedCustomer(null);
+      setWalkingName("");
+      setWalkingPhone("");
+      setNotes("");
+      setAmountPaid("");
+      setPaymentMethod("cash");
+      setBillDiscount(0);
+      setAdditionalCharges([]);
+    }
   };
 
   const customerName = selectedCustomer?.name || walkingName || "";
@@ -3283,16 +3360,40 @@ export function POSBillingPage({
 
       {/* Right: Summary & Payment */}
       <div className="space-y-4">
-        {/* Date */}
-        <div className="bg-white rounded-xl border border-border p-4 shadow-xs">
-          <Label className="text-xs mb-1 block">Bill Date</Label>
-          <Input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="text-sm"
-            data-ocid="pos.date.input"
-          />
+        {/* Date + Bill Number */}
+        <div className="bg-white rounded-xl border border-border p-4 shadow-xs space-y-3">
+          {editMode && editBillData && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 font-medium">
+              ✏️ Editing Bill: {editBillData.billNo}
+            </div>
+          )}
+          <div>
+            <Label className="text-xs mb-1 block">Bill Number</Label>
+            <Input
+              value={
+                editMode && editBillData
+                  ? editBillData.billNo
+                  : billNoOverride ||
+                    (settings
+                      ? generateBillNo(settings.billPrefix, settings.billSeq)
+                      : "DRAFT")
+              }
+              onChange={(e) => setBillNoOverride(e.target.value)}
+              className="text-sm font-mono"
+              readOnly={editMode && !!editBillData}
+              data-ocid="pos.billno.input"
+            />
+          </div>
+          <div>
+            <Label className="text-xs mb-1 block">Bill Date</Label>
+            <Input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="text-sm"
+              data-ocid="pos.date.input"
+            />
+          </div>
         </div>
 
         {/* Bill Summary */}
@@ -3300,17 +3401,35 @@ export function POSBillingPage({
           <h3 className="text-sm font-semibold mb-3">Bill Summary</h3>
 
           {/* Item lines */}
-          <div className="space-y-1.5">
-            {billItems.map((item) => (
-              <div key={item.id} className="flex justify-between text-xs">
-                <span className="text-muted-foreground truncate max-w-[150px]">
-                  {item.productName} × {item.quantity}
-                </span>
-                <span className="font-medium">
-                  {formatCurrency(item.totalPrice)}
-                </span>
-              </div>
-            ))}
+          <div className="space-y-2">
+            {billItems.map((item) => {
+              const gstAmt =
+                item.gstRate > 0
+                  ? Math.round(
+                      (item.totalPrice -
+                        item.totalPrice / (1 + item.gstRate / 100)) *
+                        100,
+                    ) / 100
+                  : 0;
+              return (
+                <div key={item.id} className="space-y-0.5">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground truncate max-w-[150px]">
+                      {item.productName} × {item.quantity}
+                    </span>
+                    <span className="font-medium">
+                      {formatCurrency(item.totalPrice)}
+                    </span>
+                  </div>
+                  {item.gstRate > 0 && (
+                    <div className="flex justify-between text-[10px] text-blue-600 pl-1">
+                      <span>GST ({item.gstRate}%)</span>
+                      <span>+{formatCurrency(gstAmt)}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <Separator className="my-2" />
@@ -3686,6 +3805,63 @@ export function POSBillingPage({
           companyLogoUrl={activeCompany?.logoUrl}
         />
       )}
+
+      {/* Linked Invoice Update Dialog */}
+      {editLinkedInvoiceDialog &&
+        (() => {
+          const pendingStr = localStorage.getItem("pos_pending_invoice_update");
+          if (!pendingStr) return null;
+          const pending = JSON.parse(pendingStr) as {
+            invoiceId: string;
+            grandTotal: number;
+            paymentStatus: string;
+            amountPaid: number;
+          };
+          const inv = invoices.find((i) => i.id === pending.invoiceId);
+          if (!inv) return null;
+          return (
+            <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
+                <h3 className="font-semibold mb-2">Update Linked Invoice?</h3>
+                <p className="text-sm text-muted-foreground mb-4">
+                  This bill has a linked invoice ({inv.invoiceNo}). Update
+                  invoice totals to match?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    className="flex-1 py-2 rounded-lg border border-border text-sm hover:bg-muted"
+                    onClick={() => {
+                      localStorage.removeItem("pos_pending_invoice_update");
+                      setEditLinkedInvoiceDialog(false);
+                    }}
+                    data-ocid="pos.invoice_update.cancel_button"
+                  >
+                    No, Skip
+                  </button>
+                  <button
+                    type="button"
+                    className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90"
+                    onClick={() => {
+                      updateInvoice({
+                        ...inv,
+                        total: pending.grandTotal,
+                        paymentStatus:
+                          pending.paymentStatus as Invoice["paymentStatus"],
+                      });
+                      localStorage.removeItem("pos_pending_invoice_update");
+                      setEditLinkedInvoiceDialog(false);
+                      toast.success("Invoice updated to match bill");
+                    }}
+                    data-ocid="pos.invoice_update.confirm_button"
+                  >
+                    Yes, Update Invoice
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
     </div>
   );
 }
