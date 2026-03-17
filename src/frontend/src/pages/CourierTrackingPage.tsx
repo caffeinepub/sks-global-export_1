@@ -30,6 +30,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   ChevronDown,
   ChevronUp,
+  Download,
   ExternalLink,
   History,
   MapPin,
@@ -37,6 +38,8 @@ import {
   RefreshCw,
   Search,
   Truck,
+  Upload,
+  Zap,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -406,6 +409,16 @@ export function CourierTrackingPage() {
     trackingNotes: Array<{ date: string; note: string; status: string }>;
   } | null>(null);
 
+  // ── Status Update tab state ──────────────────────────────────────────────
+  const [suFilterBrand, setSuFilterBrand] = useState("all");
+  const [suFilterStatus, setSuFilterStatus] = useState("all");
+  const [suSearch, setSuSearch] = useState("");
+  const [bulkFile, setBulkFile] = useState<File | null>(null);
+  const [bulkPreview, setBulkPreview] = useState<
+    Array<{ awb: string; newStatus: string; found: boolean }>
+  >([]);
+  const [bulkApplied, setBulkApplied] = useState(false);
+
   // ── All courier shipments from bills ──────────────────────────────────────
   const allShipments = useMemo(() => {
     const result: Array<{
@@ -535,6 +548,158 @@ export function CourierTrackingPage() {
     toast.success("Tracking status updated");
   };
 
+  // ── Status Update: inline save ──────────────────────────────────────────────
+  const handleInlineStatusUpdate = (
+    billId: string,
+    itemId: string,
+    newStatus: string,
+  ) => {
+    const bill = bills.find((b) => b.id === billId);
+    if (!bill) return;
+    const updatedItems = bill.items.map((it) => {
+      if (it.id !== itemId) return it;
+      const extItem = it as BillItem & {
+        trackingNotes?: Array<{ date: string; note: string; status: string }>;
+      };
+      return {
+        ...it,
+        trackingStatus: newStatus as BillItem["trackingStatus"],
+        trackingNotes: [
+          ...(extItem.trackingNotes ?? []),
+          {
+            date: new Date().toISOString(),
+            note: "Status updated via bulk/inline update",
+            status: newStatus,
+          },
+        ],
+      };
+    });
+    updateBill({ ...bill, items: updatedItems });
+    toast.success("Status updated");
+  };
+
+  const handleBulkFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBulkFile(file);
+    setBulkApplied(false);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string;
+      const lines = text
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      const preview: Array<{ awb: string; newStatus: string; found: boolean }> =
+        [];
+      // skip header line if it says "AWB No" or "awb"
+      const startIdx = lines[0]?.toLowerCase().includes("awb") ? 1 : 0;
+      for (let i = startIdx; i < lines.length; i++) {
+        const cols = lines[i]
+          .split(",")
+          .map((c) => c.trim().replace(/^"|"$/g, ""));
+        if (!cols[0]) continue;
+        const awb = cols[0];
+        const statusRaw = (cols[1] || "booked")
+          .toLowerCase()
+          .replace(/\s+/g, "_");
+        const validStatus = STATUS_OPTIONS.find(
+          (s) =>
+            s.value === statusRaw ||
+            s.label.toLowerCase().replace(/\s+/g, "_") === statusRaw,
+        );
+        const newStatus = validStatus?.value || "booked";
+        // Check if AWB exists in bills
+        let found = false;
+        for (const bill of bills) {
+          for (const item of bill.items) {
+            if (item.awbSerial === awb) {
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+        preview.push({ awb, newStatus, found });
+      }
+      setBulkPreview(preview);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleBulkApply = () => {
+    let count = 0;
+    for (const row of bulkPreview) {
+      if (!row.found) continue;
+      for (const bill of bills) {
+        for (const item of bill.items) {
+          if (item.awbSerial === row.awb) {
+            handleInlineStatusUpdate(bill.id, item.id, row.newStatus);
+            count++;
+          }
+        }
+      }
+    }
+    setBulkApplied(true);
+    toast.success(`${count} shipment(s) status updated`);
+  };
+
+  const downloadSampleCSV = () => {
+    const csv =
+      "AWB No,Status\nSKS001234,delivered\nSKS005678,in_transit\nSKS009012,rto";
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "courier_status_update_sample.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportStatusList = () => {
+    const rows = [["AWB No", "Customer", "Brand", "Status", "Booking Date"]];
+    for (const { bill, item } of allShipments) {
+      const extItem = item as BillItem & { trackingStatus?: string };
+      rows.push([
+        item.awbSerial || "",
+        bill.customerName,
+        item.brandName || "",
+        getStatusLabel(extItem.trackingStatus || "booked"),
+        bill.date,
+      ]);
+    }
+    const csv = rows.map((r) => r.map((c) => `"${c}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "courier_status_list.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const suShipments = useMemo(() => {
+    return allShipments.filter(({ bill, item }) => {
+      if (suFilterBrand !== "all" && item.brandName !== suFilterBrand)
+        return false;
+      const ts =
+        (item as BillItem & { trackingStatus?: string }).trackingStatus ||
+        "booked";
+      if (suFilterStatus !== "all" && ts !== suFilterStatus) return false;
+      if (suSearch) {
+        const q = suSearch.toLowerCase();
+        if (
+          !(
+            (item.awbSerial || "").toLowerCase().includes(q) ||
+            bill.customerName.toLowerCase().includes(q)
+          )
+        )
+          return false;
+      }
+      return true;
+    });
+  }, [allShipments, suFilterBrand, suFilterStatus, suSearch]);
+
   return (
     <div className="p-6 space-y-4">
       {/* Page Header */}
@@ -564,6 +729,13 @@ export function CourierTrackingPage() {
                 {allShipments.length}
               </span>
             )}
+          </TabsTrigger>
+          <TabsTrigger
+            value="status_update"
+            data-ocid="tracking.status_update.tab"
+          >
+            <Zap className="w-4 h-4 mr-2" />
+            Status Update
           </TabsTrigger>
         </TabsList>
 
@@ -995,6 +1167,295 @@ export function CourierTrackingPage() {
                               </Button>
                             )}
                           </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+
+        {/* ── Tab 3: Status Update ──────────────────────────────────────────── */}
+        <TabsContent value="status_update" className="mt-4 space-y-4">
+          {/* Header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-semibold">Courier Status Update</h3>
+              <p className="text-xs text-muted-foreground">
+                Update tracking status individually or in bulk via Excel/CSV
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={downloadSampleCSV}
+                className="flex items-center gap-1.5 text-xs border border-border rounded-lg px-3 py-2 hover:bg-muted/50 transition-colors"
+                data-ocid="tracking.status_update.download_sample.button"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Sample CSV
+              </button>
+              <button
+                type="button"
+                onClick={exportStatusList}
+                className="flex items-center gap-1.5 text-xs border border-border rounded-lg px-3 py-2 hover:bg-muted/50 transition-colors"
+                data-ocid="tracking.status_update.export.button"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Export List
+              </button>
+            </div>
+          </div>
+
+          {/* Bulk Upload */}
+          <div className="bg-white border border-border rounded-xl p-5 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Upload className="w-4 h-4 text-primary" />
+              <h4 className="font-semibold text-sm">
+                Bulk Status Update via Excel/CSV
+              </h4>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Upload a CSV file with two columns: <strong>AWB No</strong> and{" "}
+              <strong>Status</strong>. Valid status values: booked, in_transit,
+              out_for_delivery, delivered, rto, exception, hold
+            </p>
+            <div className="flex gap-3 items-center flex-wrap">
+              <label
+                className="flex items-center gap-2 cursor-pointer border-2 border-dashed border-primary/40 rounded-lg px-4 py-3 hover:border-primary transition-colors text-sm text-primary font-medium"
+                data-ocid="tracking.status_update.dropzone"
+              >
+                <Upload className="w-4 h-4" />
+                Choose CSV File
+                <input
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={handleBulkFileChange}
+                  data-ocid="tracking.status_update.upload_button"
+                />
+              </label>
+              {bulkFile && (
+                <span className="text-xs text-muted-foreground">
+                  {bulkFile.name}
+                </span>
+              )}
+            </div>
+            {bulkPreview.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold">
+                    Preview ({bulkPreview.length} rows) —{" "}
+                    <span className="text-green-600">
+                      {bulkPreview.filter((r) => r.found).length} found
+                    </span>
+                    ,{" "}
+                    <span className="text-red-500">
+                      {bulkPreview.filter((r) => !r.found).length} not found
+                    </span>
+                  </p>
+                  {!bulkApplied && (
+                    <button
+                      type="button"
+                      onClick={handleBulkApply}
+                      className="flex items-center gap-1.5 bg-primary text-white text-xs rounded-lg px-3 py-2 hover:bg-primary/90"
+                      data-ocid="tracking.status_update.apply.primary_button"
+                    >
+                      <Zap className="w-3.5 h-3.5" />
+                      Apply Updates
+                    </button>
+                  )}
+                  {bulkApplied && (
+                    <span className="text-xs text-green-600 font-semibold">
+                      ✓ Applied successfully
+                    </span>
+                  )}
+                </div>
+                <div className="max-h-48 overflow-y-auto border border-border rounded-lg">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/30 sticky top-0">
+                      <tr>
+                        <th className="text-left p-2">AWB No</th>
+                        <th className="text-left p-2">New Status</th>
+                        <th className="text-left p-2">Found</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkPreview.map((row) => (
+                        <tr
+                          key={row.awb}
+                          className={row.found ? "" : "bg-red-50"}
+                        >
+                          <td className="p-2 font-mono font-semibold">
+                            {row.awb}
+                          </td>
+                          <td className="p-2">
+                            <span
+                              className={`px-1.5 py-0.5 rounded text-xs font-medium ${getStatusColor(row.newStatus)}`}
+                            >
+                              {getStatusLabel(row.newStatus)}
+                            </span>
+                          </td>
+                          <td className="p-2">
+                            {row.found ? (
+                              <span className="text-green-600 font-semibold">
+                                ✓
+                              </span>
+                            ) : (
+                              <span className="text-red-500">✗ Not found</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Individual Update */}
+          <div className="bg-white border border-border rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-border flex flex-wrap gap-3 items-end">
+              <div className="flex-1 min-w-32">
+                <Label className="text-xs text-muted-foreground">
+                  Search AWB / Customer
+                </Label>
+                <div className="relative mt-1">
+                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={suSearch}
+                    onChange={(e) => setSuSearch(e.target.value)}
+                    placeholder="Search..."
+                    className="w-full pl-8 h-8 text-xs border border-input rounded-md bg-background px-3"
+                    data-ocid="tracking.status_update.search_input"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  Filter Brand
+                </Label>
+                <Select value={suFilterBrand} onValueChange={setSuFilterBrand}>
+                  <SelectTrigger
+                    className="mt-1 h-8 text-xs w-36"
+                    data-ocid="tracking.status_update.brand.select"
+                  >
+                    <SelectValue placeholder="All Brands" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Brands</SelectItem>
+                    {brandOptions.map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs text-muted-foreground">
+                  Filter Status
+                </Label>
+                <Select
+                  value={suFilterStatus}
+                  onValueChange={setSuFilterStatus}
+                >
+                  <SelectTrigger
+                    className="mt-1 h-8 text-xs w-40"
+                    data-ocid="tracking.status_update.status.select"
+                  >
+                    <SelectValue placeholder="All Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    {STATUS_OPTIONS.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/30">
+                  <TableHead className="text-xs">AWB No</TableHead>
+                  <TableHead className="text-xs">Customer</TableHead>
+                  <TableHead className="text-xs">Brand</TableHead>
+                  <TableHead className="text-xs">Booking Date</TableHead>
+                  <TableHead className="text-xs">Current Status</TableHead>
+                  <TableHead className="text-xs">Update Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {suShipments.length === 0 ? (
+                  <TableRow>
+                    <TableCell
+                      colSpan={6}
+                      className="text-center py-8 text-muted-foreground text-sm"
+                      data-ocid="tracking.status_update.empty_state"
+                    >
+                      No shipments found
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  suShipments.map(({ bill, item }, idx) => {
+                    const extItem = item as BillItem & {
+                      trackingStatus?: string;
+                    };
+                    return (
+                      <TableRow
+                        key={`${bill.id}-${item.id}`}
+                        data-ocid={`tracking.status_update.row.${idx + 1}`}
+                      >
+                        <TableCell className="text-xs font-mono font-semibold text-primary">
+                          {item.awbSerial}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {bill.customerName}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          {item.brandName || "—"}
+                        </TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {bill.date}
+                        </TableCell>
+                        <TableCell>
+                          <span
+                            className={`text-xs px-1.5 py-0.5 rounded font-medium ${getStatusColor(extItem.trackingStatus || "booked")}`}
+                          >
+                            {getStatusLabel(extItem.trackingStatus || "booked")}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <Select
+                            value={extItem.trackingStatus || "booked"}
+                            onValueChange={(v) =>
+                              handleInlineStatusUpdate(bill.id, item.id, v)
+                            }
+                          >
+                            <SelectTrigger
+                              className="h-7 text-xs w-44"
+                              data-ocid={`tracking.status_update.status_select.${idx + 1}`}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {STATUS_OPTIONS.map((s) => (
+                                <SelectItem key={s.value} value={s.value}>
+                                  <span
+                                    className={`text-xs px-1.5 py-0.5 rounded ${s.color}`}
+                                  >
+                                    {s.label}
+                                  </span>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </TableCell>
                       </TableRow>
                     );

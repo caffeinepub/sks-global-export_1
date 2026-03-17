@@ -1374,6 +1374,7 @@ export function POSBillingPage({
         ? `<p style="font-size:0.75em;color:#888;text-align:center;margin-top:4px;font-style:italic;">In print dialog, choose "Save as PDF"</p>`
         : "";
 
+    const companyLogoUrl = activeCompany?.logoUrl || "";
     const html = `<!DOCTYPE html>
 <html>
 <head>
@@ -1383,6 +1384,8 @@ export function POSBillingPage({
   @page { size: ${pageSize}; margin: ${margin}; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: ${fontSize}; color: #111; background: #fff; }
+  .header { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 4px; }
+  .logo { height: 80px; object-fit: contain; }
   h1 { font-size: 1.15em; font-weight: 700; text-align: center; margin-bottom: 2px; }
   .addr { text-align: center; color: #444; font-size: 0.88em; line-height: 1.4; }
   .divider { border: none; border-top: 1px dashed #aaa; margin: 5px 0; }
@@ -1401,6 +1404,7 @@ export function POSBillingPage({
 </style>
 </head>
 <body>
+  ${companyLogoUrl ? `<div class="header"><img src="${companyLogoUrl}" class="logo" alt="Logo"/></div>` : ""}
   <h1>${companyName}</h1>
   ${companyAddress ? `<p class="addr">${companyAddress}</p>` : ""}
   ${companyPhone ? `<p class="addr">Ph: ${companyPhone}</p>` : ""}

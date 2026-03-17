@@ -28,6 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -406,7 +407,7 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
               src={company.logoUrl}
               alt="Logo"
               style={{
-                height: "60px",
+                height: "100px",
                 objectFit: "contain",
                 marginRight: "6px",
               }}
@@ -546,6 +547,31 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
         </div>
       </div>
 
+      {/* ── PERIOD (if set) ── */}
+      {(invoice.fromDate || invoice.toDate) && (
+        <div
+          style={{
+            background: "#eff6ff",
+            border: "1px solid #bfdbfe",
+            borderRadius: "4px",
+            padding: "4px 8px",
+            marginBottom: "6px",
+            fontSize: "10px",
+            color: "#1e40af",
+            fontWeight: "bold",
+          }}
+        >
+          For the period:{" "}
+          {invoice.fromDate
+            ? new Date(invoice.fromDate).toLocaleDateString("en-IN")
+            : ""}
+          {invoice.fromDate && invoice.toDate ? " to " : ""}
+          {invoice.toDate
+            ? new Date(invoice.toDate).toLocaleDateString("en-IN")
+            : ""}
+        </div>
+      )}
+
       {/* ── ITEMS TABLE ── */}
       <table style={S.table}>
         <thead>
@@ -584,6 +610,24 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
                     >
                       {item.brandName}
                       {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                      {invoice.showCourierStatus !== false &&
+                        (item as BillItem & { trackingStatus?: string })
+                          .trackingStatus && (
+                          <span
+                            style={{
+                              color: "#b45309",
+                              fontWeight: "bold",
+                              marginLeft: "4px",
+                            }}
+                          >
+                            ·{" "}
+                            {(
+                              item as BillItem & { trackingStatus?: string }
+                            ).trackingStatus
+                              ?.replace(/_/g, " ")
+                              .toUpperCase()}
+                          </span>
+                        )}
                     </div>
                   )}
                   <div
@@ -926,7 +970,7 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
             <img
               src={company.logoUrl}
               alt="Logo"
-              style={{ height: "52px", objectFit: "contain" }}
+              style={{ height: "100px", objectFit: "contain" }}
             />
           ) : (
             <div
@@ -1027,6 +1071,20 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
           <span style={{ color: "#555" }}>Sold By: </span>
           <strong>{company?.name}</strong>
         </div>
+        {(invoice.fromDate || invoice.toDate) && (
+          <div
+            style={{ marginTop: "4px", color: "#1e40af", fontWeight: "bold" }}
+          >
+            Period:{" "}
+            {invoice.fromDate
+              ? new Date(invoice.fromDate).toLocaleDateString("en-IN")
+              : ""}
+            {invoice.fromDate && invoice.toDate ? " to " : ""}
+            {invoice.toDate
+              ? new Date(invoice.toDate).toLocaleDateString("en-IN")
+              : ""}
+          </div>
+        )}
       </div>
 
       {/* Bill To */}
@@ -1146,6 +1204,20 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
                       >
                         {item.brandName}
                         {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                        {invoice.showCourierStatus !== false &&
+                          (item as BillItem & { trackingStatus?: string })
+                            .trackingStatus && (
+                            <span
+                              style={{ color: "#b45309", marginLeft: "4px" }}
+                            >
+                              ·{" "}
+                              {(
+                                item as BillItem & { trackingStatus?: string }
+                              ).trackingStatus
+                                ?.replace(/_/g, " ")
+                                .toUpperCase()}
+                            </span>
+                          )}
                       </span>
                     )}
                     <span
@@ -1586,7 +1658,7 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
             <img
               src={company.logoUrl}
               alt="Logo"
-              style={{ height: "56px", objectFit: "contain" }}
+              style={{ height: "100px", objectFit: "contain" }}
             />
           ) : (
             <div
@@ -1655,6 +1727,25 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
           <div style={{ fontSize: "10px", color: "#555", marginTop: "2px" }}>
             Date: {formatDate(invoice.date)}
           </div>
+          {(invoice.fromDate || invoice.toDate) && (
+            <div
+              style={{
+                fontSize: "9px",
+                color: "#1d4ed8",
+                fontWeight: "bold",
+                marginTop: "2px",
+              }}
+            >
+              Period:{" "}
+              {invoice.fromDate
+                ? new Date(invoice.fromDate).toLocaleDateString("en-IN")
+                : ""}
+              {invoice.fromDate && invoice.toDate ? " – " : ""}
+              {invoice.toDate
+                ? new Date(invoice.toDate).toLocaleDateString("en-IN")
+                : ""}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1782,6 +1873,20 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
                       >
                         {item.brandName}
                         {item.serviceMode ? ` · ${item.serviceMode}` : ""}
+                        {invoice.showCourierStatus !== false &&
+                          (item as BillItem & { trackingStatus?: string })
+                            .trackingStatus && (
+                            <span
+                              style={{ color: "#b45309", marginLeft: "4px" }}
+                            >
+                              ·{" "}
+                              {(
+                                item as BillItem & { trackingStatus?: string }
+                              ).trackingStatus
+                                ?.replace(/_/g, " ")
+                                .toUpperCase()}
+                            </span>
+                          )}
                       </span>
                     )}
                     <span
@@ -2845,6 +2950,10 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
   const [pendingInvoiceType, setPendingInvoiceType] = useState<
     "gst" | "non_gst"
   >("gst");
+  const [invoiceFromDate, setInvoiceFromDate] = useState("");
+  const [invoiceToDate, setInvoiceToDate] = useState("");
+  const [showCourierStatusInInvoice, setShowCourierStatusInInvoice] =
+    useState(true);
 
   // Build a map from billId -> invoiceNo for quick lookup
   const billInvoiceMap = useMemo<Record<string, string>>(() => {
@@ -3032,6 +3141,9 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       paymentStatus: "pending",
       createdAt: new Date().toISOString(),
       createdBy: currentUser?.username,
+      fromDate: invoiceFromDate || undefined,
+      toDate: invoiceToDate || undefined,
+      showCourierStatus: showCourierStatusInInvoice,
     };
 
     addInvoice(invoice);
@@ -3327,6 +3439,56 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                   )}
                 </strong>
               </p>
+            </div>
+            {/* Invoice Period (optional) */}
+            <div className="space-y-2">
+              <p className="font-semibold text-xs text-muted-foreground uppercase tracking-wide">
+                Invoice Period (optional)
+              </p>
+              <div className="flex gap-2 items-center">
+                <div className="flex-1">
+                  <Label className="text-xs">From Date</Label>
+                  <Input
+                    type="date"
+                    value={invoiceFromDate}
+                    onChange={(e) => setInvoiceFromDate(e.target.value)}
+                    className="mt-1 text-xs h-8"
+                    data-ocid="invoice.generate.from_date.input"
+                  />
+                </div>
+                <div className="flex-1">
+                  <Label className="text-xs">To Date</Label>
+                  <Input
+                    type="date"
+                    value={invoiceToDate}
+                    onChange={(e) => setInvoiceToDate(e.target.value)}
+                    className="mt-1 text-xs h-8"
+                    data-ocid="invoice.generate.to_date.input"
+                  />
+                </div>
+              </div>
+              {invoiceFromDate && invoiceToDate && (
+                <p className="text-xs text-primary font-medium">
+                  Period:{" "}
+                  {new Date(invoiceFromDate).toLocaleDateString("en-IN")} to{" "}
+                  {new Date(invoiceToDate).toLocaleDateString("en-IN")} will be
+                  shown on the invoice.
+                </p>
+              )}
+            </div>
+            {/* Courier Status toggle */}
+            <div className="flex items-center justify-between rounded-lg border border-border p-3">
+              <div>
+                <p className="text-sm font-semibold">Show Courier Status</p>
+                <p className="text-xs text-muted-foreground">
+                  Show tracking status next to brand & mode in invoice
+                </p>
+              </div>
+              <Switch
+                checked={showCourierStatusInInvoice}
+                onCheckedChange={setShowCourierStatusInInvoice}
+                data-ocid="invoice.generate.courier_status.switch"
+              />
             </div>
           </div>
           <DialogFooter>

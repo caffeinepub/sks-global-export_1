@@ -333,6 +333,9 @@ export interface Invoice {
   notes?: string;
   createdAt: string;
   createdBy?: string; // username of employee who generated this invoice
+  fromDate?: string; // invoice period from date
+  toDate?: string; // invoice period to date
+  showCourierStatus?: boolean; // show courier tracking status in invoice
 }
 
 export interface PurchaseInvoiceItem {
