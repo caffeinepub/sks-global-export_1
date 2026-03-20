@@ -293,19 +293,25 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
     const customer = customers.find((c) => c.id === firstBill.customerId);
 
     const allItems = selectedBills.flatMap((b) => b.items);
-    const subtotal = allItems.reduce((sum, i) => sum + i.totalPrice, 0);
+    // GST-exclusive taxable base
+    const subtotal = allItems.reduce((sum, i) => {
+      const rate = i.gstRate || 0;
+      return sum + (i.totalPrice * 100) / (100 + rate);
+    }, 0);
 
     const cgst =
       invoiceType === "gst"
         ? allItems.reduce(
             (sum, i) =>
-              sum + (i.totalPrice * i.gstRate) / (100 + i.gstRate) / 2,
+              sum +
+              (i.totalPrice * (i.gstRate || 0)) / (100 + (i.gstRate || 0)) / 2,
             0,
           )
         : 0;
     const sgst = cgst;
     const igst = 0;
-    const total = subtotal;
+    // Grand total is sum of all GST-inclusive item prices
+    const total = allItems.reduce((sum, i) => sum + i.totalPrice, 0);
 
     let invoiceNo: string;
     if (invoiceType === "gst") {

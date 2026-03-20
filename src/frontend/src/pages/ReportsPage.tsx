@@ -26,6 +26,7 @@ import {
   BarChart2,
   Download,
   FileSpreadsheet,
+  FileText,
   TrendingUp,
 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -327,34 +328,91 @@ function AccountStatementTab() {
 }
 
 // ──────────────────────────────────────────────
-// GST Report Tab
+// GST Report Tab — Monthly / Quarterly / Yearly
 // ──────────────────────────────────────────────
 
 function GSTReportTab() {
   const { invoices } = useAppStore();
+  const purchaseInvoices =
+    useAppStore((s) => (s as any).purchaseInvoices) ?? [];
 
   const currentDate = new Date();
+  const currentMonth = currentDate.getMonth();
+  const currentFYYear =
+    currentMonth >= 3
+      ? currentDate.getFullYear()
+      : currentDate.getFullYear() - 1;
+
+  const [gstrTab, setGstrTab] = useState<
+    "gstr1" | "gstr2" | "gstr3b" | "gstr9"
+  >("gstr1");
+  const [periodMode, setPeriodMode] = useState<
+    "monthly" | "quarterly" | "yearly"
+  >("monthly");
   const [filterMonth, setFilterMonth] = useState(
     String(currentDate.getMonth() + 1).padStart(2, "0"),
   );
   const [filterYear, setFilterYear] = useState(
     String(currentDate.getFullYear()),
   );
+  const [filterQuarter, setFilterQuarter] = useState("Q1");
+  const [filterFY, setFilterFY] = useState(
+    `${currentFYYear}-${String(currentFYYear + 1).slice(2)}`,
+  );
   const [applied, setApplied] = useState(false);
 
+  const years = Array.from({ length: 6 }, (_, i) =>
+    String(currentDate.getFullYear() - i),
+  );
+  const fyOptions = Array.from({ length: 5 }, (_, i) => {
+    const y = currentFYYear - i;
+    return `${y}-${String(y + 1).slice(2)}`;
+  });
+
+  const getDateRange = (): [Date, Date] => {
+    if (periodMode === "monthly") {
+      const y = Number(filterYear);
+      const m = Number(filterMonth) - 1;
+      return [new Date(y, m, 1), new Date(y, m + 1, 0, 23, 59, 59)];
+    }
+    if (periodMode === "quarterly") {
+      const [fyStart] = filterFY.split("-").map(Number);
+      const qMap: Record<string, [number, number]> = {
+        Q1: [3, 5],
+        Q2: [6, 8],
+        Q3: [9, 11],
+        Q4: [0, 2],
+      };
+      const [ms, me] = qMap[filterQuarter];
+      const startYear = filterQuarter === "Q4" ? fyStart + 1 : fyStart;
+      const endYear = filterQuarter === "Q4" ? fyStart + 1 : fyStart;
+      return [
+        new Date(startYear, ms, 1),
+        new Date(endYear, me + 1, 0, 23, 59, 59),
+      ];
+    }
+    const [fyStart] = filterFY.split("-").map(Number);
+    return [new Date(fyStart, 3, 1), new Date(fyStart + 1, 2, 31, 23, 59, 59)];
+  };
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: getDateRange deps are included
   const gstData = useMemo(() => {
     if (!applied) return null;
-
+    const [from, to] = getDateRange();
     const filtered = invoices.filter((inv) => {
       if (inv.invoiceType !== "gst") return false;
       const invDate = new Date(inv.date);
-      return (
-        String(invDate.getMonth() + 1).padStart(2, "0") === filterMonth &&
-        String(invDate.getFullYear()) === filterYear
-      );
+      return invDate >= from && invDate <= to;
     });
 
-    // Aggregate by product
+    let b2bTaxable = 0;
+    let b2bCGST = 0;
+    let b2bSGST = 0;
+    let b2bTotal = 0;
+    let b2cTaxable = 0;
+    let b2cCGST = 0;
+    let b2cSGST = 0;
+    let b2cTotal = 0;
     const productMap = new Map<
       string,
       {
@@ -366,44 +424,203 @@ function GSTReportTab() {
         gstRate: number;
       }
     >();
+    const hsnMap = new Map<
+      number,
+      {
+        rate: number;
+        taxable: number;
+        cgst: number;
+        sgst: number;
+        total: number;
+      }
+    >();
 
     for (const inv of filtered) {
+      const isB2B = !!inv.customerGstin;
       for (const item of inv.items) {
         const taxable = (item.totalPrice * 100) / (100 + item.gstRate);
         const cgst = (item.totalPrice - taxable) / 2;
-        const existing = productMap.get(item.productName);
-        if (existing) {
-          existing.taxableAmt += taxable;
-          existing.cgstAmt += cgst;
-          existing.sgstAmt += cgst;
-          existing.totalAmt += item.totalPrice;
+        if (isB2B) {
+          b2bTaxable += taxable;
+          b2bCGST += cgst;
+          b2bSGST += cgst;
+          b2bTotal += item.totalPrice;
         } else {
-          productMap.set(item.productName, {
-            productName: item.productName,
+          b2cTaxable += taxable;
+          b2cCGST += cgst;
+          b2cSGST += cgst;
+          b2cTotal += item.totalPrice;
+        }
+        const key = item.productName;
+        const ex = productMap.get(key);
+        if (ex) {
+          ex.taxableAmt += taxable;
+          ex.cgstAmt += cgst;
+          ex.sgstAmt += cgst;
+          ex.totalAmt += item.totalPrice;
+        } else
+          productMap.set(key, {
+            productName: key,
             taxableAmt: taxable,
             cgstAmt: cgst,
             sgstAmt: cgst,
             totalAmt: item.totalPrice,
             gstRate: item.gstRate,
           });
-        }
+        const hexisting = hsnMap.get(item.gstRate);
+        if (hexisting) {
+          hexisting.taxable += taxable;
+          hexisting.cgst += cgst;
+          hexisting.sgst += cgst;
+          hexisting.total += item.totalPrice;
+        } else
+          hsnMap.set(item.gstRate, {
+            rate: item.gstRate,
+            taxable,
+            cgst,
+            sgst: cgst,
+            total: item.totalPrice,
+          });
       }
     }
 
     const rows = Array.from(productMap.values());
-    const totalTaxable = rows.reduce((s, r) => s + r.taxableAmt, 0);
-    const totalCGST = rows.reduce((s, r) => s + r.cgstAmt, 0);
-    const totalSGST = rows.reduce((s, r) => s + r.sgstAmt, 0);
+    const hsnRows = Array.from(hsnMap.values()).sort((a, b) => a.rate - b.rate);
+    const totalTaxable = b2bTaxable + b2cTaxable;
+    const totalCGST = b2bCGST + b2cCGST;
+    const totalSGST = b2bSGST + b2cSGST;
     const totalGST = totalCGST + totalSGST;
-    const grandTotal = rows.reduce((s, r) => s + r.totalAmt, 0);
+    const grandTotal = b2bTotal + b2cTotal;
+    return {
+      rows,
+      hsnRows,
+      totalTaxable,
+      totalCGST,
+      totalSGST,
+      totalGST,
+      grandTotal,
+      invoiceCount: filtered.length,
+      b2b: {
+        taxable: b2bTaxable,
+        cgst: b2bCGST,
+        sgst: b2bSGST,
+        total: b2bTotal,
+      },
+      b2c: {
+        taxable: b2cTaxable,
+        cgst: b2cCGST,
+        sgst: b2cSGST,
+        total: b2cTotal,
+      },
+      outwardTaxable: totalTaxable,
+      outwardTax: totalGST,
+      outwardTotal: grandTotal,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    invoices,
+    applied,
+    periodMode,
+    filterMonth,
+    filterYear,
+    filterQuarter,
+    filterFY,
+  ]);
 
-    return { rows, totalTaxable, totalCGST, totalSGST, totalGST, grandTotal };
-  }, [invoices, filterMonth, filterYear, applied]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentional
+  const gstr2Data = useMemo(() => {
+    if (!applied) return null;
+    const [from, to] = getDateRange();
+    const filtered = (purchaseInvoices as any[]).filter((inv: any) => {
+      const d = new Date(inv.date || inv.createdAt);
+      return d >= from && d <= to;
+    });
+    let totalTaxable = 0;
+    let totalCGST = 0;
+    let totalSGST = 0;
+    let totalITC = 0;
+    const rows: {
+      vendor: string;
+      invoiceNo: string;
+      date: string;
+      taxable: number;
+      cgst: number;
+      sgst: number;
+      total: number;
+    }[] = [];
+    for (const inv of filtered) {
+      let invTaxable = 0;
+      let invCGST = 0;
+      let invSGST = 0;
+      let invTotal = 0;
+      for (const item of inv.items || []) {
+        const gstRate = item.gstRate ?? 18;
+        const taxable = (item.totalPrice * 100) / (100 + gstRate);
+        const cgst = (item.totalPrice - taxable) / 2;
+        invTaxable += taxable;
+        invCGST += cgst;
+        invSGST += cgst;
+        invTotal += item.totalPrice;
+      }
+      totalTaxable += invTaxable;
+      totalCGST += invCGST;
+      totalSGST += invSGST;
+      totalITC += invCGST + invSGST;
+      rows.push({
+        vendor: inv.vendorName || inv.vendor || "—",
+        invoiceNo: inv.invoiceNumber || inv.id,
+        date: inv.date || "",
+        taxable: invTaxable,
+        cgst: invCGST,
+        sgst: invSGST,
+        total: invTotal,
+      });
+    }
+    return {
+      rows,
+      totalTaxable,
+      totalCGST,
+      totalSGST,
+      totalITC,
+      count: filtered.length,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    purchaseInvoices,
+    applied,
+    periodMode,
+    filterMonth,
+    filterYear,
+    filterQuarter,
+    filterFY,
+  ]);
 
-  const handleExport = async () => {
+  const getPeriodLabel = () => {
+    if (periodMode === "monthly") {
+      const mNames = [
+        "Jan",
+        "Feb",
+        "Mar",
+        "Apr",
+        "May",
+        "Jun",
+        "Jul",
+        "Aug",
+        "Sep",
+        "Oct",
+        "Nov",
+        "Dec",
+      ];
+      return `${mNames[Number(filterMonth) - 1]} ${filterYear}`;
+    }
+    if (periodMode === "quarterly") return `${filterQuarter} FY ${filterFY}`;
+    return `FY ${filterFY}`;
+  };
+
+  const handleExportGSTR1 = async () => {
     if (!gstData) return;
     const data = gstData.rows.map((r) => ({
-      "Product / HSN": r.productName,
+      Product: r.productName,
       "Taxable Amount (₹)": r.taxableAmt.toFixed(2),
       "CGST Rate": `${r.gstRate / 2}%`,
       "CGST Amount (₹)": r.cgstAmt.toFixed(2),
@@ -412,55 +629,90 @@ function GSTReportTab() {
       "Total Tax (₹)": (r.cgstAmt + r.sgstAmt).toFixed(2),
       "Invoice Total (₹)": r.totalAmt.toFixed(2),
     }));
-    await exportToExcel([{ name: "GST Report", data }], "GST_Report.xlsx");
+    await exportToExcel(
+      [{ name: "GSTR-1", data }],
+      `GSTR1_${getPeriodLabel().replace(/\s/g, "_")}.xlsx`,
+    );
   };
 
-  const months = [
-    "01",
-    "02",
-    "03",
-    "04",
-    "05",
-    "06",
-    "07",
-    "08",
-    "09",
-    "10",
-    "11",
-    "12",
-  ];
-  const monthNames = [
-    "January",
-    "February",
-    "March",
-    "April",
-    "May",
-    "June",
-    "July",
-    "August",
-    "September",
-    "October",
-    "November",
-    "December",
-  ];
-  const years = Array.from({ length: 5 }, (_, i) =>
-    String(currentDate.getFullYear() - i),
-  );
+  const handleExportGSTR2 = async () => {
+    if (!gstr2Data) return;
+    const data = gstr2Data.rows.map((r) => ({
+      Vendor: r.vendor,
+      "Invoice No": r.invoiceNo,
+      Date: r.date,
+      "Taxable (₹)": r.taxable.toFixed(2),
+      "CGST (₹)": r.cgst.toFixed(2),
+      "SGST (₹)": r.sgst.toFixed(2),
+      "Total (₹)": r.total.toFixed(2),
+    }));
+    await exportToExcel(
+      [{ name: "GSTR-2", data }],
+      `GSTR2_${getPeriodLabel().replace(/\s/g, "_")}.xlsx`,
+    );
+  };
 
-  return (
-    <div className="space-y-4">
-      <div className="bg-white p-4 rounded-xl border border-border shadow-xs">
-        <div className="flex flex-wrap gap-3 items-end">
+  const handlePrint = (title: string, html: string) => {
+    const w = window.open("", "_blank", "width=900,height=700");
+    if (!w) return;
+    w.document.write(
+      `<html><head><title>${title}</title><style>body{font-family:Arial;font-size:11px;margin:20px}table{width:100%;border-collapse:collapse;margin-bottom:16px}th{background:#1e3a8a;color:#fff;padding:5px 6px;text-align:left}td{padding:4px 6px;border-bottom:1px solid #e0e0e0}.right{text-align:right}h2{color:#1e3a8a}</style></head><body>${html}<script>window.onload=()=>window.print();<\/script></body></html>`,
+    );
+    w.document.close();
+  };
+
+  const PeriodSelector = () => (
+    <div className="flex flex-wrap items-end gap-3 p-4 bg-muted/20 rounded-lg border border-border">
+      <div className="space-y-1">
+        <Label className="text-xs">Period</Label>
+        <div className="flex gap-1">
+          {(["monthly", "quarterly", "yearly"] as const).map((m) => (
+            <Button
+              key={m}
+              size="sm"
+              variant={periodMode === m ? "default" : "outline"}
+              className="text-xs capitalize h-8"
+              onClick={() => {
+                setPeriodMode(m);
+                setApplied(false);
+              }}
+            >
+              {m}
+            </Button>
+          ))}
+        </div>
+      </div>
+      {periodMode === "monthly" && (
+        <>
           <div className="space-y-1">
             <Label className="text-xs">Month</Label>
-            <Select value={filterMonth} onValueChange={setFilterMonth}>
-              <SelectTrigger className="text-sm w-40">
+            <Select
+              value={filterMonth}
+              onValueChange={(v) => {
+                setFilterMonth(v);
+                setApplied(false);
+              }}
+            >
+              <SelectTrigger className="text-sm w-36">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {months.map((m, i) => (
-                  <SelectItem key={m} value={m}>
-                    {monthNames[i]}
+                {[
+                  "January",
+                  "February",
+                  "March",
+                  "April",
+                  "May",
+                  "June",
+                  "July",
+                  "August",
+                  "September",
+                  "October",
+                  "November",
+                  "December",
+                ].map((m, i) => (
+                  <SelectItem key={m} value={String(i + 1).padStart(2, "0")}>
+                    {m}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -468,8 +720,14 @@ function GSTReportTab() {
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Year</Label>
-            <Select value={filterYear} onValueChange={setFilterYear}>
-              <SelectTrigger className="text-sm w-32">
+            <Select
+              value={filterYear}
+              onValueChange={(v) => {
+                setFilterYear(v);
+                setApplied(false);
+              }}
+            >
+              <SelectTrigger className="text-sm w-28">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -481,136 +739,1217 @@ function GSTReportTab() {
               </SelectContent>
             </Select>
           </div>
-          <Button
-            onClick={() => setApplied(true)}
-            className="bg-primary text-white"
+        </>
+      )}
+      {periodMode === "quarterly" && (
+        <>
+          <div className="space-y-1">
+            <Label className="text-xs">Quarter</Label>
+            <Select
+              value={filterQuarter}
+              onValueChange={(v) => {
+                setFilterQuarter(v);
+                setApplied(false);
+              }}
+            >
+              <SelectTrigger className="text-sm w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Q1">Q1 (Apr–Jun)</SelectItem>
+                <SelectItem value="Q2">Q2 (Jul–Sep)</SelectItem>
+                <SelectItem value="Q3">Q3 (Oct–Dec)</SelectItem>
+                <SelectItem value="Q4">Q4 (Jan–Mar)</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label className="text-xs">FY</Label>
+            <Select
+              value={filterFY}
+              onValueChange={(v) => {
+                setFilterFY(v);
+                setApplied(false);
+              }}
+            >
+              <SelectTrigger className="text-sm w-32">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {fyOptions.map((y) => (
+                  <SelectItem key={y} value={y}>
+                    {y}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </>
+      )}
+      {periodMode === "yearly" && (
+        <div className="space-y-1">
+          <Label className="text-xs">FY (Apr–Mar)</Label>
+          <Select
+            value={filterFY}
+            onValueChange={(v) => {
+              setFilterFY(v);
+              setApplied(false);
+            }}
           >
-            Apply
-          </Button>
-          {gstData && (
-            <Button variant="outline" onClick={handleExport}>
-              <FileSpreadsheet className="w-4 h-4 mr-1" />
-              Export Excel
-            </Button>
-          )}
+            <SelectTrigger className="text-sm w-36">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {fyOptions.map((y) => (
+                <SelectItem key={y} value={y}>
+                  {y}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+      )}
+      <Button
+        onClick={() => setApplied(true)}
+        className="bg-primary text-white"
+        data-ocid="gst.apply.button"
+      >
+        Apply
+      </Button>
+    </div>
+  );
+
+  const EmptyState = ({ form }: { form: string }) => (
+    <div className="bg-white rounded-xl border border-border p-12 text-center">
+      <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
+      <p className="text-sm text-muted-foreground">
+        No data for {form} in {getPeriodLabel()}
+      </p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      {/* GSTR Form selector */}
+      <div className="flex flex-wrap gap-2">
+        {(
+          [
+            { id: "gstr1", label: "GSTR-1", desc: "Outward Supplies" },
+            { id: "gstr2", label: "GSTR-2", desc: "Input Tax Credit" },
+            { id: "gstr3b", label: "GSTR-3B", desc: "Monthly Summary" },
+            { id: "gstr9", label: "GSTR-9", desc: "Annual Return" },
+          ] as const
+        ).map((form) => (
+          <button
+            key={form.id}
+            type="button"
+            onClick={() => setGstrTab(form.id)}
+            className={`px-4 py-2.5 rounded-lg border text-left transition-colors ${
+              gstrTab === form.id
+                ? "bg-primary text-white border-primary"
+                : "bg-white border-border hover:bg-muted/30"
+            }`}
+            data-ocid={`gst.${form.id}.tab`}
+          >
+            <div className="text-sm font-bold">{form.label}</div>
+            <div
+              className={`text-xs ${gstrTab === form.id ? "text-primary-foreground/70" : "text-muted-foreground"}`}
+            >
+              {form.desc}
+            </div>
+          </button>
+        ))}
       </div>
 
-      {gstData ? (
-        <div className="space-y-4">
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <SummaryCard
-              label="Taxable Value"
-              value={formatCurrency(gstData.totalTaxable)}
-              color="bg-slate-50"
-            />
-            <SummaryCard
-              label="Total CGST"
-              value={formatCurrency(gstData.totalCGST)}
-              color="bg-blue-50"
-            />
-            <SummaryCard
-              label="Total SGST"
-              value={formatCurrency(gstData.totalSGST)}
-              color="bg-indigo-50"
-            />
-            <SummaryCard
-              label="Total GST"
-              value={formatCurrency(gstData.totalGST)}
-              color="bg-purple-50"
-            />
-            <SummaryCard
-              label="Grand Total"
-              value={formatCurrency(gstData.grandTotal)}
-              color="bg-primary/5"
-            />
-          </div>
+      <PeriodSelector />
 
-          <div className="bg-white rounded-xl border border-border shadow-xs overflow-hidden">
-            <div className="overflow-x-auto">
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/30">
-                    <TableHead className="text-xs">HSN / Product</TableHead>
-                    <TableHead className="text-xs text-right">
-                      Taxable Amt
-                    </TableHead>
-                    <TableHead className="text-xs text-center">CGST%</TableHead>
-                    <TableHead className="text-xs text-right">
-                      CGST Amt
-                    </TableHead>
-                    <TableHead className="text-xs text-center">SGST%</TableHead>
-                    <TableHead className="text-xs text-right">
-                      SGST Amt
-                    </TableHead>
-                    <TableHead className="text-xs text-right">
-                      Total Tax
-                    </TableHead>
-                    <TableHead className="text-xs text-right">
-                      Invoice Total
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {gstData.rows.length === 0 ? (
-                    <TableRow>
-                      <TableCell
-                        colSpan={8}
-                        className="text-center py-8 text-muted-foreground"
-                      >
-                        No GST invoices for the selected period.
-                      </TableCell>
-                    </TableRow>
-                  ) : (
-                    gstData.rows.map((row) => (
-                      <TableRow
-                        key={row.productName}
-                        className="hover:bg-muted/20"
-                      >
+      {/* GSTR-1 */}
+      {gstrTab === "gstr1" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-primary">
+                GSTR-1 — Outward Supplies
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Details of outward supplies of goods or services
+              </p>
+            </div>
+            {gstData && (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleExportGSTR1}
+                  data-ocid="gst.export.button"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+                  Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    handlePrint(
+                      "GSTR-1",
+                      `<h2>GSTR-1 — ${getPeriodLabel()}</h2><p>Invoices: ${gstData.invoiceCount} | Taxable: ₹${gstData.totalTaxable.toFixed(2)} | CGST: ₹${gstData.totalCGST.toFixed(2)} | SGST: ₹${gstData.totalSGST.toFixed(2)}</p>`,
+                    )
+                  }
+                  data-ocid="gst.print.button"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" />
+                  Print
+                </Button>
+              </div>
+            )}
+          </div>
+          {!applied ? (
+            <div className="bg-white rounded-xl border border-border p-12 text-center">
+              <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                Select a period and click Apply to generate GSTR-1
+              </p>
+            </div>
+          ) : gstData ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                <SummaryCard
+                  label="Taxable Value"
+                  value={formatCurrency(gstData.totalTaxable)}
+                  color="bg-slate-50"
+                />
+                <SummaryCard
+                  label="Total CGST"
+                  value={formatCurrency(gstData.totalCGST)}
+                  color="bg-blue-50"
+                />
+                <SummaryCard
+                  label="Total SGST"
+                  value={formatCurrency(gstData.totalSGST)}
+                  color="bg-indigo-50"
+                />
+                <SummaryCard
+                  label="Total Tax"
+                  value={formatCurrency(gstData.totalGST)}
+                  color="bg-purple-50"
+                />
+                <SummaryCard
+                  label="Grand Total"
+                  value={formatCurrency(gstData.grandTotal)}
+                  color="bg-primary/5"
+                />
+              </div>
+              {/* Table 4: B2B & B2C Summary */}
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/20">
+                  <h4 className="text-sm font-semibold">
+                    Table 4 — B2B & B2C Summary
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Supply Type</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Taxable Value
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          CGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          SGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Total
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
                         <TableCell className="text-xs font-medium">
-                          {row.productName}
+                          B2B (Registered — with GSTIN)
                         </TableCell>
                         <TableCell className="text-xs text-right">
-                          {formatCurrency(row.taxableAmt)}
-                        </TableCell>
-                        <TableCell className="text-xs text-center">
-                          {row.gstRate / 2}%
+                          {formatCurrency(gstData.b2b.taxable)}
                         </TableCell>
                         <TableCell className="text-xs text-right">
-                          {formatCurrency(row.cgstAmt)}
-                        </TableCell>
-                        <TableCell className="text-xs text-center">
-                          {row.gstRate / 2}%
+                          {formatCurrency(gstData.b2b.cgst)}
                         </TableCell>
                         <TableCell className="text-xs text-right">
-                          {formatCurrency(row.sgstAmt)}
+                          {formatCurrency(gstData.b2b.sgst)}
                         </TableCell>
-                        <TableCell className="text-xs text-right font-semibold">
-                          {formatCurrency(row.cgstAmt + row.sgstAmt)}
-                        </TableCell>
-                        <TableCell className="text-xs text-right font-bold">
-                          {formatCurrency(row.totalAmt)}
+                        <TableCell className="text-xs text-right font-medium">
+                          {formatCurrency(gstData.b2b.total)}
                         </TableCell>
                       </TableRow>
-                    ))
-                  )}
-                </TableBody>
-              </Table>
+                      <TableRow>
+                        <TableCell className="text-xs font-medium">
+                          B2C (Unregistered — no GSTIN)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2c.taxable)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2c.cgst)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2c.sgst)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-medium">
+                          {formatCurrency(gstData.b2c.total)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow className="bg-muted/20 font-bold">
+                        <TableCell className="text-xs font-bold">
+                          Total
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalTaxable)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalCGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalSGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.grandTotal)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              {/* HSN Summary */}
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/20">
+                  <h4 className="text-sm font-semibold">HSN/SAC Summary</h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">GST Rate</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Taxable Value
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          CGST Rate
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          CGST Amount
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          SGST Rate
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          SGST Amount
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Total Tax
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {gstData.hsnRows.length > 0 ? (
+                        gstData.hsnRows.map((h) => (
+                          <TableRow key={h.rate}>
+                            <TableCell className="text-xs font-medium">
+                              {h.rate}%
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {formatCurrency(h.taxable)}
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {h.rate / 2}%
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {formatCurrency(h.cgst)}
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {h.rate / 2}%
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {formatCurrency(h.sgst)}
+                            </TableCell>
+                            <TableCell className="text-xs text-right font-medium">
+                              {formatCurrency(h.cgst + h.sgst)}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell
+                            colSpan={7}
+                            className="text-center py-6 text-xs text-muted-foreground"
+                          >
+                            No data for this period
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
             </div>
-          </div>
+          ) : (
+            <EmptyState form="GSTR-1" />
+          )}
         </div>
-      ) : (
-        <div className="bg-white rounded-xl border border-border shadow-xs p-12 text-center text-muted-foreground">
-          <BarChart2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="text-sm">
-            Select a month/year and click Apply to generate GST report.
-          </p>
+      )}
+
+      {/* GSTR-2 */}
+      {gstrTab === "gstr2" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-primary">
+                GSTR-2 — Input Tax Credit (ITC)
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Details of inward supplies (purchases) for ITC claim
+              </p>
+            </div>
+            {gstr2Data && (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleExportGSTR2}
+                  data-ocid="gstr2.export.button"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+                  Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    handlePrint(
+                      "GSTR-2",
+                      `<h2>GSTR-2 — ${getPeriodLabel()}</h2><p>Purchase Invoices: ${gstr2Data.count} | Taxable: ₹${gstr2Data.totalTaxable.toFixed(2)} | Total ITC: ₹${gstr2Data.totalITC.toFixed(2)}</p>`,
+                    )
+                  }
+                  data-ocid="gstr2.print.button"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" />
+                  Print
+                </Button>
+              </div>
+            )}
+          </div>
+          {!applied ? (
+            <div className="bg-white rounded-xl border border-border p-12 text-center">
+              <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                Select a period and click Apply to generate GSTR-2
+              </p>
+            </div>
+          ) : gstr2Data ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <SummaryCard
+                  label="Purchase Invoices"
+                  value={String(gstr2Data.count)}
+                  color="bg-slate-50"
+                />
+                <SummaryCard
+                  label="Total Taxable"
+                  value={formatCurrency(gstr2Data.totalTaxable)}
+                  color="bg-blue-50"
+                />
+                <SummaryCard
+                  label="Total ITC (CGST+SGST)"
+                  value={formatCurrency(gstr2Data.totalITC)}
+                  color="bg-green-50"
+                />
+                <SummaryCard
+                  label="ITC Eligible"
+                  value={formatCurrency(gstr2Data.totalITC)}
+                  color="bg-primary/5"
+                />
+              </div>
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/20">
+                  <h4 className="text-sm font-semibold">
+                    Table B — B2B Inward Supplies
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Vendor</TableHead>
+                        <TableHead className="text-xs">Invoice No</TableHead>
+                        <TableHead className="text-xs">Date</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Taxable Value
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          CGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          SGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          ITC Eligible
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {gstr2Data.rows.length > 0 ? (
+                        gstr2Data.rows.map((r) => (
+                          <TableRow key={`${r.vendor}-${r.invoiceNo}`}>
+                            <TableCell className="text-xs font-medium">
+                              {r.vendor}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {r.invoiceNo}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {r.date ? formatDate(r.date) : "—"}
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {formatCurrency(r.taxable)}
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {formatCurrency(r.cgst)}
+                            </TableCell>
+                            <TableCell className="text-xs text-right">
+                              {formatCurrency(r.sgst)}
+                            </TableCell>
+                            <TableCell className="text-xs text-right font-medium text-green-700">
+                              {formatCurrency(r.cgst + r.sgst)}
+                            </TableCell>
+                          </TableRow>
+                        ))
+                      ) : (
+                        <TableRow>
+                          <TableCell
+                            colSpan={7}
+                            className="text-center py-6 text-xs text-muted-foreground"
+                          >
+                            No purchase invoices found for this period
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState form="GSTR-2" />
+          )}
+        </div>
+      )}
+
+      {/* GSTR-3B */}
+      {gstrTab === "gstr3b" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-primary">
+                GSTR-3B — Monthly Summary Return
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Self-assessed summary return filed monthly
+              </p>
+            </div>
+            {applied && gstData && (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    const d = [
+                      {
+                        Table: "3.1 Outward Supplies (Taxable)",
+                        "Taxable Value": gstData.totalTaxable.toFixed(2),
+                        CGST: gstData.totalCGST.toFixed(2),
+                        SGST: gstData.totalSGST.toFixed(2),
+                        "Total Tax": gstData.totalGST.toFixed(2),
+                      },
+                      {
+                        Table: "4 ITC Available",
+                        "Taxable Value": (gstr2Data?.totalTaxable ?? 0).toFixed(
+                          2,
+                        ),
+                        CGST: (gstr2Data?.totalCGST ?? 0).toFixed(2),
+                        SGST: (gstr2Data?.totalSGST ?? 0).toFixed(2),
+                        "Total Tax": (gstr2Data?.totalITC ?? 0).toFixed(2),
+                      },
+                      {
+                        Table: "5 Net Tax Payable",
+                        "Taxable Value": "—",
+                        CGST: (
+                          gstData.totalCGST - (gstr2Data?.totalCGST ?? 0)
+                        ).toFixed(2),
+                        SGST: (
+                          gstData.totalSGST - (gstr2Data?.totalSGST ?? 0)
+                        ).toFixed(2),
+                        "Total Tax": (
+                          gstData.totalGST - (gstr2Data?.totalITC ?? 0)
+                        ).toFixed(2),
+                      },
+                    ];
+                    await exportToExcel(
+                      [{ name: "GSTR-3B", data: d }],
+                      `GSTR3B_${getPeriodLabel().replace(/\s/g, "_")}.xlsx`,
+                    );
+                  }}
+                  data-ocid="gstr3b.export.button"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+                  Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    handlePrint(
+                      "GSTR-3B",
+                      `<h2>GSTR-3B — ${getPeriodLabel()}</h2><table><tr><th>Section</th><th>Taxable</th><th>CGST</th><th>SGST</th></tr><tr><td>3.1 Outward Tax</td><td>${gstData.totalTaxable.toFixed(2)}</td><td>${gstData.totalCGST.toFixed(2)}</td><td>${gstData.totalSGST.toFixed(2)}</td></tr><tr><td>4 ITC</td><td>${(gstr2Data?.totalTaxable ?? 0).toFixed(2)}</td><td>${(gstr2Data?.totalCGST ?? 0).toFixed(2)}</td><td>${(gstr2Data?.totalSGST ?? 0).toFixed(2)}</td></tr></table>`,
+                    )
+                  }
+                  data-ocid="gstr3b.print.button"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" />
+                  Print
+                </Button>
+              </div>
+            )}
+          </div>
+          {!applied ? (
+            <div className="bg-white rounded-xl border border-border p-12 text-center">
+              <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                Select a period and click Apply to generate GSTR-3B
+              </p>
+            </div>
+          ) : gstData ? (
+            <div className="space-y-4">
+              {/* Table 3.1 */}
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-blue-50">
+                  <h4 className="text-sm font-semibold text-blue-900">
+                    3.1 — Details of Outward Supplies & Inward Supplies (Reverse
+                    Charge)
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">
+                          Nature of Supplies
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Total Taxable Value
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Integrated Tax
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Central Tax (CGST)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          State/UT Tax (SGST)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Cess
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (a) Outward taxable supplies (other than zero rated,
+                          nil rated and exempted)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalTaxable)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalCGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalSGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (b) Outward taxable supplies (zero rated)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          0.00
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (c) Other outward supplies (nil rated, exempted)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          0.00
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (d) Inward supplies (liable to reverse charge)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          0.00
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (e) Non-GST outward supplies
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          0.00
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              {/* Table 4 */}
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-green-50">
+                  <h4 className="text-sm font-semibold text-green-900">
+                    4 — Eligible ITC
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Details</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Integrated Tax
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Central Tax (CGST)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          State/UT Tax (SGST)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Cess
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (A) ITC Available — Imports & inward supplies
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstr2Data?.totalCGST ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstr2Data?.totalSGST ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          (B) ITC Reversed
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right">
+                          0.00
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          0.00
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                      <TableRow className="bg-green-50">
+                        <TableCell className="text-xs font-bold">
+                          Net ITC Available (A–B)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                        <TableCell className="text-xs text-right font-bold text-green-700">
+                          {formatCurrency(gstr2Data?.totalCGST ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-green-700">
+                          {formatCurrency(gstr2Data?.totalSGST ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">—</TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              {/* Table 5 — Net Tax Payable */}
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-red-50">
+                  <h4 className="text-sm font-semibold text-red-900">
+                    5 — Values of Exempt, Nil-Rated and Non-GST Inward Supplies
+                    / Net Tax Payable
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Description</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Central Tax (CGST)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          State/UT Tax (SGST)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Net Payable
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          Total Tax Liability (from 3.1)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalCGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalSGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalGST)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          Less: ITC (from 4)
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-green-700">
+                          ({formatCurrency(gstr2Data?.totalCGST ?? 0)})
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-green-700">
+                          ({formatCurrency(gstr2Data?.totalSGST ?? 0)})
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-green-700">
+                          ({formatCurrency(gstr2Data?.totalITC ?? 0)})
+                        </TableCell>
+                      </TableRow>
+                      <TableRow className="bg-red-50 font-bold">
+                        <TableCell className="text-xs font-bold">
+                          Net Tax Payable
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-red-700">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              gstData.totalCGST - (gstr2Data?.totalCGST ?? 0),
+                            ),
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-red-700">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              gstData.totalSGST - (gstr2Data?.totalSGST ?? 0),
+                            ),
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-red-700">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              gstData.totalGST - (gstr2Data?.totalITC ?? 0),
+                            ),
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState form="GSTR-3B" />
+          )}
+        </div>
+      )}
+
+      {/* GSTR-9 */}
+      {gstrTab === "gstr9" && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-primary">
+                GSTR-9 — Annual Return
+              </h3>
+              <p className="text-xs text-muted-foreground">
+                Annual summary of all outward and inward supplies
+              </p>
+            </div>
+            {applied && gstData && (
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    await exportToExcel(
+                      [
+                        {
+                          name: "GSTR-9",
+                          data: [
+                            {
+                              Part: "Part II (4)",
+                              Section: "Details of Outward & Inward Supplies",
+                              Taxable: gstData.totalTaxable.toFixed(2),
+                              CGST: gstData.totalCGST.toFixed(2),
+                              SGST: gstData.totalSGST.toFixed(2),
+                            },
+                            {
+                              Part: "Part III (6)",
+                              Section: "ITC (Purchases)",
+                              Taxable: (gstr2Data?.totalTaxable ?? 0).toFixed(
+                                2,
+                              ),
+                              CGST: (gstr2Data?.totalCGST ?? 0).toFixed(2),
+                              SGST: (gstr2Data?.totalSGST ?? 0).toFixed(2),
+                            },
+                            {
+                              Part: "Part IV (9)",
+                              Section: "Tax Paid",
+                              Taxable: "—",
+                              CGST: Math.max(
+                                0,
+                                gstData.totalCGST - (gstr2Data?.totalCGST ?? 0),
+                              ).toFixed(2),
+                              SGST: Math.max(
+                                0,
+                                gstData.totalSGST - (gstr2Data?.totalSGST ?? 0),
+                              ).toFixed(2),
+                            },
+                          ],
+                        },
+                      ],
+                      `GSTR9_${filterFY}.xlsx`,
+                    );
+                  }}
+                  data-ocid="gstr9.export.button"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 mr-1" />
+                  Excel
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    handlePrint(
+                      "GSTR-9",
+                      `<h2>GSTR-9 Annual Return — FY ${filterFY}</h2><p>Total Outward: ₹${gstData.grandTotal.toFixed(2)} | Total ITC: ₹${(gstr2Data?.totalITC ?? 0).toFixed(2)} | Net Tax: ₹${Math.max(0, gstData.totalGST - (gstr2Data?.totalITC ?? 0)).toFixed(2)}</p>`,
+                    )
+                  }
+                  data-ocid="gstr9.print.button"
+                >
+                  <FileText className="w-3.5 h-3.5 mr-1" />
+                  Print
+                </Button>
+              </div>
+            )}
+          </div>
+          {!applied ? (
+            <div className="bg-white rounded-xl border border-border p-12 text-center">
+              <FileText className="w-10 h-10 mx-auto text-muted-foreground mb-3 opacity-50" />
+              <p className="text-sm text-muted-foreground">
+                Select a period and click Apply to generate GSTR-9
+              </p>
+            </div>
+          ) : gstData ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <SummaryCard
+                  label="Total Outward Value"
+                  value={formatCurrency(gstData.grandTotal)}
+                  color="bg-blue-50"
+                />
+                <SummaryCard
+                  label="Total GST (Output)"
+                  value={formatCurrency(gstData.totalGST)}
+                  color="bg-purple-50"
+                />
+                <SummaryCard
+                  label="Total ITC (Input)"
+                  value={formatCurrency(gstr2Data?.totalITC ?? 0)}
+                  color="bg-green-50"
+                />
+                <SummaryCard
+                  label="Net Tax Payable"
+                  value={formatCurrency(
+                    Math.max(0, gstData.totalGST - (gstr2Data?.totalITC ?? 0)),
+                  )}
+                  color="bg-red-50"
+                />
+              </div>
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/20">
+                  <h4 className="text-sm font-semibold">
+                    Part II — Details of Outward & Inward Supplies declared
+                    during the FY
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Table</TableHead>
+                        <TableHead className="text-xs">Nature</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Taxable
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          CGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          SGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Total
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-xs font-medium">
+                          4A
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          Supplies made to registered persons (B2B)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2b.taxable)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2b.cgst)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2b.sgst)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-medium">
+                          {formatCurrency(gstData.b2b.total)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs font-medium">
+                          4B
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          Supplies made to unregistered persons (B2C)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2c.taxable)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2c.cgst)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.b2c.sgst)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-medium">
+                          {formatCurrency(gstData.b2c.total)}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow className="bg-muted/20">
+                        <TableCell className="text-xs font-bold" colSpan={2}>
+                          Total Outward Supplies
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalTaxable)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalCGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalSGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.grandTotal)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/20">
+                  <h4 className="text-sm font-semibold">
+                    Part III — ITC as Declared in Returns Filed During FY
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Table</TableHead>
+                        <TableHead className="text-xs">Description</TableHead>
+                        <TableHead className="text-xs text-right">
+                          CGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          SGST
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Total ITC
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-xs font-medium">
+                          6A
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          Total ITC availed as per GSTR-2 (Purchases)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstr2Data?.totalCGST ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstr2Data?.totalSGST ?? 0)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-medium text-green-700">
+                          {formatCurrency(gstr2Data?.totalITC ?? 0)}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+              <div className="bg-white rounded-xl border border-border overflow-hidden">
+                <div className="px-4 py-3 border-b bg-muted/20">
+                  <h4 className="text-sm font-semibold">
+                    Part IV — Details of Tax Paid as Declared in Returns Filed
+                  </h4>
+                </div>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/30">
+                        <TableHead className="text-xs">Description</TableHead>
+                        <TableHead className="text-xs text-right">
+                          Tax Payable
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Tax Paid (ITC)
+                        </TableHead>
+                        <TableHead className="text-xs text-right">
+                          Tax Paid (Cash)
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          Central Tax (CGST)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalCGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-green-700">
+                          {formatCurrency(
+                            Math.min(
+                              gstr2Data?.totalCGST ?? 0,
+                              gstData.totalCGST,
+                            ),
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-blue-700">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              gstData.totalCGST - (gstr2Data?.totalCGST ?? 0),
+                            ),
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow>
+                        <TableCell className="text-xs">
+                          State/UT Tax (SGST)
+                        </TableCell>
+                        <TableCell className="text-xs text-right">
+                          {formatCurrency(gstData.totalSGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-green-700">
+                          {formatCurrency(
+                            Math.min(
+                              gstr2Data?.totalSGST ?? 0,
+                              gstData.totalSGST,
+                            ),
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-right text-blue-700">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              gstData.totalSGST - (gstr2Data?.totalSGST ?? 0),
+                            ),
+                          )}
+                        </TableCell>
+                      </TableRow>
+                      <TableRow className="bg-muted/20">
+                        <TableCell className="text-xs font-bold">
+                          Total
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold">
+                          {formatCurrency(gstData.totalGST)}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-green-700">
+                          {formatCurrency(
+                            Math.min(
+                              gstr2Data?.totalITC ?? 0,
+                              gstData.totalGST,
+                            ),
+                          )}
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-blue-700">
+                          {formatCurrency(
+                            Math.max(
+                              0,
+                              gstData.totalGST - (gstr2Data?.totalITC ?? 0),
+                            ),
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <EmptyState form="GSTR-9" />
+          )}
         </div>
       )}
     </div>
   );
 }
-
 // ──────────────────────────────────────────────
 // Sales Report Tab
 // ──────────────────────────────────────────────

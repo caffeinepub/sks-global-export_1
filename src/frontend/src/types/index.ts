@@ -296,7 +296,8 @@ export interface Bill {
   customerType: "registered" | "walking";
   date: string;
   items: BillItem[];
-  subtotal: number;
+  subtotal: number; // GST-exclusive taxable base
+  taxAmount?: number; // total GST amount
   total: number;
   billDiscount?: number; // total bill-level discount in ₹
   additionalCharges?: AdditionalCharge[]; // visible charges saved on bill
@@ -336,6 +337,9 @@ export interface Invoice {
   fromDate?: string; // invoice period from date
   toDate?: string; // invoice period to date
   showCourierStatus?: boolean; // show courier tracking status in invoice
+  freightCharges?: number; // added before GST calculation
+  discount?: number; // deducted before GST calculation
+  amountPaid?: number; // partial payment amount
 }
 
 export interface PurchaseInvoiceItem {

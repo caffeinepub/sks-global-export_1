@@ -1,41 +1,38 @@
 # SKS Global Export
 
 ## Current State
-Full-featured billing/invoicing app with GST/Non-GST invoices, POS billing, courier management, AWB tracking, backup/restore, and more.
+Full-featured billing/business management platform. POS billing has critical tax calculation bugs where GST-inclusive vs GST-exclusive pricing is mishandled, causing wrong totals. Chartered Accounting module is referenced but not fully implemented as a standalone double-entry accounting system.
 
 ## Requested Changes (Diff)
 
 ### Add
-1. **Invoice Date Range Filter** — In GST/Non-GST invoice generation dialog, add "From Date" and "To Date" fields for filtering bills. When date range is selected, it appears on the invoice. If not selected, no date range shown.
-2. **Courier Status in Invoice/Billing** — Show courier AWB status (Booked/In Transit/Out for Delivery/Delivered/RTO/Exception) alongside existing Brand Name and Mode of Transport in invoice line items. Add toggle option in billing/invoice generation to show or hide courier status.
-3. **Bulk Courier Status Update** — New section/tab for updating courier status:
-   - Individual status update per AWB
-   - Bulk update via Excel file (only AWB No column required)
-   - Sample Excel file download
-   - Filtered list with Brand and Status filters
-   - Export filtered list as Excel
-4. **Logo Size Increase** — Increase company logo size in billing receipts and all invoice templates.
-5. **Backup/Restore updates** — All new fields (date range, courier status, bulk status updates) included in export/import and Google Drive sync.
+- Full Chartered Accounting module (separate sidebar menu): double-entry journal entries, chart of accounts (assets/liabilities/income/expenses/equity), general ledger, trial balance, profit & loss statement, balance sheet, accounts receivable/payable tracking, bank reconciliation, auto-posting from bills/invoices/purchase invoices
+- Export/Import backup: include all accounting/journal/ledger/chartOfAccounts data
 
 ### Modify
-- InvoicesPage.tsx: Add date range fields to invoice generation, add courier status show/hide toggle
-- POSBillingPage.tsx: Show courier status in line items, option to apply/hide status
-- CourierTrackingPage.tsx or new page: Add bulk status update tab with Excel upload
-- All invoice print/PDF templates: Increase logo size, show courier status if enabled
-- SettingsPage.tsx: Ensure new data fields in backup/restore
+- **POS Billing Tax Calculation (CRITICAL FIX)**:
+  1. `addCourierWithDetails`: For GST-inclusive tariffs, unitPrice should be the GST-inclusive total divided by qty (not the pre-GST base). totalPrice = qty × unitPrice always.
+  2. `subtotalBeforeDiscounts` in bill totals: must use `i.totalPrice` (not `qty × i.unitPrice`) for correct sum
+  3. Bill summary display: Do NOT show GST as a separate "+GST" line for items where price already includes GST. Instead show a breakdown line "Incl. GST (X%): ₹Y" as informational only, not added again
+  4. `handleSaveBill`: Save `bill.subtotal` as GST-exclusive base (reverse-calculate from totalPrice), `bill.taxAmount` as total GST, `bill.total` = subtotal + tax + charges - discount
+  5. BillsPage generateInvoice: use reverse-GST calculation `totalPrice * 100 / (100 + gstRate)` for subtotal, NOT sum of totalPrice
+  6. Cart item model: unitPrice should ALWAYS equal totalPrice/qty (GST-inclusive unit price). Remove the pre-GST unitPrice inconsistency for couriers.
+- Export/Import Backup: add `accountingJournal_shared`, `chartOfAccounts_shared`, `accountingSettings_shared` to exported keys
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Add `courierStatus` field to booked courier items in bill/invoice data model
-2. Add date range (fromDate/toDate) fields to invoice generation form
-3. Show date range in invoice templates when provided
-4. Add `showCourierStatus` toggle in billing POS and invoice generation
-5. Display Brand Name + Mode + Status in invoice line items when toggle is ON
-6. Add "Courier Status" tab or section in CourierTrackingPage for individual + bulk updates
-7. Bulk update: Excel upload with AWB No column, parse and update matching bills
-8. Sample Excel download for bulk status update
-9. Filter list by Brand and Status with Excel export
-10. Increase logo img size in bill print template and all 3 invoice templates
-11. Include all new data in backup export/import
+1. Fix all 5 tax calculation bugs in POSBillingPage.tsx (unitPrice consistency, subtotal calc, display, saved bill fields)
+2. Fix BillsPage.tsx invoice generation subtotal calculation
+3. Create AccountingPage.tsx with:
+   - Chart of Accounts (add/edit/delete accounts: Assets, Liabilities, Capital, Income, Expenses)
+   - Journal Entry (debit/credit double-entry, date, narration, auto-number)
+   - General Ledger (per account, date-filtered)
+   - Trial Balance (all accounts, debit/credit columns)
+   - Profit & Loss Statement (income vs expenses, period selector, PDF/Excel)
+   - Balance Sheet (assets vs liabilities+equity, PDF/Excel)
+   - Auto-posting: when a bill/invoice is saved, auto-post journal entries (Debit: Accounts Receivable, Credit: Sales + GST Payable)
+   - Bank Reconciliation tab
+4. Add `accountingJournal_shared`, `chartOfAccounts_shared` to storage.ts KEYS and export/import functions
+5. Add Accounting to sidebar under Finance group

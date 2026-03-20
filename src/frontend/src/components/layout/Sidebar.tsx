@@ -1,9 +1,9 @@
 import { cn } from "@/lib/utils";
 import {
   BarChart2,
+  BookOpen,
   Box,
   Boxes,
-  Briefcase,
   Building2,
   ChevronDown,
   ChevronLeft,
@@ -55,6 +55,23 @@ const navItems: NavItem[] = [
     ],
   },
   {
+    label: "Courier",
+    icon: Truck,
+    path: "courier",
+    children: [
+      { label: "Schedule Pickup", icon: MapPin, path: "pickups" },
+      { label: "Tracking", icon: MapPin, path: "courier-tracking" },
+      {
+        label: "Query Follow-up",
+        icon: MessageSquare,
+        path: "courier-queries",
+      },
+      { label: "Tariff Rates", icon: Tag, path: "tariffs" },
+      { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
+      { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
+    ],
+  },
+  {
     label: "Inventory",
     icon: Package,
     path: "inventory",
@@ -65,35 +82,47 @@ const navItems: NavItem[] = [
       { label: "Purchase Invoices", icon: Receipt, path: "purchase-invoices" },
     ],
   },
-  { label: "Customers", icon: Users, path: "customers" },
-  { label: "Vendors", icon: UserCheck, path: "vendors" },
-  { label: "Schedule Pickup", icon: Truck, path: "pickups" },
-  { label: "Courier Tracking", icon: MapPin, path: "courier-tracking" },
-  { label: "Query Follow-up", icon: MessageSquare, path: "courier-queries" },
-  { label: "Tasks", icon: ClipboardList, path: "tasks" },
-  { label: "Tariff Rates", icon: Tag, path: "tariffs" },
-  { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
-  { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
-  { label: "Expenses", icon: Wallet, path: "expenses" },
   {
-    label: "Design",
-    icon: Palette,
-    path: "design",
-    children: [{ label: "Design Studio", icon: Layers, path: "design-studio" }],
-  },
-  { label: "Reports", icon: BarChart2, path: "reports" },
-  { label: "Digital Marketing", icon: Megaphone, path: "digital-marketing" },
-  {
-    label: "ERP",
-    icon: Briefcase,
-    path: "erp",
+    label: "Contacts",
+    icon: Users,
+    path: "contacts",
     children: [
-      { label: "HR & Payroll", icon: Users, path: "erp" },
-      { label: "Assets", icon: Building2, path: "erp" },
-      { label: "Purchase Orders", icon: ShoppingCart, path: "erp" },
-      { label: "Stock Requisitions", icon: Boxes, path: "erp" },
+      { label: "Customers", icon: Users, path: "customers" },
+      { label: "Vendors", icon: UserCheck, path: "vendors" },
     ],
   },
+  {
+    label: "Design Studio",
+    icon: Palette,
+    path: "design",
+    children: [
+      { label: "Studio", icon: Layers, path: "design-studio" },
+      { label: "PDF Editor", icon: FileText, path: "pdf-editor" },
+    ],
+  },
+  {
+    label: "Finance",
+    icon: BarChart2,
+    path: "finance",
+    children: [
+      { label: "Expenses", icon: Wallet, path: "expenses" },
+      { label: "Reports", icon: BarChart2, path: "reports" },
+    ],
+  },
+  {
+    label: "Marketing & ERP",
+    icon: Megaphone,
+    path: "marketing-erp",
+    children: [
+      {
+        label: "Digital Marketing",
+        icon: Megaphone,
+        path: "digital-marketing",
+      },
+      { label: "HR & Payroll", icon: Users, path: "erp" },
+    ],
+  },
+  { label: "Tasks", icon: ClipboardList, path: "tasks" },
   { label: "Settings", icon: Settings, path: "settings" },
 ];
 
@@ -109,11 +138,7 @@ export function Sidebar({ currentPage, onNavigate }: SidebarProps) {
   ).length;
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [expandedGroups, setExpandedGroups] = useState<string[]>([
-    "billing",
-    "inventory",
-    "design",
-  ]);
+  const [expandedGroups, setExpandedGroups] = useState<string[]>(["billing"]);
   const overlayRef = useRef<HTMLDivElement>(null);
 
   // Close mobile sidebar on outside click

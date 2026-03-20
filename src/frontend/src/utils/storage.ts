@@ -348,6 +348,11 @@ export interface BackupSummary {
   exportedAt: string;
   companiesCount: number;
   usersCount: number;
+  productsCount: number;
+  customersCount: number;
+  vendorsCount: number;
+  employeesCount: number;
+  leadsCount: number;
   companies: {
     id: string;
     name: string;
@@ -371,18 +376,39 @@ export const parseBackupSummary = (jsonString: string): BackupSummary => {
     usersCount: Array.isArray(data.users)
       ? (data.users as unknown[]).length
       : 0,
+    productsCount: Array.isArray(data[`products_${SHARED_DATA_ID}`])
+      ? (data[`products_${SHARED_DATA_ID}`] as unknown[]).length
+      : 0,
+    customersCount: Array.isArray(data[`customers_${SHARED_DATA_ID}`])
+      ? (data[`customers_${SHARED_DATA_ID}`] as unknown[]).length
+      : 0,
+    vendorsCount: Array.isArray(data[`vendors_${SHARED_DATA_ID}`])
+      ? (data[`vendors_${SHARED_DATA_ID}`] as unknown[]).length
+      : 0,
+    employeesCount: Array.isArray(data[`employees_${SHARED_DATA_ID}`])
+      ? (data[`employees_${SHARED_DATA_ID}`] as unknown[]).length
+      : 0,
+    leadsCount: Array.isArray(data[`leads_${SHARED_DATA_ID}`])
+      ? (data[`leads_${SHARED_DATA_ID}`] as unknown[]).length
+      : 0,
     companies: companies.map((c) => ({
       id: c.id,
       name: c.name,
-      billsCount: Array.isArray(data[`bills_${c.id}`])
-        ? (data[`bills_${c.id}`] as unknown[]).length
-        : 0,
-      invoicesCount: Array.isArray(data[`invoices_${c.id}`])
-        ? (data[`invoices_${c.id}`] as unknown[]).length
-        : 0,
-      customersCount: Array.isArray(data[`customers_${c.id}`])
-        ? (data[`customers_${c.id}`] as unknown[]).length
-        : 0,
+      billsCount: Array.isArray(data[`bills_${SHARED_DATA_ID}`])
+        ? (data[`bills_${SHARED_DATA_ID}`] as unknown[]).length
+        : Array.isArray(data[`bills_${c.id}`])
+          ? (data[`bills_${c.id}`] as unknown[]).length
+          : 0,
+      invoicesCount: Array.isArray(data[`invoices_${SHARED_DATA_ID}`])
+        ? (data[`invoices_${SHARED_DATA_ID}`] as unknown[]).length
+        : Array.isArray(data[`invoices_${c.id}`])
+          ? (data[`invoices_${c.id}`] as unknown[]).length
+          : 0,
+      customersCount: Array.isArray(data[`customers_${SHARED_DATA_ID}`])
+        ? (data[`customers_${SHARED_DATA_ID}`] as unknown[]).length
+        : Array.isArray(data[`customers_${c.id}`])
+          ? (data[`customers_${c.id}`] as unknown[]).length
+          : 0,
     })),
   };
 };
@@ -487,6 +513,20 @@ export const exportAllData = (): string => {
 
   // Export tasks
   allData.__tasks = getTasks();
+
+  // _rawSnapshot: capture ALL sks_ prefixed localStorage keys for future-proofing
+  // Any new data type added in the future will automatically be included in backup
+  const rawSnapshot: Record<string, string> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k?.startsWith("sks_")) {
+      rawSnapshot[k] = localStorage.getItem(k) ?? "";
+    }
+  }
+  allData._rawSnapshot = rawSnapshot;
+  allData.__exportVersion = "3.0";
+  allData.__appLabel = "SKS Global Export";
+
   return JSON.stringify(allData, null, 2);
 };
 
@@ -796,6 +836,17 @@ export const mergeImportData = (jsonString: string): MergeSummary => {
     );
     if (newTasks.length > 0) saveTasks([...localTasks, ...newTasks]);
   }
+
+  // Apply _rawSnapshot for keys that don't exist locally (merge only)
+  if (data._rawSnapshot && typeof data._rawSnapshot === "object") {
+    const snapshot = data._rawSnapshot as Record<string, string>;
+    for (const [k, v] of Object.entries(snapshot)) {
+      if (k.startsWith("sks_") && v && !localStorage.getItem(k)) {
+        localStorage.setItem(k, v);
+      }
+    }
+  }
+
   return summary;
 };
 
@@ -1270,6 +1321,18 @@ export const importAllData = (jsonString: string): void => {
   if (Array.isArray(data.__tasks)) {
     saveTasks(data.__tasks as Task[]);
   }
+
+  // Apply _rawSnapshot for any sks_ keys that haven't been explicitly restored
+  // This future-proofs import: any new data type will be restored automatically
+  if (data._rawSnapshot && typeof data._rawSnapshot === "object") {
+    const snapshot = data._rawSnapshot as Record<string, string>;
+    for (const [k, v] of Object.entries(snapshot)) {
+      if (k.startsWith("sks_") && v) {
+        // Always overwrite with snapshot (full restore)
+        localStorage.setItem(k, v);
+      }
+    }
+  }
 };
 
 // ─── Digital Marketing ────────────────────────────────────────────────────────
@@ -1572,4 +1635,190 @@ export const deleteTask = (id: string): void => {
     TASKS_KEY,
     getTasks().filter((t) => t.id !== id),
   );
+};
+
+// ─── Chartered Accounting ─────────────────────────────────────────────────────
+export const ACCOUNTING_ACCOUNTS_KEY = "sks_chart_of_accounts_shared";
+export const ACCOUNTING_JOURNAL_KEY = "sks_journal_entries_shared";
+export const ACCOUNTING_RECONCILIATION_KEY = "sks_bank_reconciliation_shared";
+
+export interface ChartAccount {
+  id: string;
+  code: string;
+  name: string;
+  type: "Asset" | "Liability" | "Capital" | "Income" | "Expense";
+  openingBalance: number;
+  currentBalance: number;
+  isSystem?: boolean;
+}
+
+export interface JournalLine {
+  accountId: string;
+  accountName: string;
+  debit: number;
+  credit: number;
+}
+
+export interface JournalEntry {
+  id: string;
+  entryNo: string;
+  date: string;
+  narration: string;
+  lines: JournalLine[];
+  type:
+    | "Manual"
+    | "Auto-from-Bill"
+    | "Auto-from-Invoice"
+    | "Auto-from-Purchase";
+  sourceId?: string; // bill/invoice id if auto
+  createdAt: string;
+}
+
+export interface BankReconciliation {
+  id: string;
+  accountId: string;
+  journalEntryId: string;
+  reconciled: boolean;
+  reconciledAt?: string;
+}
+
+const DEFAULT_ACCOUNTS: ChartAccount[] = [
+  {
+    id: "acc_1001",
+    code: "1001",
+    name: "Cash",
+    type: "Asset",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_1002",
+    code: "1002",
+    name: "Bank",
+    type: "Asset",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_1003",
+    code: "1003",
+    name: "Accounts Receivable",
+    type: "Asset",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_1004",
+    code: "1004",
+    name: "Inventory",
+    type: "Asset",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_2001",
+    code: "2001",
+    name: "Accounts Payable",
+    type: "Liability",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_2002",
+    code: "2002",
+    name: "GST Payable",
+    type: "Liability",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_3001",
+    code: "3001",
+    name: "Capital",
+    type: "Capital",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_4001",
+    code: "4001",
+    name: "Sales Revenue",
+    type: "Income",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_5001",
+    code: "5001",
+    name: "Purchase",
+    type: "Expense",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+  {
+    id: "acc_5002",
+    code: "5002",
+    name: "Expenses",
+    type: "Expense",
+    openingBalance: 0,
+    currentBalance: 0,
+    isSystem: true,
+  },
+];
+
+export const getChartOfAccounts = (): ChartAccount[] => {
+  const data = localStorage.getItem(ACCOUNTING_ACCOUNTS_KEY);
+  if (!data) {
+    localStorage.setItem(
+      ACCOUNTING_ACCOUNTS_KEY,
+      JSON.stringify(DEFAULT_ACCOUNTS),
+    );
+    return DEFAULT_ACCOUNTS;
+  }
+  try {
+    return JSON.parse(data) as ChartAccount[];
+  } catch {
+    return DEFAULT_ACCOUNTS;
+  }
+};
+
+export const saveChartOfAccounts = (accounts: ChartAccount[]): void => {
+  localStorage.setItem(ACCOUNTING_ACCOUNTS_KEY, JSON.stringify(accounts));
+};
+
+export const getJournalEntries = (): JournalEntry[] => {
+  const data = localStorage.getItem(ACCOUNTING_JOURNAL_KEY);
+  if (!data) return [];
+  try {
+    return JSON.parse(data) as JournalEntry[];
+  } catch {
+    return [];
+  }
+};
+
+export const saveJournalEntries = (entries: JournalEntry[]): void => {
+  localStorage.setItem(ACCOUNTING_JOURNAL_KEY, JSON.stringify(entries));
+};
+
+export const getBankReconciliations = (): BankReconciliation[] => {
+  const data = localStorage.getItem(ACCOUNTING_RECONCILIATION_KEY);
+  if (!data) return [];
+  try {
+    return JSON.parse(data) as BankReconciliation[];
+  } catch {
+    return [];
+  }
+};
+
+export const saveBankReconciliations = (recs: BankReconciliation[]): void => {
+  localStorage.setItem(ACCOUNTING_RECONCILIATION_KEY, JSON.stringify(recs));
 };

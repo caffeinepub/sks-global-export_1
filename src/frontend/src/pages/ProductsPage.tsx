@@ -1045,9 +1045,6 @@ export function ProductsPage() {
     toast.success("Product removed");
   };
 
-  const paperProducts = products.filter(
-    (p) => p.type === "general",
-  ) as GeneralProduct[];
   const generalProds = products.filter(
     (p) =>
       p.type === "general" &&
@@ -3080,24 +3077,7 @@ export function ProductsPage() {
                       className="mt-1 text-sm"
                     />
                   </div>
-                  <div>
-                    <Label className="text-xs">Paper Product</Label>
-                    <Select
-                      value={paperProductId}
-                      onValueChange={setPaperProductId}
-                    >
-                      <SelectTrigger className="mt-1 text-sm">
-                        <SelectValue placeholder="Select paper" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {paperProducts.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+
                   <div>
                     <Label className="text-xs">Ink Charge/Page (₹)</Label>
                     <Input
@@ -3154,7 +3134,6 @@ export function ProductsPage() {
                       <Switch
                         checked={usePricingSlabs}
                         onCheckedChange={setUsePricingSlabs}
-                        className="h-4 w-8"
                       />
                       <span className="text-xs text-muted-foreground">
                         {usePricingSlabs ? "Enabled" : "Disabled"}

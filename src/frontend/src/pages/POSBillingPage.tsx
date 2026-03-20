@@ -733,9 +733,7 @@ export function POSBillingPage({
       const gstRate = selectedBrand.gstRate || 0;
       if (matchedTariff?.isGSTInclusive && gstRate > 0) {
         // tariff price already includes GST
-        const taxableBase =
-          Math.round((customerOverride / (1 + gstRate / 100)) * 100) / 100;
-        unitPrice = taxableBase; // pre-GST unit price
+        unitPrice = customerOverride; // GST-inclusive unit price
         totalPrice = customerOverride; // GST-inclusive total
       } else if (gstRate > 0) {
         // tariff price excludes GST — add GST
@@ -767,9 +765,7 @@ export function POSBillingPage({
         const gstRate = selectedBrand.gstRate || 0;
         if (matchedTariff?.isGSTInclusive && gstRate > 0) {
           // tariff price already includes GST
-          const taxableBase =
-            Math.round((tariffResult.price / (1 + gstRate / 100)) * 100) / 100;
-          unitPrice = taxableBase; // pre-GST unit price
+          unitPrice = tariffResult.price; // GST-inclusive unit price
           totalPrice = tariffResult.price; // GST-inclusive total
         } else if (gstRate > 0) {
           // tariff price excludes GST — add GST
@@ -1155,7 +1151,7 @@ export function POSBillingPage({
 
   // ─── Bill totals ────────────────────────────────────────────────────────────
   const subtotalBeforeDiscounts = billItems.reduce(
-    (sum, i) => sum + i.quantity * i.unitPrice,
+    (sum, i) => sum + i.totalPrice,
     0,
   );
   const totalItemDiscounts = billItems.reduce(
@@ -1210,7 +1206,14 @@ export function POSBillingPage({
       });
     }
 
-    const finalSubtotal = finalItems.reduce((sum, i) => sum + i.totalPrice, 0);
+    const finalSubtotal = finalItems.reduce((sum, i) => {
+      const rate = i.gstRate || 0;
+      return sum + (i.totalPrice * 100) / (100 + rate);
+    }, 0);
+    const finalTaxAmount = finalItems.reduce((sum, i) => {
+      const rate = i.gstRate || 0;
+      return sum + (i.totalPrice * rate) / (100 + rate);
+    }, 0);
     const visibleCharges = additionalCharges.filter((c) => c.showInBill);
     const visibleTotal = visibleCharges.reduce((sum, c) => sum + c.amount, 0);
     const finalTotal = Math.max(0, finalSubtotal + visibleTotal - billDiscount);
@@ -1239,6 +1242,7 @@ export function POSBillingPage({
       date,
       items: finalItems,
       subtotal: finalSubtotal,
+      taxAmount: finalTaxAmount,
       total: finalTotal,
       billDiscount: billDiscount > 0 ? billDiscount : undefined,
       additionalCharges: visibleCharges.length > 0 ? visibleCharges : undefined,
@@ -3426,9 +3430,10 @@ export function POSBillingPage({
                     </span>
                   </div>
                   {item.gstRate > 0 && (
-                    <div className="flex justify-between text-[10px] text-blue-600 pl-1">
-                      <span>GST ({item.gstRate}%)</span>
-                      <span>+{formatCurrency(gstAmt)}</span>
+                    <div className="flex justify-between text-[10px] text-muted-foreground pl-1">
+                      <span>
+                        Incl. GST ({item.gstRate}%): {formatCurrency(gstAmt)}
+                      </span>
                     </div>
                   )}
                 </div>

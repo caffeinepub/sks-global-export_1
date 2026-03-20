@@ -13,6 +13,7 @@ import { SaveIndicator } from "./components/SaveIndicator";
 import { Header } from "./components/layout/Header";
 import { Sidebar } from "./components/layout/Sidebar";
 import { useAppStore } from "./hooks/useAppStore";
+import { AccountingPage } from "./pages/AccountingPage";
 import { AdminPage } from "./pages/AdminPage";
 import { BillsPage } from "./pages/BillsPage";
 import { CategoriesPage } from "./pages/CategoriesPage";
@@ -29,6 +30,7 @@ import { ExpensesPage } from "./pages/ExpensesPage";
 import { InventoryPage } from "./pages/InventoryPage";
 import { InvoicesPage } from "./pages/InvoicesPage";
 import { LoginPage } from "./pages/LoginPage";
+import { PDFEditorPage } from "./pages/PDFEditorPage";
 import { POSBillingPage } from "./pages/POSBillingPage";
 import { PickupsPage } from "./pages/PickupsPage";
 import { ProductsPage } from "./pages/ProductsPage";
@@ -253,6 +255,8 @@ function AppLayout() {
         return <CostPricePage />;
       case "customer-tariffs":
         return <CustomerTariffsPage />;
+      case "accounting":
+        return <AccountingPage />;
       case "expenses":
         return <ExpensesPage />;
       case "digital-marketing":
@@ -261,6 +265,8 @@ function AppLayout() {
         return <ERPPage />;
       case "tasks":
         return <TasksPage onNavigate={navigate} />;
+      case "pdf-editor":
+        return <PDFEditorPage />;
       case "design-studio":
         return (
           <DesignStudioPage

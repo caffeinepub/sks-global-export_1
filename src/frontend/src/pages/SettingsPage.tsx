@@ -472,7 +472,9 @@ export function SettingsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `sks_backup_${new Date().toISOString().split("T")[0]}.json`;
+    const now = new Date();
+    const ts = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}-${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}`;
+    a.download = `SKS-Backup-${ts}.json`;
     a.click();
     URL.revokeObjectURL(url);
     setLastBackupTime();
@@ -2086,6 +2088,14 @@ export function SettingsPage() {
                 </span>
                 <span>{importPending.summary.companiesCount} companies</span>
                 <span>{importPending.summary.usersCount} users</span>
+                <span>
+                  {importPending.summary.customersCount ?? 0} customers
+                </span>
+                <span>{importPending.summary.productsCount ?? 0} products</span>
+                <span>{importPending.summary.vendorsCount ?? 0} vendors</span>
+                <span>
+                  {importPending.summary.employeesCount ?? 0} employees
+                </span>
               </div>
               {importPending.summary.companies.map((c) => (
                 <div

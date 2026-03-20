@@ -182,9 +182,12 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
     [invoice.items],
   );
 
-  const subtotal = invoice.items.reduce((s, i) => {
+  const freight = invoice.freightCharges ?? 0;
+  const disc = invoice.discount ?? 0;
+  const itemsBaseSubtotal = invoice.items.reduce((s, i) => {
     return s + (i.totalPrice * 100) / (100 + i.gstRate);
   }, 0);
+  const subtotal = itemsBaseSubtotal - disc + freight;
   const totalTax = invoice.total - subtotal;
   const rounded = Math.round(invoice.total) - invoice.total;
   const finalTotal = invoice.total + rounded;
@@ -761,9 +764,35 @@ function TemplateDefault({ invoice, company, settings }: TemplateProps) {
           </div>
           <div style={S.totalsBox}>
             <div style={S.totalsRow}>
-              <span style={{ color: "#555" }}>Sub Total</span>
-              <strong>{formatCurrency(subtotal)}</strong>
+              <span style={{ color: "#555" }}>Items Subtotal</span>
+              <strong>{formatCurrency(itemsBaseSubtotal)}</strong>
             </div>
+            {disc > 0 && (
+              <div style={S.totalsRow}>
+                <span style={{ color: "#c00" }}>Discount (−)</span>
+                <strong style={{ color: "#c00" }}>
+                  −{formatCurrency(disc)}
+                </strong>
+              </div>
+            )}
+            {freight > 0 && (
+              <div style={S.totalsRow}>
+                <span style={{ color: "#555" }}>Freight Charges (+)</span>
+                <strong>{formatCurrency(freight)}</strong>
+              </div>
+            )}
+            {(disc > 0 || freight > 0) && (
+              <div
+                style={{
+                  ...S.totalsRow,
+                  background: "#f0f4ff",
+                  fontWeight: "bold",
+                }}
+              >
+                <span>Taxable Amount</span>
+                <strong>{formatCurrency(subtotal)}</strong>
+              </div>
+            )}
             {hsnRows.map((row) => (
               <div key={`t-${row.hsn}-${row.gstRate}`}>
                 <div style={S.totalsRow}>
@@ -941,9 +970,12 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
     [invoice.items],
   );
 
-  const subtotal = invoice.items.reduce((s, i) => {
+  const freight = invoice.freightCharges ?? 0;
+  const disc = invoice.discount ?? 0;
+  const itemsBaseSubtotal = invoice.items.reduce((s, i) => {
     return s + (i.totalPrice * 100) / (100 + i.gstRate);
   }, 0);
+  const subtotal = itemsBaseSubtotal - disc + freight;
   const totalTax = invoice.total - subtotal;
   const rounded = Math.round(invoice.total) - invoice.total;
   const finalTotal = invoice.total + rounded;
@@ -1410,6 +1442,45 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
             fontSize: "10px",
           }}
         >
+          {disc > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "3px 8px",
+                borderBottom: "1px solid #e5eaf5",
+              }}
+            >
+              <span style={{ color: "#555" }}>Items Subtotal</span>
+              <strong>{formatCurrency(itemsBaseSubtotal)}</strong>
+            </div>
+          )}
+          {disc > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "3px 8px",
+                borderBottom: "1px solid #e5eaf5",
+              }}
+            >
+              <span style={{ color: "#c00" }}>Discount (−)</span>
+              <strong style={{ color: "#c00" }}>−{formatCurrency(disc)}</strong>
+            </div>
+          )}
+          {freight > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "3px 8px",
+                borderBottom: "1px solid #e5eaf5",
+              }}
+            >
+              <span style={{ color: "#555" }}>Freight Charges (+)</span>
+              <strong>{formatCurrency(freight)}</strong>
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -1418,7 +1489,7 @@ function TemplateRetail({ invoice, company, settings }: TemplateProps) {
               borderBottom: "1px solid #e5eaf5",
             }}
           >
-            <span style={{ color: "#555" }}>Sub Total</span>
+            <span style={{ color: "#555" }}>Taxable Amount</span>
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <div
@@ -1627,9 +1698,12 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
     [invoice.items],
   );
 
-  const subtotal = invoice.items.reduce((s, i) => {
+  const freight = invoice.freightCharges ?? 0;
+  const disc = invoice.discount ?? 0;
+  const itemsBaseSubtotal = invoice.items.reduce((s, i) => {
     return s + (i.totalPrice * 100) / (100 + i.gstRate);
   }, 0);
+  const subtotal = itemsBaseSubtotal - disc + freight;
   const totalTax = invoice.total - subtotal;
   const rounded = Math.round(invoice.total) - invoice.total;
   const finalTotal = invoice.total + rounded;
@@ -2048,6 +2122,45 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
             fontSize: "10px",
           }}
         >
+          {disc > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "4px 8px",
+                borderBottom: "1px solid #dde8ff",
+              }}
+            >
+              <span style={{ color: "#555" }}>Items Subtotal</span>
+              <strong>{formatCurrency(itemsBaseSubtotal)}</strong>
+            </div>
+          )}
+          {disc > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "4px 8px",
+                borderBottom: "1px solid #dde8ff",
+              }}
+            >
+              <span style={{ color: "#c00" }}>Discount (−)</span>
+              <strong style={{ color: "#c00" }}>−{formatCurrency(disc)}</strong>
+            </div>
+          )}
+          {freight > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "4px 8px",
+                borderBottom: "1px solid #dde8ff",
+              }}
+            >
+              <span style={{ color: "#555" }}>Freight Charges (+)</span>
+              <strong>{formatCurrency(freight)}</strong>
+            </div>
+          )}
           <div
             style={{
               display: "flex",
@@ -2056,7 +2169,7 @@ function TemplateCourier({ invoice, company, settings }: TemplateProps) {
               borderBottom: "1px solid #dde8ff",
             }}
           >
-            <span style={{ color: "#555" }}>Sub Total</span>
+            <span style={{ color: "#555" }}>Taxable Amount</span>
             <strong>{formatCurrency(subtotal)}</strong>
           </div>
           <div
@@ -2954,6 +3067,8 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
   const [invoiceToDate, setInvoiceToDate] = useState("");
   const [showCourierStatusInInvoice, setShowCourierStatusInInvoice] =
     useState(true);
+  const [genFreightCharges, setGenFreightCharges] = useState("");
+  const [genDiscount, setGenDiscount] = useState("");
 
   // Build a map from billId -> invoiceNo for quick lookup
   const billInvoiceMap = useMemo<Record<string, string>>(() => {
@@ -3120,6 +3235,12 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
 
     const billIds = [...new Set(selectedItems.map((i) => i.billId))];
 
+    const genFreight = Number(genFreightCharges) || 0;
+    const genDisc = Number(genDiscount) || 0;
+    // Adjust totals with freight and discount
+    const adjTotal = grandTotal + genFreight - genDisc;
+    const adjSubtotal = subtotal - genDisc + genFreight;
+
     const invoice: Invoice = {
       id: generateId(),
       companyId: activeCompanyId,
@@ -3132,11 +3253,11 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       billIds,
       date: new Date().toISOString().split("T")[0],
       items: allBillItems,
-      subtotal,
+      subtotal: adjSubtotal,
       cgst,
       sgst,
       igst: 0,
-      total: grandTotal,
+      total: adjTotal,
       paymentMethod: "cash",
       paymentStatus: "pending",
       createdAt: new Date().toISOString(),
@@ -3144,6 +3265,8 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       fromDate: invoiceFromDate || undefined,
       toDate: invoiceToDate || undefined,
       showCourierStatus: showCourierStatusInInvoice,
+      freightCharges: genFreight > 0 ? genFreight : undefined,
+      discount: genDisc > 0 ? genDisc : undefined,
     };
 
     addInvoice(invoice);
@@ -3490,12 +3613,53 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                 data-ocid="invoice.generate.courier_status.switch"
               />
             </div>
+            {/* Freight & Discount */}
+            {pendingInvoiceType === "gst" && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-3">
+                <p className="text-sm font-semibold text-blue-800">
+                  Adjustments (before GST)
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs text-blue-700">
+                      Discount (₹)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={genDiscount}
+                      onChange={(e) => setGenDiscount(e.target.value)}
+                      placeholder="0.00"
+                      className="text-sm bg-white"
+                      data-ocid="invoice.gen_discount.input"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs text-blue-700">
+                      Freight Charges (₹)
+                    </Label>
+                    <Input
+                      type="number"
+                      value={genFreightCharges}
+                      onChange={(e) => setGenFreightCharges(e.target.value)}
+                      placeholder="0.00"
+                      className="text-sm bg-white"
+                      data-ocid="invoice.gen_freight.input"
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowConfirm(false)}>
               Cancel
             </Button>
-            <Button onClick={doGenerate}>Generate Invoice</Button>
+            <Button
+              onClick={doGenerate}
+              data-ocid="invoice.generate.confirm_button"
+            >
+              Generate Invoice
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -3524,6 +3688,15 @@ function InvoiceHistoryTab() {
   const [editPaymentStatus, setEditPaymentStatus] = useState("");
   const [editPaymentMethod, setEditPaymentMethod] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editDate, setEditDate] = useState("");
+  const [editInvoiceNo, setEditInvoiceNo] = useState("");
+  const [editCustomerName, setEditCustomerName] = useState("");
+  const [editCustomerAddress, setEditCustomerAddress] = useState("");
+  const [editCustomerGstin, setEditCustomerGstin] = useState("");
+  const [editFreightCharges, setEditFreightCharges] = useState("");
+  const [editDiscount, setEditDiscount] = useState("");
+  const [editAmountPaid, setEditAmountPaid] = useState("");
+  const [editItems, setEditItems] = useState<BillItem[]>([]);
 
   const filteredInvoices = useMemo(() => {
     return [...invoices]
@@ -3578,15 +3751,71 @@ function InvoiceHistoryTab() {
     setEditPaymentStatus(inv.paymentStatus);
     setEditPaymentMethod(inv.paymentMethod);
     setEditNotes(inv.notes || "");
+    setEditDate(inv.date);
+    setEditInvoiceNo(inv.invoiceNo);
+    setEditCustomerName(inv.customerName);
+    setEditCustomerAddress(inv.customerAddress || "");
+    setEditCustomerGstin(inv.customerGstin || "");
+    setEditFreightCharges(String(inv.freightCharges ?? ""));
+    setEditDiscount(String(inv.discount ?? ""));
+    setEditAmountPaid(String(inv.amountPaid ?? ""));
+    setEditItems(inv.items.map((i) => ({ ...i })));
+  };
+
+  const recalcInvoiceTotals = (
+    items: BillItem[],
+    freight: number,
+    disc: number,
+    invType: "gst" | "non_gst",
+  ) => {
+    const itemsSubtotal = items.reduce(
+      (s, i) => s + (i.totalPrice * 100) / (100 + (i.gstRate || 0)),
+      0,
+    );
+    const afterDiscount = itemsSubtotal - disc;
+    const taxableAmount = afterDiscount + freight;
+    const cgst =
+      invType === "gst"
+        ? items.reduce(
+            (s, i) => s + (i.totalPrice * i.gstRate) / (100 + i.gstRate) / 2,
+            0,
+          )
+        : 0;
+    const sgst = cgst;
+    const itemsTotal = items.reduce((s, i) => s + i.totalPrice, 0);
+    const total = itemsTotal + freight - disc;
+    return { subtotal: taxableAmount, cgst, sgst, total };
   };
 
   const saveEdit = () => {
     if (!editInvoice) return;
+    const freight = Number(editFreightCharges) || 0;
+    const disc = Number(editDiscount) || 0;
+    const amtPaid = Number(editAmountPaid) || 0;
+    const { subtotal, cgst, sgst, total } = recalcInvoiceTotals(
+      editItems,
+      freight,
+      disc,
+      editInvoice.invoiceType,
+    );
     updateInvoice({
       ...editInvoice,
+      date: editDate,
+      invoiceNo: editInvoiceNo,
+      customerName: editCustomerName,
+      customerAddress: editCustomerAddress,
+      customerGstin: editCustomerGstin,
       paymentStatus: editPaymentStatus,
       paymentMethod: editPaymentMethod,
       notes: editNotes,
+      freightCharges: freight > 0 ? freight : undefined,
+      discount: disc > 0 ? disc : undefined,
+      amountPaid: amtPaid > 0 ? amtPaid : undefined,
+      items: editItems,
+      subtotal,
+      cgst,
+      sgst,
+      total,
     });
     toast.success("Invoice updated");
     setEditInvoice(null);
@@ -3799,60 +4028,327 @@ function InvoiceHistoryTab() {
         open={!!editInvoice}
         onOpenChange={(open) => !open && setEditInvoice(null)}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Edit Invoice — {editInvoice?.invoiceNo}</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Update invoice details, charges, and line items
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Payment Status</Label>
-              <Select
-                value={editPaymentStatus}
-                onValueChange={setEditPaymentStatus}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="pending">Pending</SelectItem>
-                  <SelectItem value="partial">Partial</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Payment Method</Label>
-              <Select
-                value={editPaymentMethod}
-                onValueChange={setEditPaymentMethod}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">Cash</SelectItem>
-                  <SelectItem value="upi">UPI</SelectItem>
-                  <SelectItem value="card">Card</SelectItem>
-                  <SelectItem value="credit">Credit</SelectItem>
-                  <SelectItem value="mixed">Mixed</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>Notes</Label>
-              <Textarea
-                value={editNotes}
-                onChange={(e) => setEditNotes(e.target.value)}
-                placeholder="Add notes..."
-                rows={3}
-              />
-            </div>
-          </div>
+          <Tabs defaultValue="basic" className="w-full">
+            <TabsList className="w-full grid grid-cols-3">
+              <TabsTrigger value="basic" className="text-xs">
+                Basic Info
+              </TabsTrigger>
+              <TabsTrigger value="customer" className="text-xs">
+                Customer
+              </TabsTrigger>
+              <TabsTrigger value="items" className="text-xs">
+                Items & Charges
+              </TabsTrigger>
+            </TabsList>
+            <TabsContent value="basic" className="space-y-3 mt-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Invoice Date</Label>
+                  <Input
+                    type="date"
+                    value={editDate}
+                    onChange={(e) => setEditDate(e.target.value)}
+                    className="text-sm"
+                    data-ocid="invoice.date.input"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Invoice Number</Label>
+                  <Input
+                    value={editInvoiceNo}
+                    onChange={(e) => setEditInvoiceNo(e.target.value)}
+                    className="text-sm"
+                    data-ocid="invoice.number.input"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Payment Status</Label>
+                  <Select
+                    value={editPaymentStatus}
+                    onValueChange={setEditPaymentStatus}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="paid">Paid</SelectItem>
+                      <SelectItem value="pending">Pending</SelectItem>
+                      <SelectItem value="partial">Partial</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Payment Method</Label>
+                  <Select
+                    value={editPaymentMethod}
+                    onValueChange={setEditPaymentMethod}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="credit">Credit</SelectItem>
+                      <SelectItem value="mixed">Mixed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {editPaymentStatus === "partial" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Amount Paid (₹)</Label>
+                  <Input
+                    type="number"
+                    value={editAmountPaid}
+                    onChange={(e) => setEditAmountPaid(e.target.value)}
+                    className="text-sm"
+                    placeholder="0.00"
+                    data-ocid="invoice.amount_paid.input"
+                  />
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <Label className="text-xs">Notes</Label>
+                <Textarea
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="Add notes..."
+                  rows={2}
+                  className="text-sm"
+                />
+              </div>
+            </TabsContent>
+            <TabsContent value="customer" className="space-y-3 mt-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Customer Name</Label>
+                <Input
+                  value={editCustomerName}
+                  onChange={(e) => setEditCustomerName(e.target.value)}
+                  className="text-sm"
+                  data-ocid="invoice.customer_name.input"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Customer Address</Label>
+                <Textarea
+                  value={editCustomerAddress}
+                  onChange={(e) => setEditCustomerAddress(e.target.value)}
+                  rows={2}
+                  className="text-sm"
+                />
+              </div>
+              {editInvoice?.invoiceType === "gst" && (
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Customer GSTIN</Label>
+                  <Input
+                    value={editCustomerGstin}
+                    onChange={(e) => setEditCustomerGstin(e.target.value)}
+                    className="text-sm"
+                    placeholder="15-digit GSTIN"
+                  />
+                </div>
+              )}
+            </TabsContent>
+            <TabsContent value="items" className="space-y-3 mt-3">
+              <div className="border border-border rounded-lg overflow-hidden">
+                <div className="bg-muted/30 px-3 py-2 text-xs font-semibold">
+                  Line Items
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/20">
+                        <th className="text-left p-2">Product</th>
+                        <th className="text-right p-2 w-16">Qty</th>
+                        <th className="text-right p-2 w-24">Rate (₹)</th>
+                        <th className="text-right p-2 w-16">GST%</th>
+                        <th className="text-right p-2 w-20">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {editItems.map((item, idx) => (
+                        <tr
+                          key={`item-${item.productId ?? idx}-${idx}`}
+                          className="border-b border-border/50"
+                        >
+                          <td className="p-2 text-xs">{item.productName}</td>
+                          <td className="p-1">
+                            <Input
+                              type="number"
+                              value={item.quantity}
+                              className="h-6 text-xs text-right"
+                              onChange={(e) => {
+                                const updated = [...editItems];
+                                const q = Number(e.target.value) || 1;
+                                updated[idx] = {
+                                  ...updated[idx],
+                                  quantity: q,
+                                  totalPrice: q * updated[idx].unitPrice,
+                                };
+                                setEditItems(updated);
+                              }}
+                            />
+                          </td>
+                          <td className="p-1">
+                            <Input
+                              type="number"
+                              value={item.unitPrice}
+                              className="h-6 text-xs text-right"
+                              onChange={(e) => {
+                                const updated = [...editItems];
+                                const p = Number(e.target.value) || 0;
+                                updated[idx] = {
+                                  ...updated[idx],
+                                  unitPrice: p,
+                                  totalPrice: updated[idx].quantity * p,
+                                };
+                                setEditItems(updated);
+                              }}
+                            />
+                          </td>
+                          <td className="p-1">
+                            <Input
+                              type="number"
+                              value={item.gstRate}
+                              className="h-6 text-xs text-right"
+                              onChange={(e) => {
+                                const updated = [...editItems];
+                                updated[idx] = {
+                                  ...updated[idx],
+                                  gstRate: Number(e.target.value) || 0,
+                                };
+                                setEditItems(updated);
+                              }}
+                            />
+                          </td>
+                          <td className="p-2 text-right font-medium">
+                            {formatCurrency(item.totalPrice)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              {editInvoice?.invoiceType === "gst" && (
+                <div className="p-3 bg-blue-50 rounded-lg border border-blue-200 space-y-3">
+                  <p className="text-xs font-semibold text-blue-800">
+                    Adjustments (applied before GST calculation)
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <Label className="text-xs text-blue-700">
+                        Discount (₹) — deducted before GST
+                      </Label>
+                      <Input
+                        type="number"
+                        value={editDiscount}
+                        onChange={(e) => setEditDiscount(e.target.value)}
+                        placeholder="0.00"
+                        className="text-sm bg-white"
+                        data-ocid="invoice.discount.input"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-blue-700">
+                        Freight Charges (₹) — added before GST
+                      </Label>
+                      <Input
+                        type="number"
+                        value={editFreightCharges}
+                        onChange={(e) => setEditFreightCharges(e.target.value)}
+                        placeholder="0.00"
+                        className="text-sm bg-white"
+                        data-ocid="invoice.freight.input"
+                      />
+                    </div>
+                  </div>
+                  <div className="pt-2 border-t border-blue-200">
+                    {(() => {
+                      const freight = Number(editFreightCharges) || 0;
+                      const disc = Number(editDiscount) || 0;
+                      const itemsBase = editItems.reduce(
+                        (s, i) =>
+                          s + (i.totalPrice * 100) / (100 + (i.gstRate || 0)),
+                        0,
+                      );
+                      const taxable = itemsBase - disc + freight;
+                      const cgst = editItems.reduce(
+                        (s, i) =>
+                          s +
+                          (i.totalPrice * i.gstRate) / (100 + i.gstRate) / 2,
+                        0,
+                      );
+                      const grandTotal =
+                        editItems.reduce((s, i) => s + i.totalPrice, 0) +
+                        freight -
+                        disc;
+                      return (
+                        <div className="grid grid-cols-2 gap-1 text-xs text-blue-800">
+                          <span>Items Subtotal:</span>
+                          <span className="text-right font-medium">
+                            {formatCurrency(itemsBase)}
+                          </span>
+                          {disc > 0 && (
+                            <>
+                              <span className="text-red-600">− Discount:</span>
+                              <span className="text-right text-red-600">
+                                −{formatCurrency(disc)}
+                              </span>
+                            </>
+                          )}
+                          {freight > 0 && (
+                            <>
+                              <span className="text-green-700">+ Freight:</span>
+                              <span className="text-right text-green-700">
+                                +{formatCurrency(freight)}
+                              </span>
+                            </>
+                          )}
+                          <span className="font-semibold border-t border-blue-200 pt-1">
+                            Taxable Amount:
+                          </span>
+                          <span className="text-right font-semibold border-t border-blue-200 pt-1">
+                            {formatCurrency(taxable)}
+                          </span>
+                          <span>CGST + SGST:</span>
+                          <span className="text-right">
+                            {formatCurrency(cgst * 2)}
+                          </span>
+                          <span className="font-bold text-blue-900 text-sm">
+                            Grand Total:
+                          </span>
+                          <span className="text-right font-bold text-blue-900 text-sm">
+                            {formatCurrency(grandTotal)}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setEditInvoice(null)}>
+            <Button
+              variant="outline"
+              onClick={() => setEditInvoice(null)}
+              data-ocid="invoice.cancel_button"
+            >
               Cancel
             </Button>
-            <Button onClick={saveEdit}>Save Changes</Button>
+            <Button onClick={saveEdit} data-ocid="invoice.save_button">
+              Save Changes
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
