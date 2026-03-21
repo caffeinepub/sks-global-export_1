@@ -1,61 +1,9 @@
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Check, Printer, X } from "lucide-react";
+import type React from "react";
 import { useState } from "react";
 import type { BillItem } from "../types";
 import { BarcodeDisplay } from "./BarcodeDisplay";
 
-// ─── Brand Color Config ────────────────────────────────────────────────────────
-
-const BRAND_COLORS: Record<string, { bg: string; initials: string }> = {
-  DTDC: { bg: "#f97316", initials: "DT" },
-  BlueDart: { bg: "#dc2626", initials: "BD" },
-  Delhivery: { bg: "#2563eb", initials: "DL" },
-  FedEx: { bg: "#7c3aed", initials: "FX" },
-  "India Post": { bg: "#b91c1c", initials: "IP" },
-  Ecom: { bg: "#16a34a", initials: "EC" },
-  Xpressbees: { bg: "#eab308", initials: "XB" },
-};
-
-const getBrandStyle = (brandName: string) => {
-  const key = Object.keys(BRAND_COLORS).find((k) =>
-    brandName.toLowerCase().includes(k.toLowerCase()),
-  );
-  return key
-    ? BRAND_COLORS[key]
-    : { bg: "#0d9488", initials: brandName.slice(0, 2).toUpperCase() };
-};
-
-const isDTDCBrand = (brandName: string) =>
-  brandName.toLowerCase().includes("dtdc");
-
-// ─── Copy Keys ───────────────────────────────────────────────────────────────
-
-type CopyKey = "sender" | "account" | "pod";
-
-interface SelectedCopies {
-  sender: boolean;
-  account: boolean;
-  pod: boolean;
-}
-
-const COPY_LABELS: Record<CopyKey, { dtdc: string; generic: string }> = {
-  sender: { dtdc: "Sender's Copy", generic: "SENDER COPY" },
-  account: { dtdc: "Account Copy", generic: "ACCOUNT COPY" },
-  pod: { dtdc: "POD Copy", generic: "POD COPY" },
-};
-
-const COPY_KEYS: CopyKey[] = ["sender", "account", "pod"];
-
-// ─── Props ────────────────────────────────────────────────────────────────────
-
-export interface CourierSlipPrintDialogProps {
+interface CourierSlipPrintDialogProps {
   open: boolean;
   onClose: () => void;
   item: BillItem;
@@ -69,37 +17,80 @@ export interface CourierSlipPrintDialogProps {
   companyEmail?: string;
 }
 
-// ─── Helper ───────────────────────────────────────────────────────────────────
+const BRAND_INFO: Record<
+  string,
+  { website: string; email: string; phone: string; address: string }
+> = {
+  DTDC: {
+    website: "www.dtdc.in",
+    email: "customersupport@dtdc.com",
+    phone: "+91-9606911811",
+    address: "No. 3, Victoria Road, Bengaluru – 560047",
+  },
+  BlueDart: {
+    website: "www.bluedart.com",
+    email: "care@bluedart.com",
+    phone: "1860-233-1234",
+    address: "Sahar Airport Road, Andheri East, Mumbai – 400099",
+  },
+  Delhivery: {
+    website: "www.delhivery.com",
+    email: "support@delhivery.com",
+    phone: "011-7170-6000",
+    address: "NH 8, Bilaspur, Gurugram – 122413",
+  },
+  FedEx: {
+    website: "www.fedex.com",
+    email: "customer.service@fedex.com",
+    phone: "1800-209-6161",
+    address: "Koramangala, Bengaluru – 560034",
+  },
+  DHL: {
+    website: "www.dhl.com",
+    email: "customer.service@dhl.com",
+    phone: "1800-111-345",
+    address: "Andheri East, Mumbai – 400059",
+  },
+};
 
-function formatDate(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    const dd = String(d.getDate()).padStart(2, "0");
-    const mm = String(d.getMonth() + 1).padStart(2, "0");
-    const yyyy = d.getFullYear();
-    return `${dd}/${mm}/${yyyy}`;
-  } catch {
-    return dateStr;
-  }
+function formatSlipDate(dateStr: string): string {
+  const d = new Date(dateStr);
+  const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = [
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+  ];
+  return `${days[d.getDay()]} ${months[d.getMonth()]} ${String(d.getDate()).padStart(2, "0")} ${d.getFullYear()}`;
 }
 
-function extractOrigin(address?: string): string {
+function extractCity(address?: string): string {
   if (!address) return "—";
   const parts = address.split(",").map((s) => s.trim());
   for (let i = parts.length - 1; i >= 0; i--) {
     const part = parts[i];
-    if (part && !/^\d{6}$/.test(part) && part.length > 1) {
-      return part.split(" ")[0] || part;
-    }
+    if (part && !/^\d{5,6}$/.test(part) && part.length > 1) return part;
   }
   return parts[0] || "—";
 }
 
-// ─── DTDC Official Booking Slip ───────────────────────────────────────────────
+type CopyKey = "sender" | "account" | "pod";
+const COPY_LABELS: Record<CopyKey, string> = {
+  sender: "SENDER COPY",
+  account: "ACCOUNT COPY",
+  pod: "POD COPY",
+};
 
-interface DTDCSlipProps {
-  copyLabel: string;
-  copyKey: CopyKey;
+interface CourierSlipCopyProps {
   item: BillItem;
   billNo: string;
   billDate: string;
@@ -107,617 +98,157 @@ interface DTDCSlipProps {
   companyAddress?: string;
   companyPhone?: string;
   companyLogoUrl?: string;
-  companyGstin?: string;
-  companyEmail?: string;
+  copyLabel: string;
 }
 
-function DTDCSlipCopy({
-  copyLabel,
-  copyKey,
+function CourierSlipCopy({
   item,
+  billNo,
   billDate,
   companyName,
   companyAddress,
   companyPhone,
-  companyLogoUrl,
-  companyGstin,
-  companyEmail,
-}: DTDCSlipProps) {
-  const actualWt =
-    item.actualWeightKg != null ? `${item.actualWeightKg.toFixed(3)} kg` : "—";
-  const chargedWt =
-    item.chargeableWeightKg != null
-      ? `${item.chargeableWeightKg.toFixed(3)} kg`
-      : item.actualWeightKg != null
-        ? `${item.actualWeightKg.toFixed(3)} kg`
-        : "—";
-  const origin = extractOrigin(companyAddress);
-  const dest =
-    item.receiverPincode || extractOrigin(item.receiverAddress) || "—";
-  const formattedDate = formatDate(billDate);
+  copyLabel,
+}: CourierSlipCopyProps) {
+  const brandName = item.brandName || "Courier";
+  const brandInfo = BRAND_INFO[brandName];
+  const brandAddress = brandInfo ? brandInfo.address : brandName;
+  const brandPhone = brandInfo ? brandInfo.phone : "";
+  const brandWebsite = brandInfo ? brandInfo.website : "";
+  const brandEmail = brandInfo ? brandInfo.email : "";
 
-  let dimStr = "—";
-  if (item.volumetricWeightKg != null && item.volumetricWeightKg > 0) {
-    dimStr = `${item.volumetricWeightKg.toFixed(3)} kg`;
-  }
+  const senderCity = extractCity(item.senderAddress);
+  const receiverCity = extractCity(item.receiverAddress);
 
-  // Common cell style
-  const cell: React.CSSProperties = {
-    border: "1px solid #000",
-    padding: "3px 5px",
+  const productLabel = item.serviceMode || item.brandName || "Standard";
+  const isDocument = item.serviceMode?.toLowerCase().includes("doc");
+  const typeLabel = isDocument ? "Document" : "Non Document (Parcel)";
+  const contentSpec = isDocument ? "No Information" : "General Goods";
+
+  const formattedDate = formatSlipDate(billDate);
+
+  const cellStyle: React.CSSProperties = {
+    border: "1px solid #1a1a1a",
+    padding: "3px 4px",
     verticalAlign: "top",
-    fontSize: "9px",
-    color: "#000",
+    fontSize: "8px",
     fontFamily: "Arial, sans-serif",
   };
-
-  const innerCell: React.CSSProperties = {
-    padding: "3px 6px",
-    verticalAlign: "top",
-    fontSize: "9px",
-    color: "#000",
-    fontFamily: "Arial, sans-serif",
-  };
-
-  const bold: React.CSSProperties = {
-    fontWeight: "700",
-    fontSize: "9px",
-    color: "#000",
-  };
-
-  const val: React.CSSProperties = {
-    fontWeight: "400",
-    fontSize: "9px",
-    color: "#000",
-  };
+  const labelStyle: React.CSSProperties = { fontWeight: 700 };
 
   return (
     <div
-      className={`slip-copy dtdc-slip slip-${copyKey}`}
       style={{
-        backgroundColor: "#ffffff",
+        border: "2px solid #000",
         fontFamily: "Arial, sans-serif",
+        fontSize: "8px",
+        backgroundColor: "#fff",
         width: "100%",
-        /* Each slip occupies exactly 1/3 of A4 printable area */
         boxSizing: "border-box",
-        overflow: "hidden",
       }}
     >
-      {/* ═══════════════════════════════════════════════════════════
-          MAIN TABLE — 3-column fixed layout, border-collapse
-          Col widths: ~22% | ~35% | ~43%
-      ═══════════════════════════════════════════════════════════ */}
       <table
         style={{
           width: "100%",
           borderCollapse: "collapse",
-          border: "1px solid #000",
           tableLayout: "fixed",
         }}
       >
-        <colgroup>
-          <col style={{ width: "22%" }} />
-          <col style={{ width: "35%" }} />
-          <col style={{ width: "43%" }} />
-        </colgroup>
-
+        {/* ROW 1 */}
         <tbody>
-          {/* ─────────────────────────────────────────────────────────
-              ROW 1 — Header
-              [Logo] | [DTDC name + address + AWB] | [Origin/Dest/Product/Type/Date]
-          ───────────────────────────────────────────────────────── */}
           <tr>
-            {/* CELL A — Company logo */}
-            <td
-              style={{
-                ...cell,
-                textAlign: "center",
-                verticalAlign: "middle",
-                padding: "6px 5px",
-              }}
-            >
-              {companyLogoUrl ? (
-                <img
-                  src={companyLogoUrl}
-                  alt="Logo"
-                  style={{
-                    maxHeight: "44px",
-                    maxWidth: "100%",
-                    objectFit: "contain",
-                  }}
-                />
-              ) : (
-                <span
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: "13px",
-                    color: "#aaa",
-                    fontStyle: "italic",
-                    letterSpacing: "1px",
-                  }}
-                >
-                  Here Logo
-                </span>
+            {/* Col 1: Brand logo + name */}
+            <td style={{ ...cellStyle, width: "20%", textAlign: "center" }}>
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  backgroundColor: "#0d9488",
+                  color: "#fff",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontWeight: 700,
+                  fontSize: 12,
+                  margin: "0 auto 2px",
+                }}
+              >
+                {brandName.slice(0, 3).toUpperCase()}
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 9 }}>{brandName}</div>
+            </td>
+
+            {/* Col 2: Brand address */}
+            <td style={{ ...cellStyle, width: "30%" }}>
+              <div style={{ fontWeight: 700, fontSize: 10, marginBottom: 2 }}>
+                {brandName}
+              </div>
+              <div>{brandAddress}</div>
+              {brandPhone && (
+                <div>
+                  <span style={labelStyle}>Ph: </span>
+                  {brandPhone}
+                </div>
               )}
             </td>
 
-            {/* CELL B — DTDC address + AWB number */}
-            <td
-              style={{
-                ...cell,
-                verticalAlign: "middle",
-                padding: "4px 7px",
-              }}
-            >
-              <div
-                style={{
-                  fontWeight: "700",
-                  fontSize: "9.5px",
-                  marginBottom: "1px",
-                }}
-              >
-                DTDC Express Limited
-              </div>
-              <div style={{ fontSize: "8.5px", marginBottom: "1px" }}>
-                Regd. Office No. 3, Victoria Road
-              </div>
-              <div style={{ fontSize: "8.5px", marginBottom: "4px" }}>
-                Bengaluru - 560047
-              </div>
-              {/* AWB Number — large, centered, prominent */}
-              <div style={{ textAlign: "center", marginTop: "2px" }}>
-                <div
-                  style={{
-                    fontSize: "7.5px",
-                    fontWeight: "600",
-                    color: "#000",
-                    marginBottom: "1px",
-                    letterSpacing: "0.5px",
-                  }}
-                >
-                  AWB No:
-                </div>
-                <div
-                  style={{
-                    fontFamily: "monospace",
-                    fontSize: "17px",
-                    fontWeight: "900",
-                    letterSpacing: "2px",
-                    color: "#000",
-                    lineHeight: "1.1",
-                  }}
-                >
-                  {item.awbSerial || "—"}
-                </div>
-              </div>
-            </td>
-
-            {/* CELL C — 2-col × 3-row sub-table: Origin / Dest / Product / Type / Date */}
-            <td style={{ ...cell, padding: "0" }}>
-              <table
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  borderCollapse: "collapse",
-                }}
-              >
-                <tbody>
-                  {/* Sub-row 1: Origin | Dest */}
-                  <tr>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        borderRight: "1px solid #000",
-                        width: "50%",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <span style={bold}>Origin: </span>
-                      <span style={val}>{origin}</span>
-                    </td>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        width: "50%",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <span style={bold}>Dest: </span>
-                      <span style={val}>{dest}</span>
-                    </td>
-                  </tr>
-                  {/* Sub-row 2: PRODUCT | Type */}
-                  <tr>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        borderRight: "1px solid #000",
-                        width: "50%",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <span style={bold}>PRODUCT: </span>
-                      <span style={val}>
-                        {item.productType || item.brandName || "DTDC"}
-                      </span>
-                    </td>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        width: "50%",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <span style={bold}>Type: </span>
-                      <span style={val}>{item.serviceMode || "—"}</span>
-                    </td>
-                  </tr>
-                  {/* Sub-row 3: Date (spans both cols) */}
-                  <tr>
-                    <td
-                      colSpan={2}
-                      style={{
-                        ...innerCell,
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <span style={bold}>Date: </span>
-                      <span style={val}>{formattedDate}</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </td>
-          </tr>
-
-          {/* ─────────────────────────────────────────────────────────
-              ROW 2 — Consignor (left) | Consignee (right, spans 2 cols)
-          ───────────────────────────────────────────────────────── */}
-          <tr>
-            {/* LEFT — Consignor */}
-            <td
-              style={{
-                ...cell,
-                verticalAlign: "top",
-                padding: "4px 5px",
-              }}
-            >
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>Consignor's Name: </span>
-                <span style={val}>{companyName}</span>
-              </div>
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>Consignor's Address: </span>
-                <span style={val}>{companyAddress || "—"}</span>
-              </div>
-              <div style={{ marginBottom: "2px" }}>&nbsp;</div>
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>GSTIN No.: </span>
-                <span style={val}>{companyGstin || "—"}</span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0 6px" }}>
-                <span>
-                  <span style={bold}>Phone: </span>
-                  <span style={val}>{companyPhone || "—"}</span>
-                </span>
-                <span>
-                  <span style={bold}>Email: </span>
-                  <span style={val}>{companyEmail || ""}</span>
-                </span>
-              </div>
-            </td>
-
-            {/* RIGHT — Consignee (spans 2 cols) */}
-            <td
-              colSpan={2}
-              style={{
-                ...cell,
-                verticalAlign: "top",
-                padding: "4px 5px",
-              }}
-            >
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>Customer Ref No: </span>
-                <span style={val}>{item.awbSerial || "—"}</span>
-              </div>
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>Consignee's Name: </span>
-                <span style={val}>{item.receiverName || "—"}</span>
-              </div>
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>Consignee's Address: </span>
-                <span style={val}>
-                  {item.receiverAddress || "—"}
-                  {item.receiverPincode ? ` - ${item.receiverPincode}` : ""}
-                </span>
-              </div>
-              <div style={{ marginBottom: "2px" }}>
-                <span style={bold}>GSTIN No.: </span>
-                <span style={val}>—</span>
-              </div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: "0 6px" }}>
-                <span>
-                  <span style={bold}>Phone: </span>
-                  <span style={val}>{item.receiverPhone || "—"}</span>
-                </span>
-                <span>
-                  <span style={bold}>Email: </span>
-                  <span style={val} />
-                </span>
-              </div>
-            </td>
-          </tr>
-
-          {/* ─────────────────────────────────────────────────────────
-              ROW 3 — Content Spec | Shipment Details | Barcode + Risk Surcharge
-          ───────────────────────────────────────────────────────── */}
-          <tr>
-            {/* LEFT — Content specification, declaration, signature */}
-            <td
-              style={{
-                ...cell,
-                verticalAlign: "top",
-                padding: "4px 5px",
-              }}
-            >
-              <div style={{ marginBottom: "3px" }}>
-                <span style={{ ...bold, fontWeight: "700" }}>
-                  Content Specification
-                </span>
-                <span style={bold}> :</span>
-              </div>
-              <div style={{ marginBottom: "5px" }}>
-                <span style={{ ...bold, fontWeight: "700" }}>
-                  Paperwork Enclosed
-                </span>
-                <span style={bold}> :</span>
-              </div>
-              <div
-                style={{
-                  fontSize: "7.5px",
-                  color: "#000",
-                  textAlign: "center",
-                  lineHeight: "1.35",
-                  marginBottom: "6px",
-                  padding: "0 2px",
-                }}
-              >
-                I/We declare that this consignment does not contain personal
-                mail, cash, jewellery, contraband, illegal drugs, any prohibited
-                items and commodities which can cause safety hazards while
-                transporting
-              </div>
-              <div
-                style={{
-                  textAlign: "center",
-                  fontSize: "7.5px",
-                  fontWeight: "700",
-                  textDecoration: "underline",
-                  marginBottom: "4px",
-                }}
-              >
-                Sender's Signature &amp; Seal
-              </div>
-              <div
-                style={{
-                  fontSize: "7px",
-                  color: "#000",
-                  textAlign: "center",
-                  lineHeight: "1.3",
-                }}
-              >
-                I have read and understood terms &amp; conditions of carriage
-                mentioned on website www.dtdc.in, and I agree to the same.
-              </div>
-            </td>
-
-            {/* MIDDLE — Shipment detail rows + receiver delivery address */}
-            <td style={{ ...cell, padding: "0", verticalAlign: "top" }}>
+            {/* Col 3: Origin/Dest/Product/Type/Date */}
+            <td style={{ ...cellStyle, width: "50%", padding: 0 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <tbody>
-                  {(
-                    [
-                      [
-                        "Declared Value:",
-                        `\u20B9${item.totalPrice?.toFixed(2) ?? "\u2014"}`,
-                      ],
-                      ["No Of Pieces:", "1"],
-                      ["Actual Weight:", actualWt],
-                      ["Ewaybill Number:", "\u2014"],
-                      ["Dim:", dimStr],
-                      ["Charged weight:", chargedWt],
-                    ] as [string, string][]
-                  ).map(([lbl, v]) => (
-                    <tr key={lbl}>
-                      <td
-                        style={{
-                          ...innerCell,
-                          borderBottom: "1px solid #000",
-                        }}
-                      >
-                        <span style={bold}>{lbl}</span>
-                        <span style={{ ...val, marginLeft: "4px" }}>{v}</span>
-                      </td>
-                    </tr>
-                  ))}
-                  {/* Receiver delivery address block */}
                   <tr>
                     <td
-                      style={{ ...innerCell, borderBottom: "1px solid #000" }}
+                      style={{
+                        ...cellStyle,
+                        width: "50%",
+                        border: "0",
+                        borderBottom: "1px solid #1a1a1a",
+                        borderRight: "1px solid #1a1a1a",
+                      }}
                     >
-                      <div>
-                        <span style={bold}>Name : </span>
-                        <span style={val}>{item.receiverName || "—"}</span>
-                      </div>
-                      <div style={{ marginTop: "2px" }}>
-                        <span style={bold}>Address: </span>
-                        <span style={val}>
-                          {item.receiverAddress || "—"}
-                          {item.receiverPincode
-                            ? ` - ${item.receiverPincode}`
-                            : ""}
-                        </span>
-                      </div>
-                      <div style={{ marginTop: "6px" }}>&nbsp;</div>
+                      <span style={labelStyle}>Origin: </span>
+                      {senderCity}
+                    </td>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        width: "50%",
+                        border: "0",
+                        borderBottom: "1px solid #1a1a1a",
+                      }}
+                    >
+                      <span style={labelStyle}>Dest: </span>
+                      {receiverCity}
                     </td>
                   </tr>
                   <tr>
-                    <td style={{ ...innerCell }}>
-                      <span style={bold}>Phone : </span>
-                      <span style={val}>{item.receiverPhone || "—"}</span>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        border: "0",
+                        borderBottom: "1px solid #1a1a1a",
+                        borderRight: "1px solid #1a1a1a",
+                      }}
+                    >
+                      <span style={labelStyle}>Product: </span>
+                      {productLabel}
+                    </td>
+                    <td
+                      style={{
+                        ...cellStyle,
+                        border: "0",
+                        borderBottom: "1px solid #1a1a1a",
+                      }}
+                    >
+                      <span style={labelStyle}>Type: </span>
+                      {typeLabel}
                     </td>
                   </tr>
-                </tbody>
-              </table>
-            </td>
-
-            {/* RIGHT — Blank barcode area (top) + Risk Surcharge (bottom) */}
-            <td style={{ ...cell, padding: "0", verticalAlign: "top" }}>
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  height: "100%",
-                }}
-              >
-                <tbody>
-                  {/* AWB Barcode area */}
                   <tr>
-                    <td
-                      colSpan={2}
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        height: "60px",
-                        verticalAlign: "middle",
-                        padding: "3px 4px",
-                        textAlign: "center",
-                      }}
-                    >
-                      {item.awbSerial ? (
-                        <BarcodeDisplay
-                          value={item.awbSerial}
-                          height={38}
-                          width={1.4}
-                          fontSize={8}
-                          displayValue={true}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            height: "38px",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            color: "#aaa",
-                            fontSize: "9px",
-                          }}
-                        >
-                          No AWB
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  {/* Risk Surcharge label row */}
-                  <tr>
-                    <td
-                      colSpan={2}
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        textAlign: "center",
-                        padding: "5px 4px",
-                        verticalAlign: "middle",
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: "12px",
-                          fontWeight: "900",
-                          color: "#000",
-                          letterSpacing: "0.3px",
-                        }}
-                      >
-                        Risk Surcharge
-                      </span>
-                    </td>
-                  </tr>
-                  {/* Owner row */}
-                  <tr>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        borderRight: "1px solid #000",
-                        textAlign: "center",
-                        verticalAlign: "middle",
-                        padding: "5px 8px",
-                        width: "65%",
-                      }}
-                    >
-                      <span style={{ fontSize: "9px", fontWeight: "600" }}>
-                        Owner
-                      </span>
-                    </td>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderBottom: "1px solid #000",
-                        textAlign: "center",
-                        verticalAlign: "middle",
-                        padding: "5px 8px",
-                        width: "35%",
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: "14px",
-                          height: "14px",
-                          border: "1px solid #000",
-                          verticalAlign: "middle",
-                        }}
-                      />
-                    </td>
-                  </tr>
-                  {/* Carrier row */}
-                  <tr>
-                    <td
-                      style={{
-                        ...innerCell,
-                        borderRight: "1px solid #000",
-                        textAlign: "center",
-                        verticalAlign: "middle",
-                        padding: "5px 8px",
-                        width: "65%",
-                      }}
-                    >
-                      <span style={{ fontSize: "9px", fontWeight: "600" }}>
-                        Carrier
-                      </span>
-                    </td>
-                    <td
-                      style={{
-                        ...innerCell,
-                        textAlign: "center",
-                        verticalAlign: "middle",
-                        padding: "5px 8px",
-                        width: "35%",
-                      }}
-                    >
-                      <span
-                        style={{
-                          display: "inline-block",
-                          width: "14px",
-                          height: "14px",
-                          border: "1px solid #000",
-                          verticalAlign: "middle",
-                        }}
-                      />
+                    <td colSpan={2} style={{ ...cellStyle, border: "0" }}>
+                      <span style={labelStyle}>Date: </span>
+                      {formattedDate}
                     </td>
                   </tr>
                 </tbody>
@@ -725,92 +256,233 @@ function DTDCSlipCopy({
             </td>
           </tr>
 
-          {/* ─────────────────────────────────────────────────────────
-              ROW 4 — Footer: contact info | Amount collected
-          ───────────────────────────────────────────────────────── */}
+          {/* ROW 2: Sender / Receiver */}
           <tr>
-            <td
-              colSpan={2}
-              style={{
-                ...cell,
-                padding: "3px 6px",
-                verticalAlign: "middle",
-              }}
-            >
-              <span style={{ fontSize: "8px", color: "#000" }}>
-                https://www.dtdc.in
-              </span>
-              <span style={{ fontSize: "8px", color: "#000", margin: "0 4px" }}>
-                |
-              </span>
-              <span style={{ fontSize: "8px", color: "#000" }}>
-                customersupport@dtdc.com
-              </span>
-              <span style={{ fontSize: "8px", color: "#000", margin: "0 4px" }}>
-                |
-              </span>
-              <span style={{ fontSize: "8px", color: "#000" }}>
-                +91-9606911811
-              </span>
+            <td colSpan={2} style={{ ...cellStyle, width: "50%" }}>
+              <div style={{ fontWeight: 700, marginBottom: 2, fontSize: 9 }}>
+                SENDER DETAILS
+              </div>
+              <div>
+                <span style={labelStyle}>Name: </span>
+                {item.senderName || "—"}
+              </div>
+              <div>
+                <span style={labelStyle}>Address: </span>
+                {item.senderAddress || "—"}
+              </div>
+              <div>
+                <span style={labelStyle}>Phone: </span>
+                {item.senderPhone || "—"}
+              </div>
             </td>
-            <td
-              style={{
-                ...cell,
-                padding: "3px 6px",
-                verticalAlign: "middle",
-                textAlign: "left",
-              }}
-            >
-              <span style={{ ...bold, fontSize: "8.5px" }}>
-                Amount collected (in Rs.):{" "}
-              </span>
-              <span style={{ ...val, fontWeight: "700", fontSize: "8.5px" }}>
-                &#8377;{item.totalPrice?.toFixed(2) ?? "—"}
-              </span>
+            <td style={{ ...cellStyle, width: "50%" }}>
+              <div style={{ fontWeight: 700, marginBottom: 2, fontSize: 9 }}>
+                RECEIVER DETAILS
+              </div>
+              <div>
+                <span style={labelStyle}>Name: </span>
+                {item.receiverName || "—"}
+              </div>
+              <div>
+                <span style={labelStyle}>Address: </span>
+                {item.receiverAddress || "—"}
+                {item.receiverPincode ? ` - ${item.receiverPincode}` : ""}
+              </div>
+              <div>
+                <span style={labelStyle}>Phone: </span>
+                {item.receiverPhone || "—"}
+              </div>
             </td>
           </tr>
 
-          {/* ─────────────────────────────────────────────────────────
-              ROW 5 — Legal disclaimer (full width)
-          ───────────────────────────────────────────────────────── */}
+          {/* ROW 3 */}
           <tr>
-            <td
-              colSpan={3}
-              style={{
-                ...cell,
-                padding: "3px 6px",
-                backgroundColor: "#f9f9f9",
-              }}
-            >
+            {/* Col 1: Content + Branch */}
+            <td style={{ ...cellStyle, width: "20%", padding: 0 }}>
               <div
                 style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  gap: "8px",
+                  padding: "3px 4px",
+                  borderBottom: "1px solid #1a1a1a",
+                  minHeight: "30px",
                 }}
               >
-                <span
+                <div style={labelStyle}>Content Specification:</div>
+                <div>{contentSpec}</div>
+              </div>
+              <div style={{ padding: "3px 4px" }}>
+                <div style={labelStyle}>Branch/Franchise:</div>
+                <div>{companyName}</div>
+                {companyAddress && <div>{companyAddress}</div>}
+                {companyPhone && <div>{companyPhone}</div>}
+              </div>
+            </td>
+
+            {/* Col 2: 7 details */}
+            <td style={{ ...cellStyle, width: "30%", padding: 0 }}>
+              {[
+                ["Declared Value", `₹${item.totalPrice.toFixed(2)}`],
+                ["No. of Pieces", "1"],
+                ["Actual Weight", `${item.actualWeightKg ?? "—"} kg`],
+                [
+                  "Dim",
+                  item.volumetricWeightKg
+                    ? `${item.volumetricWeightKg} kg`
+                    : "—",
+                ],
+                [
+                  "Charged Weight",
+                  `${item.chargeableWeightKg ?? item.actualWeightKg ?? "—"} kg`,
+                ],
+                ["Eway Bill No", "—"],
+                ["Surcharge Charges", "—"],
+              ].map(([label, value], idx, arr) => (
+                <div
+                  key={label}
                   style={{
-                    fontSize: "7px",
-                    fontWeight: "700",
-                    color: "#000",
-                    lineHeight: "1.3",
+                    padding: "2px 4px",
+                    borderBottom:
+                      idx < arr.length - 1 ? "1px solid #1a1a1a" : undefined,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 8,
                   }}
                 >
-                  THIS DOCUMENT IS NOT A TAX INVOICE. WEIGHT CAPTURED BY DTDC
-                  WILL BE USED FOR INVOICE GENERATION.
-                </span>
-                <span
+                  <span style={labelStyle}>{label}:</span>
+                  <span>{value}</span>
+                </div>
+              ))}
+            </td>
+
+            {/* Col 3: AWB barcode + Risk Surcharge */}
+            <td style={{ ...cellStyle, width: "50%", padding: 0 }}>
+              {/* AWB Barcode */}
+              <div
+                style={{
+                  padding: "4px",
+                  textAlign: "center",
+                  borderBottom: "1px solid #1a1a1a",
+                }}
+              >
+                <div
                   style={{
-                    fontSize: "8px",
-                    fontWeight: "600",
-                    color: "#000",
-                    whiteSpace: "nowrap",
+                    fontWeight: 700,
+                    fontSize: 11,
+                    fontFamily: "monospace",
+                    marginBottom: 2,
                   }}
                 >
-                  {copyLabel}
-                </span>
+                  AWB No : {item.awbSerial || billNo}
+                </div>
+                {(item.awbSerial || billNo) && (
+                  <BarcodeDisplay
+                    value={item.awbSerial || billNo}
+                    height={32}
+                    width={1.3}
+                    displayValue={false}
+                  />
+                )}
+              </div>
+
+              {/* Risk Surcharge label */}
+              <div
+                style={{
+                  padding: "2px 4px",
+                  borderBottom: "1px solid #1a1a1a",
+                  textAlign: "center",
+                  fontWeight: 700,
+                  fontSize: 9,
+                }}
+              >
+                Risk Surcharge
+              </div>
+
+              {/* Risk checkboxes + amount */}
+              <div style={{ display: "flex" }}>
+                <div
+                  style={{
+                    flex: "0 0 60%",
+                    padding: "3px 4px",
+                    borderRight: "1px solid #1a1a1a",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      marginBottom: 2,
+                    }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 12,
+                        height: 12,
+                        border: "1px solid #000",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span>Owner</span>
+                  </div>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 4 }}
+                  >
+                    <span
+                      style={{
+                        display: "inline-block",
+                        width: 12,
+                        height: 12,
+                        border: "1px solid #000",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span>Carrier</span>
+                  </div>
+                </div>
+                <div
+                  style={{
+                    flex: "0 0 40%",
+                    padding: "3px 4px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div style={{ fontWeight: 700, fontSize: 8 }}>
+                    Risk Surcharge
+                  </div>
+                  <div>₹—</div>
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          {/* ROW 4: Footer */}
+          <tr>
+            <td colSpan={2} style={{ ...cellStyle, width: "50%" }}>
+              {brandWebsite && (
+                <div>
+                  <span style={labelStyle}>Web: </span>
+                  {brandWebsite}
+                </div>
+              )}
+              {brandEmail && (
+                <div>
+                  <span style={labelStyle}>Email: </span>
+                  {brandEmail}
+                </div>
+              )}
+              {brandPhone && (
+                <div>
+                  <span style={labelStyle}>Phone: </span>
+                  {brandPhone}
+                </div>
+              )}
+            </td>
+            <td style={{ ...cellStyle, width: "50%", textAlign: "right" }}>
+              <div style={{ fontWeight: 700, fontSize: 9 }}>
+                Amount collected (in Rs.): ₹{item.totalPrice.toFixed(2)}
+              </div>
+              <div style={{ fontSize: 7, marginTop: 2, color: "#555" }}>
+                {copyLabel}
               </div>
             </td>
           </tr>
@@ -819,400 +491,6 @@ function DTDCSlipCopy({
     </div>
   );
 }
-
-// ─── Generic (Non-DTDC) Single Slip Copy ─────────────────────────────────────
-
-interface GenericSlipCopyProps {
-  label: string;
-  copyKey: CopyKey;
-  item: BillItem;
-  billNo: string;
-  billDate: string;
-  companyName: string;
-  companyAddress?: string;
-  companyPhone?: string;
-  companyLogoUrl?: string;
-}
-
-function GenericSlipCopy({
-  label,
-  copyKey,
-  item,
-  billNo,
-  billDate,
-  companyName,
-  companyAddress,
-  companyPhone,
-  companyLogoUrl,
-}: GenericSlipCopyProps) {
-  const brandName = item.brandName || "Courier";
-  const style = getBrandStyle(brandName);
-
-  return (
-    <div
-      className={`slip-copy slip-${copyKey}`}
-      style={{
-        border: "1px solid #d1d5db",
-        borderRadius: "6px",
-        padding: "10px",
-        backgroundColor: "#ffffff",
-        boxSizing: "border-box",
-        overflow: "hidden",
-      }}
-    >
-      {/* Header Row */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: "8px",
-          paddingBottom: "6px",
-          borderBottom: "2px solid #e5e7eb",
-        }}
-      >
-        {/* Brand info */}
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <div
-            style={{
-              width: "32px",
-              height: "32px",
-              borderRadius: "50%",
-              backgroundColor: style.bg,
-              color: "#ffffff",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontWeight: "bold",
-              fontSize: "11px",
-              flexShrink: 0,
-            }}
-          >
-            {style.initials}
-          </div>
-          <div>
-            <p
-              style={{
-                fontSize: "12px",
-                fontWeight: "700",
-                margin: 0,
-                color: "#111827",
-              }}
-            >
-              {brandName}
-            </p>
-            {item.serviceMode && (
-              <p style={{ fontSize: "9px", color: "#6b7280", margin: 0 }}>
-                {item.serviceMode} Mode
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Company info / logo */}
-        <div style={{ textAlign: "right" }}>
-          {companyLogoUrl ? (
-            <img
-              src={companyLogoUrl}
-              alt="Company Logo"
-              style={{
-                height: "28px",
-                objectFit: "contain",
-                marginBottom: "2px",
-              }}
-            />
-          ) : null}
-          <p
-            style={{
-              fontSize: "10px",
-              fontWeight: "600",
-              color: "#374151",
-              margin: 0,
-            }}
-          >
-            {companyName}
-          </p>
-          {companyPhone && (
-            <p style={{ fontSize: "9px", color: "#6b7280", margin: 0 }}>
-              {companyPhone}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* AWB Number */}
-      <div
-        style={{
-          textAlign: "center",
-          margin: "6px 0",
-          padding: "5px",
-          backgroundColor: "#f9fafb",
-          borderRadius: "4px",
-          border: "1px solid #e5e7eb",
-        }}
-      >
-        <p
-          style={{
-            fontSize: "9px",
-            color: "#6b7280",
-            textTransform: "uppercase",
-            letterSpacing: "0.05em",
-            margin: "0 0 1px",
-          }}
-        >
-          AWB Number
-        </p>
-        <p
-          style={{
-            fontFamily: "monospace",
-            fontSize: "18px",
-            fontWeight: "700",
-            color: "#111827",
-            margin: 0,
-            letterSpacing: "0.05em",
-          }}
-        >
-          {item.awbSerial || "—"}
-        </p>
-      </div>
-
-      {/* Separator */}
-      <hr
-        style={{
-          border: "none",
-          borderTop: "1px solid #e5e7eb",
-          margin: "6px 0",
-        }}
-      />
-
-      {/* Sender & Receiver Grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "10px",
-          marginBottom: "6px",
-        }}
-      >
-        {/* FROM */}
-        <div
-          style={{
-            padding: "6px 8px",
-            backgroundColor: "#f0f9ff",
-            borderRadius: "4px",
-            border: "1px solid #bae6fd",
-          }}
-        >
-          <p
-            style={{
-              fontSize: "8.5px",
-              fontWeight: "700",
-              textTransform: "uppercase",
-              letterSpacing: "0.07em",
-              color: "#0369a1",
-              margin: "0 0 3px",
-            }}
-          >
-            ▶ FROM (Sender)
-          </p>
-          <p
-            style={{
-              fontSize: "10px",
-              fontWeight: "600",
-              color: "#111827",
-              margin: "0 0 2px",
-            }}
-          >
-            {item.senderName || companyName || "—"}
-          </p>
-          {(item.senderPhone || companyPhone) && (
-            <p style={{ fontSize: "9px", color: "#374151", margin: "0 0 1px" }}>
-              📞 {item.senderPhone || companyPhone}
-            </p>
-          )}
-          {(item.senderAddress || companyAddress) && (
-            <p style={{ fontSize: "9px", color: "#6b7280", margin: 0 }}>
-              {item.senderAddress || companyAddress}
-            </p>
-          )}
-        </div>
-
-        {/* TO */}
-        <div
-          style={{
-            padding: "6px 8px",
-            backgroundColor: "#fff7ed",
-            borderRadius: "4px",
-            border: "1px solid #fed7aa",
-          }}
-        >
-          <p
-            style={{
-              fontSize: "8.5px",
-              fontWeight: "700",
-              textTransform: "uppercase",
-              letterSpacing: "0.07em",
-              color: "#c2410c",
-              margin: "0 0 3px",
-            }}
-          >
-            ▶ TO (Receiver)
-          </p>
-          <p
-            style={{
-              fontSize: "10px",
-              fontWeight: "600",
-              color: "#111827",
-              margin: "0 0 2px",
-            }}
-          >
-            {item.receiverName || "—"}
-          </p>
-          {item.receiverPhone && (
-            <p style={{ fontSize: "9px", color: "#374151", margin: "0 0 1px" }}>
-              📞 {item.receiverPhone}
-            </p>
-          )}
-          {item.receiverAddress && (
-            <p style={{ fontSize: "9px", color: "#6b7280", margin: "0 0 1px" }}>
-              {item.receiverAddress}
-            </p>
-          )}
-          {item.receiverPincode && (
-            <p
-              style={{
-                fontSize: "9px",
-                fontWeight: "600",
-                color: "#374151",
-                margin: 0,
-              }}
-            >
-              PIN: {item.receiverPincode}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Bottom info row */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: "6px",
-          padding: "5px 7px",
-          backgroundColor: "#f9fafb",
-          borderRadius: "4px",
-          border: "1px solid #e5e7eb",
-          fontSize: "9px",
-          color: "#374151",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <span>
-          <strong>Wt:</strong>{" "}
-          {item.chargeableWeightKg != null
-            ? `${item.chargeableWeightKg.toFixed(3)} kg`
-            : item.actualWeightKg != null
-              ? `${item.actualWeightKg.toFixed(3)} kg`
-              : "—"}
-        </span>
-        {item.serviceMode && (
-          <span>
-            <strong>Mode:</strong> {item.serviceMode}
-          </span>
-        )}
-        {item.productType && (
-          <span>
-            <strong>Type:</strong>{" "}
-            {item.description
-              ? (() => {
-                  const match = item.description.match(
-                    /\b(Document|Parcel|Heavy Parcel|Fragile)\b/,
-                  );
-                  return match ? match[0] : "Courier";
-                })()
-              : "Courier"}
-          </span>
-        )}
-        <span>
-          <strong>Date:</strong> {formatDate(billDate)}
-        </span>
-        <span>
-          <strong>Bill:</strong> {billNo}
-        </span>
-        {companyAddress && (
-          <span style={{ fontSize: "8.5px", color: "#9ca3af", width: "100%" }}>
-            From Office: {companyAddress}
-          </span>
-        )}
-      </div>
-
-      {/* Copy label */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          marginTop: "5px",
-        }}
-      >
-        <span
-          style={{
-            display: "inline-block",
-            padding: "2px 7px",
-            backgroundColor: style.bg,
-            color: "#ffffff",
-            fontSize: "8.5px",
-            fontWeight: "700",
-            textTransform: "uppercase",
-            letterSpacing: "0.08em",
-            borderRadius: "3px",
-          }}
-        >
-          {label}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Cut Line ─────────────────────────────────────────────────────────────────
-
-function CutLine({ between }: { between: [CopyKey, CopyKey] }) {
-  return (
-    <div
-      className={`slip-cut-line cut-between-${between[0]}-${between[1]}`}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "3px 0",
-        color: "#9ca3af",
-        fontSize: "9px",
-        borderTop: "1.5px dashed #9ca3af",
-        borderBottom: "1.5px dashed #9ca3af",
-        margin: "4px 0",
-        gap: "8px",
-        userSelect: "none",
-      }}
-    >
-      <span>✂</span>
-      <span
-        style={{
-          fontFamily: "monospace",
-          letterSpacing: "0.1em",
-          textTransform: "uppercase",
-          fontSize: "7.5px",
-        }}
-      >
-        Cut Here
-      </span>
-      <span>✂</span>
-    </div>
-  );
-}
-
-// ─── Main Dialog ──────────────────────────────────────────────────────────────
 
 export function CourierSlipPrintDialog({
   open,
@@ -1224,364 +502,218 @@ export function CourierSlipPrintDialog({
   companyAddress,
   companyPhone,
   companyLogoUrl,
-  companyGstin,
-  companyEmail,
 }: CourierSlipPrintDialogProps) {
-  const [selectedCopies, setSelectedCopies] = useState<SelectedCopies>({
-    sender: true,
-    account: true,
-    pod: true,
-  });
+  const [selectedCopies, setSelectedCopies] = useState<Set<CopyKey>>(
+    new Set(["sender", "account", "pod"]),
+  );
+
+  if (!open) return null;
 
   const toggleCopy = (key: CopyKey) => {
-    setSelectedCopies((prev) => ({ ...prev, [key]: !prev[key] }));
+    setSelectedCopies((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        if (next.size > 1) next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
   };
-
-  const selectedCount = Object.values(selectedCopies).filter(Boolean).length;
-
-  const printLabel =
-    selectedCount === 0
-      ? "Nothing to Print"
-      : selectedCount === 1
-        ? "Print 1 Copy"
-        : `Print ${selectedCount} Copies`;
 
   const handlePrint = () => {
-    if (selectedCount === 0) return;
+    const copies = (["sender", "account", "pod"] as CopyKey[]).filter((k) =>
+      selectedCopies.has(k),
+    );
+    const count = copies.length;
+    const slipHeight = Math.floor(267 / count);
 
-    // Build the slip HTML for selected copies
-    const slipDivId = "sks-print-root";
-
-    // Collect the HTML of the print area
-    const printArea = document.querySelector(".courier-slip-print-area");
-    if (!printArea) {
-      window.print();
-      return;
-    }
-
-    // Only include visible slips
-    const visibleKeys = COPY_KEYS.filter((k) => selectedCopies[k]);
-    const slipHeight = Math.floor(270 / visibleKeys.length); // mm per slip (270mm usable on A4 with 10mm margins)
-
-    // Serialise the visible slips with inline styles so the new window has them
-    const slipNodes: string[] = [];
-    visibleKeys.forEach((key, idx) => {
-      const el = printArea.querySelector(`.slip-${key}`) as HTMLElement | null;
-      if (!el) return;
-
-      // Get the wrapper (parent .slip-wrapper) if present, else el itself
-      const wrapper = el.closest(".slip-wrapper") as HTMLElement | null;
-      const html = (wrapper || el).outerHTML;
-      const cutLine =
-        idx < visibleKeys.length - 1
-          ? `<div style="width:100%;border-top:1.5px dashed #9ca3af;border-bottom:1.5px dashed #9ca3af;text-align:center;font-size:9px;color:#9ca3af;padding:2px 0;box-sizing:border-box;font-family:Arial,sans-serif;">✂ &nbsp; CUT HERE &nbsp; ✂</div>`
-          : "";
-      slipNodes.push(`
-        <div style="width:100%;height:${slipHeight}mm;overflow:hidden;box-sizing:border-box;display:block;">
-          ${html}
-        </div>
-        ${cutLine}
-      `);
+    const parts: string[] = [];
+    copies.forEach((key, idx) => {
+      const el = document.querySelector(`.slip-wrapper-${key}`);
+      if (el) {
+        parts.push(
+          `<div style="height:${slipHeight}mm;overflow:hidden;">${el.innerHTML}</div>`,
+        );
+        if (idx < count - 1) {
+          parts.push(
+            `<div style="border-top:2px dashed #999;text-align:center;font-size:9px;color:#999;padding:1px 0;">✂ CUT HERE ✂</div>`,
+          );
+        }
+      }
     });
 
-    const combinedHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8"/>
-  <title>DTDC Booking Slip</title>
-  <style>
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 210mm;
-      background: white;
-    }
-    @page {
-      size: A4 portrait;
-      margin: 10mm;
-    }
-    @media print {
-      html, body {
-        width: 190mm;
-      }
-      .slip-wrapper, [class*="slip-wrapper"] {
-        page-break-inside: avoid;
-      }
-    }
-    body {
-      font-family: Arial, sans-serif;
-      font-size: 9px;
-      color: #000;
-    }
-    #${slipDivId} {
-      width: 190mm;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-    }
-    table { border-collapse: collapse; }
-  </style>
-</head>
-<body>
-  <div id="${slipDivId}">
-    ${slipNodes.join("")}
-  </div>
-  <script>
-    window.onload = function() {
-      setTimeout(function() { window.print(); window.close(); }, 300);
-    };
-  </script>
-</body>
-</html>`;
+    const html = `<!DOCTYPE html><html><head><title>Courier Slip</title><style>
+      @page { size: A4; margin: 6mm; }
+      body { margin: 0; font-family: Arial, sans-serif; }
+      table { border-collapse: collapse; }
+    </style></head><body>${parts.join("")}</body></html>`;
 
-    const printWindow = window.open("", "_blank", "width=800,height=900");
-    if (!printWindow) {
-      // Fallback to native print if popup blocked
-      window.print();
-      return;
+    const win = window.open("", "_blank", "width=800,height=900");
+    if (win) {
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 500);
     }
-    printWindow.document.open();
-    printWindow.document.write(combinedHtml);
-    printWindow.document.close();
   };
 
-  const brandName = item.brandName || "";
-  const isDTDC = isDTDCBrand(brandName);
-
-  const dtdcSlipProps = {
-    item,
-    billNo,
-    billDate,
-    companyName,
-    companyAddress,
-    companyPhone,
-    companyLogoUrl,
-    companyGstin,
-    companyEmail,
-  };
-
-  const genericSlipProps = {
-    item,
-    billNo,
-    billDate,
-    companyName,
-    companyAddress,
-    companyPhone,
-    companyLogoUrl,
-  };
+  const allKeys: CopyKey[] = ["sender", "account", "pod"];
 
   return (
-    <>
-      {/* Screen-only styles — print is handled via popup window */}
-      <style>{`
-        @media print {
-          .no-print { display: none !important; }
-        }
-      `}</style>
-
-      <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent
-          className="max-w-3xl max-h-[92vh] flex flex-col overflow-hidden"
-          data-ocid="courier_slip.dialog"
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.5)",
+        zIndex: 9999,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 16,
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") onClose();
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        style={{
+          backgroundColor: "#fff",
+          borderRadius: 8,
+          width: "min(800px, 95vw)",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.3)",
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: "12px 16px",
+            borderBottom: "1px solid #e5e7eb",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            backgroundColor: "#0d9488",
+            color: "#fff",
+          }}
         >
-          <DialogHeader className="flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2">
-              <Printer className="w-4 h-4" />
-              {isDTDC ? "DTDC Booking Slip" : "Courier Booking Slip"} — AWB{" "}
-              {item.awbSerial || "N/A"}
-            </DialogTitle>
-          </DialogHeader>
-
-          {/* Copy selection controls */}
-          <div className="flex-shrink-0 flex items-center gap-3 px-1 py-2 border-b border-border">
-            <span className="text-sm text-muted-foreground font-medium whitespace-nowrap">
-              Select copies:
-            </span>
-            <div className="flex gap-2 flex-wrap">
-              {COPY_KEYS.map((key) => {
-                const label = isDTDC
-                  ? COPY_LABELS[key].dtdc
-                  : COPY_LABELS[key].generic;
-                const isSelected = selectedCopies[key];
-                return (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => toggleCopy(key)}
-                    data-ocid={`courier_slip.${key}.toggle`}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: "6px",
-                      padding: "5px 12px",
-                      borderRadius: "6px",
-                      border: isSelected
-                        ? "2px solid #f97316"
-                        : "2px solid #e5e7eb",
-                      backgroundColor: isSelected ? "#fff7ed" : "#f9fafb",
-                      color: isSelected ? "#c2410c" : "#6b7280",
-                      fontSize: "13px",
-                      fontWeight: isSelected ? 600 : 400,
-                      cursor: "pointer",
-                      transition: "all 0.15s ease",
-                      userSelect: "none",
-                    }}
-                  >
-                    <span
-                      style={{
-                        width: "16px",
-                        height: "16px",
-                        borderRadius: "4px",
-                        border: isSelected
-                          ? "2px solid #f97316"
-                          : "2px solid #d1d5db",
-                        backgroundColor: isSelected ? "#f97316" : "#fff",
-                        display: "inline-flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flexShrink: 0,
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      {isSelected && (
-                        <Check
-                          style={{
-                            width: "10px",
-                            height: "10px",
-                            color: "#fff",
-                            strokeWidth: 3,
-                          }}
-                        />
-                      )}
-                    </span>
-                    {label}
-                  </button>
-                );
-              })}
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 16 }}>
+              Courier Booking Slip
             </div>
-            {selectedCount === 0 && (
-              <span
-                className="text-xs text-destructive font-medium"
-                data-ocid="courier_slip.error_state"
-              >
-                Select at least one copy
-              </span>
-            )}
+            <div style={{ fontSize: 12, opacity: 0.9 }}>
+              {item.brandName} — AWB: {item.awbSerial || billNo}
+            </div>
           </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              background: "none",
+              border: "none",
+              color: "#fff",
+              fontSize: 20,
+              cursor: "pointer",
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
 
-          {/* 3-copy slips preview area — scrollable on screen */}
-          <div className="flex-1 overflow-y-auto min-h-0">
-            <div
-              className="courier-slip-print-area bg-white"
+        {/* Controls */}
+        <div
+          style={{
+            padding: "10px 16px",
+            borderBottom: "1px solid #e5e7eb",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            flexWrap: "wrap",
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>
+            Select Copies:
+          </span>
+          {allKeys.map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => toggleCopy(key)}
               style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 0,
-                padding: "6px",
-                width: "100%",
+                padding: "4px 12px",
+                borderRadius: 20,
+                border: "2px solid #0d9488",
+                backgroundColor: selectedCopies.has(key) ? "#0d9488" : "#fff",
+                color: selectedCopies.has(key) ? "#fff" : "#0d9488",
+                cursor: "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                transition: "all 0.15s",
               }}
             >
-              {isDTDC
-                ? COPY_KEYS.map((key, idx) => {
-                    const copyLabel = COPY_LABELS[key].dtdc;
-                    const isVisible = selectedCopies[key];
-                    // Show cut line between consecutive visible slips
-                    const prevKey = idx > 0 ? COPY_KEYS[idx - 1] : null;
-                    const prevVisible = prevKey
-                      ? selectedCopies[prevKey]
-                      : false;
-                    const showCutLine = idx > 0 && (isVisible || prevVisible);
-                    return (
-                      <div key={key}>
-                        {showCutLine && (
-                          <CutLine between={[COPY_KEYS[idx - 1], key]} />
-                        )}
-                        {isVisible && (
-                          <div className="slip-wrapper">
-                            <DTDCSlipCopy
-                              copyLabel={copyLabel}
-                              copyKey={key}
-                              {...dtdcSlipProps}
-                            />
-                          </div>
-                        )}
-                        {!isVisible && (
-                          <div
-                            className={`slip-${key}`}
-                            style={{
-                              display: "none",
-                            }}
-                          >
-                            <DTDCSlipCopy
-                              copyLabel={copyLabel}
-                              copyKey={key}
-                              {...dtdcSlipProps}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })
-                : COPY_KEYS.map((key, idx) => {
-                    const label = COPY_LABELS[key].generic;
-                    const isVisible = selectedCopies[key];
-                    const prevKey = idx > 0 ? COPY_KEYS[idx - 1] : null;
-                    const prevVisible = prevKey
-                      ? selectedCopies[prevKey]
-                      : false;
-                    const showCutLine = idx > 0 && (isVisible || prevVisible);
-                    return (
-                      <div key={key}>
-                        {showCutLine && (
-                          <CutLine between={[COPY_KEYS[idx - 1], key]} />
-                        )}
-                        {isVisible ? (
-                          <div className="slip-wrapper">
-                            <GenericSlipCopy
-                              label={label}
-                              copyKey={key}
-                              {...genericSlipProps}
-                            />
-                          </div>
-                        ) : (
-                          <div
-                            className={`slip-${key}`}
-                            style={{ display: "none" }}
-                          >
-                            <GenericSlipCopy
-                              label={label}
-                              copyKey={key}
-                              {...genericSlipProps}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-            </div>
-          </div>
+              {COPY_LABELS[key]}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={handlePrint}
+            style={{
+              marginLeft: "auto",
+              padding: "6px 20px",
+              backgroundColor: "#0d9488",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            🖨 Print ({selectedCopies.size} copies)
+          </button>
+        </div>
 
-          <DialogFooter className="no-print gap-2 flex-shrink-0 border-t border-border pt-3">
-            <Button
-              variant="outline"
-              onClick={onClose}
-              data-ocid="courier_slip.close_button"
+        {/* Preview */}
+        <div
+          style={{
+            flex: 1,
+            overflow: "auto",
+            padding: 16,
+            backgroundColor: "#f3f4f6",
+          }}
+        >
+          {allKeys.map((key) => (
+            <div
+              key={key}
+              className={`slip-wrapper-${key}`}
+              style={{
+                marginBottom: 16,
+                display: selectedCopies.has(key) ? "block" : "none",
+              }}
             >
-              <X className="w-4 h-4 mr-2" />
-              Close
-            </Button>
-            <Button
-              onClick={handlePrint}
-              disabled={selectedCount === 0}
-              data-ocid="courier_slip.primary_button"
-            >
-              <Printer className="w-4 h-4 mr-2" />
-              {printLabel}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+              <CourierSlipCopy
+                item={item}
+                billNo={billNo}
+                billDate={billDate}
+                companyName={companyName}
+                companyAddress={companyAddress}
+                companyPhone={companyPhone}
+                companyLogoUrl={companyLogoUrl}
+                copyLabel={COPY_LABELS[key]}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
+
+export default CourierSlipPrintDialog;

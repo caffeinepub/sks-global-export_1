@@ -282,6 +282,9 @@ export interface BillItem {
   receiverPhone?: string;
   receiverAddress?: string;
   receiverPincode?: string;
+  receiverCity?: string;
+  receiverState?: string;
+  eddDate?: string; // YYYY-MM-DD estimated delivery date
   actualWeightKg?: number;
   volumetricWeightKg?: number;
   chargeableWeightKg?: number;

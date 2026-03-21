@@ -25,6 +25,7 @@ import { CustomersPage } from "./pages/CustomersPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { DesignStudioPage } from "./pages/DesignStudioPage";
 import { DigitalMarketingPage } from "./pages/DigitalMarketingPage";
+import { EDDManagementPage } from "./pages/EDDManagementPage";
 import { ERPPage } from "./pages/ERPPage";
 import { ExpensesPage } from "./pages/ExpensesPage";
 import { InventoryPage } from "./pages/InventoryPage";
@@ -257,6 +258,8 @@ function AppLayout() {
         return <CustomerTariffsPage />;
       case "accounting":
         return <AccountingPage />;
+      case "edd-management":
+        return <EDDManagementPage />;
       case "expenses":
         return <ExpensesPage />;
       case "digital-marketing":

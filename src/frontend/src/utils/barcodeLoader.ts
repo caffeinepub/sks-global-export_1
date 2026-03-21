@@ -1,11 +1,29 @@
 /**
- * Loaders for QRCode (CDN) and JsBarcode (CDN).
- * Both are loaded dynamically via CDN scripts for reliability without npm deps.
+ * Loaders for QRCode (CDN) and JsBarcode (CDN fallback).
  */
 
-import type QRCodeLib from "qrcode";
+// ─── QR Code via CDN ────────────────────────────────────────────────────────
 
-// ─── QR Code via CDN (qrcode.min.js) ─────────────────────────────────────────
+interface QROptions {
+  width?: number;
+  margin?: number;
+  errorCorrectionLevel?: string;
+  type?: string;
+  color?: { dark?: string; light?: string };
+}
+
+type QRCodeLib = {
+  toCanvas: (
+    canvas: HTMLCanvasElement,
+    text: string,
+    options?: QROptions,
+    callback?: (error: Error | null) => void,
+  ) => void | Promise<void>;
+  toDataURL: (text: string, options?: QROptions) => Promise<string>;
+  toString: (text: string, options?: QROptions) => Promise<string>;
+};
+
+let qrPromise: Promise<QRCodeLib> | null = null;
 
 function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -22,37 +40,20 @@ function loadScript(src: string): Promise<void> {
   });
 }
 
-type QRCodeCanvas = {
-  toCanvas(
-    canvas: HTMLCanvasElement,
-    text: string,
-    options?: Record<string, unknown>,
-  ): Promise<void>;
-  toDataURL(text: string, options?: Record<string, unknown>): Promise<string>;
-};
-
-let qrCodePromise: Promise<QRCodeCanvas> | null = null;
-
-export async function loadQRCode(): Promise<typeof QRCodeLib> {
-  if (!qrCodePromise) {
-    qrCodePromise = loadScript(
-      "https://cdnjs.cloudflare.com/ajax/libs/qrcode/1.5.3/qrcode.min.js",
-    )
-      .then(() => {
-        const lib = (window as unknown as Record<string, unknown>).QRCode;
-        if (!lib) throw new Error("QRCode not found after script load");
-        return lib as unknown as QRCodeCanvas;
-      })
-      .catch(() => {
-        // fallback stub
-        return {
-          toCanvas: async () => {},
-          toDataURL: async () => "",
-        } as QRCodeCanvas;
-      });
+export async function loadQRCode(): Promise<QRCodeLib> {
+  if (!qrPromise) {
+    qrPromise = loadScript(
+      "https://unpkg.com/qrcode@1.5.3/build/qrcode.min.js",
+    ).then(() => {
+      const lib = (window as unknown as Record<string, unknown>).QRCode;
+      if (!lib) throw new Error("QRCode not found after script load");
+      return lib as QRCodeLib;
+    });
   }
-  return qrCodePromise as unknown as Promise<typeof QRCodeLib>;
+  return qrPromise;
 }
+
+export type QRCodeCanvas = QRCodeLib;
 
 // ─── JsBarcode via CDN ────────────────────────────────────────────────────────
 
@@ -71,7 +72,6 @@ type JsBarcodeLib = (
   },
 ) => void;
 
-// Cache promise so we only load jsbarcode script once
 let jsbarcodePromise: Promise<JsBarcodeLib> | null = null;
 
 export async function loadJsBarcode(): Promise<JsBarcodeLib> {

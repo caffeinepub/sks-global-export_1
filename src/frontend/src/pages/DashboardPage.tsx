@@ -25,7 +25,7 @@ import {
   TrendingUp,
   Truck,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -43,6 +43,7 @@ import {
   getTodayStr,
   isToday,
 } from "../utils/helpers";
+import { getEDDRules } from "../utils/storage";
 
 interface DashboardProps {
   onNavigate: (page: string) => void;
@@ -63,6 +64,61 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
   const [confirmedBoxes, setConfirmedBoxes] = useState("");
 
   const today = getTodayStr();
+
+  // EDD Follow List
+  const tomorrow = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  })();
+
+  const eddItems = useMemo(() => {
+    const allCourierItems = bills.flatMap((b) =>
+      b.items
+        .filter(
+          (i) =>
+            i.productType === "courier_awb" &&
+            i.eddDate &&
+            i.trackingStatus !== "delivered" &&
+            i.trackingStatus !== "rto",
+        )
+        .map((i) => ({ ...i, billDate: b.date, billNo: b.billNo })),
+    );
+    return allCourierItems.map((i) => {
+      let severity: "overdue" | "due_today" | "due_tomorrow" | "ok" = "ok";
+      if (i.eddDate! < today) severity = "overdue";
+      else if (i.eddDate === today) severity = "due_today";
+      else if (i.eddDate === tomorrow) severity = "due_tomorrow";
+      const daysOverdue =
+        severity === "overdue"
+          ? Math.floor(
+              (new Date(today).getTime() - new Date(i.eddDate!).getTime()) /
+                86400000,
+            )
+          : 0;
+      return { ...i, severity, daysOverdue };
+    });
+  }, [bills, today, tomorrow]);
+
+  const eddOverdue = eddItems.filter((i) => i.severity === "overdue");
+  const eddDueToday = eddItems.filter((i) => i.severity === "due_today");
+  const eddDueTomorrow = eddItems.filter((i) => i.severity === "due_tomorrow");
+
+  const eddOverdueCount = eddOverdue.length;
+  const eddDueTodayCount = eddDueToday.length;
+  useEffect(() => {
+    if (eddOverdueCount > 0) {
+      toast.error(
+        `⚠️ ${eddOverdueCount} shipment${eddOverdueCount > 1 ? "s" : ""} past EDD! Check EDD Follow List.`,
+        { duration: 6000 },
+      );
+    } else if (eddDueTodayCount > 0) {
+      toast.warning(
+        `🕐 ${eddDueTodayCount} shipment${eddDueTodayCount > 1 ? "s" : ""} due for delivery today.`,
+        { duration: 4000 },
+      );
+    }
+  }, [eddOverdueCount, eddDueTodayCount]);
 
   // Today's stats
   const todayBills = bills.filter((b) => isToday(b.date));
@@ -314,6 +370,144 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
         })}
       </div>
 
+      {/* EDD Follow List Panel */}
+      {(eddOverdue.length > 0 ||
+        eddDueToday.length > 0 ||
+        eddDueTomorrow.length > 0) && (
+        <Card
+          className="border-2 border-amber-200 dark:border-amber-800"
+          data-ocid="dashboard.panel"
+        >
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-amber-600" />
+                EDD Follow List
+              </div>
+              <div className="flex gap-2">
+                {eddOverdue.length > 0 && (
+                  <Badge className="bg-red-100 text-red-700 border-red-300">
+                    {eddOverdue.length} Overdue
+                  </Badge>
+                )}
+                {eddDueToday.length > 0 && (
+                  <Badge className="bg-amber-100 text-amber-700 border-amber-300">
+                    {eddDueToday.length} Due Today
+                  </Badge>
+                )}
+                {eddDueTomorrow.length > 0 && (
+                  <Badge className="bg-yellow-100 text-yellow-700 border-yellow-300">
+                    {eddDueTomorrow.length} Due Tomorrow
+                  </Badge>
+                )}
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="max-h-72 overflow-y-auto">
+              {eddOverdue.length > 0 && (
+                <div>
+                  <div className="px-4 py-1.5 bg-red-50 dark:bg-red-950/30 border-y border-red-200 dark:border-red-800">
+                    <p className="text-xs font-bold text-red-700 uppercase tracking-wide flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> EDD Failures —
+                      Overdue
+                    </p>
+                  </div>
+                  {eddOverdue.map((item, i) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between px-4 py-2 border-b border-border/50 hover:bg-muted/30"
+                      data-ocid={`edd.item.${i + 1}`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-mono font-semibold text-foreground truncate">
+                          {item.awbSerial || item.productName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.receiverName}
+                          {item.receiverCity ? ` • ${item.receiverCity}` : ""}{" "}
+                          {item.brandName ? `• ${item.brandName}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right ml-3 shrink-0">
+                        <p className="text-xs font-semibold text-red-600">
+                          EDD: {item.eddDate}
+                        </p>
+                        <Badge className="text-xs bg-red-100 text-red-700 border-red-300">
+                          {item.daysOverdue}d overdue
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {eddDueToday.length > 0 && (
+                <div>
+                  <div className="px-4 py-1.5 bg-amber-50 dark:bg-amber-950/30 border-y border-amber-200 dark:border-amber-800">
+                    <p className="text-xs font-bold text-amber-700 uppercase tracking-wide flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Due Today — Action Required
+                    </p>
+                  </div>
+                  {eddDueToday.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between px-4 py-2 border-b border-border/50 hover:bg-muted/30"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-mono font-semibold text-foreground truncate">
+                          {item.awbSerial || item.productName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.receiverName}
+                          {item.receiverCity ? ` • ${item.receiverCity}` : ""}{" "}
+                          {item.brandName ? `• ${item.brandName}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right ml-3 shrink-0">
+                        <Badge className="text-xs bg-amber-100 text-amber-700 border-amber-300">
+                          Due Today
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {eddDueTomorrow.length > 0 && (
+                <div>
+                  <div className="px-4 py-1.5 bg-yellow-50 dark:bg-yellow-950/30 border-y border-yellow-200 dark:border-yellow-800">
+                    <p className="text-xs font-bold text-yellow-700 uppercase tracking-wide flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> Due Tomorrow — Reminder
+                    </p>
+                  </div>
+                  {eddDueTomorrow.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex items-center justify-between px-4 py-2 border-b border-border/50 hover:bg-muted/30"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-mono font-semibold text-foreground truncate">
+                          {item.awbSerial || item.productName}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {item.receiverName}
+                          {item.receiverCity ? ` • ${item.receiverCity}` : ""}{" "}
+                          {item.brandName ? `• ${item.brandName}` : ""}
+                        </p>
+                      </div>
+                      <div className="text-right ml-3 shrink-0">
+                        <Badge className="text-xs bg-yellow-100 text-yellow-700 border-yellow-300">
+                          Due Tomorrow
+                        </Badge>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* 7-Day Revenue Chart + MoM Comparison */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <Card className="lg:col-span-2">
@@ -522,8 +716,6 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
           </CardContent>
         </Card>
       </div>
-
-      {/* Design Studio Widget */}
       {pendingDesignOrders > 0 && (
         <Card className="border-l-4 border-l-violet-500 bg-violet-50/30">
           <CardHeader className="pb-3">
@@ -569,8 +761,6 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
           </CardContent>
         </Card>
       )}
-
-      {/* Recent Bills */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
@@ -641,8 +831,6 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
           )}
         </CardContent>
       </Card>
-
-      {/* Low Stock Alert */}
       {lowStockProducts.length > 0 && (
         <Card className="border-amber-200 bg-amber-50/50">
           <CardHeader className="pb-3">
@@ -691,8 +879,6 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
           </CardContent>
         </Card>
       )}
-
-      {/* Quick Actions */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Quick Actions</CardTitle>
@@ -748,8 +934,6 @@ export function DashboardPage({ onNavigate }: DashboardProps) {
           </div>
         </CardContent>
       </Card>
-
-      {/* Confirm Pickup Dialog */}
       <Dialog
         open={!!confirmPickupId}
         onOpenChange={(open) => !open && setConfirmPickupId(null)}

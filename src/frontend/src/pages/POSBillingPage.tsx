@@ -64,6 +64,7 @@ import {
 import {
   SHARED_DATA_ID,
   getCustomerTariffMap,
+  getEDDRules,
   getTariffs,
   incrementSKSDailyCounter,
   setSettings,
@@ -736,10 +737,10 @@ export function POSBillingPage({
         unitPrice = customerOverride; // GST-inclusive unit price
         totalPrice = customerOverride; // GST-inclusive total
       } else if (gstRate > 0) {
-        // tariff price excludes GST — add GST
-        unitPrice = customerOverride;
+        // tariff price excludes GST — add GST; unitPrice = totalPrice so editable shows all-in amount
         totalPrice =
           Math.round(customerOverride * (1 + gstRate / 100) * 100) / 100;
+        unitPrice = totalPrice;
       } else {
         unitPrice = customerOverride;
         totalPrice = customerOverride;
@@ -768,10 +769,10 @@ export function POSBillingPage({
           unitPrice = tariffResult.price; // GST-inclusive unit price
           totalPrice = tariffResult.price; // GST-inclusive total
         } else if (gstRate > 0) {
-          // tariff price excludes GST — add GST
-          unitPrice = tariffResult.price;
+          // tariff price excludes GST — add GST; unitPrice = totalPrice so editable shows all-in amount
           totalPrice =
             Math.round(tariffResult.price * (1 + gstRate / 100) * 100) / 100;
+          unitPrice = totalPrice;
         } else {
           unitPrice = tariffResult.price;
           totalPrice = tariffResult.price;
@@ -811,6 +812,62 @@ export function POSBillingPage({
       .filter(Boolean)
       .join(" - ");
 
+    // Calculate EDD
+    const calculateEDD = (
+      pType: string,
+      rCity: string,
+      rState: string,
+    ): string | undefined => {
+      const rules = getEDDRules().filter((r) => r.isActive);
+      // Sort by specificity: city+productType > city > state+productType > zone+productType > zone
+      const score = (r: (typeof rules)[0]) => {
+        let s = 0;
+        if (r.city && rCity.toLowerCase().includes(r.city.toLowerCase()))
+          s += 4;
+        if (r.state && rState.toLowerCase().includes(r.state.toLowerCase()))
+          s += 2;
+        if (
+          r.productType &&
+          pType.toLowerCase().includes(r.productType.toLowerCase())
+        )
+          s += 1;
+        return s;
+      };
+      const matching = rules
+        .filter((r) => {
+          const cityMatch =
+            !r.city || rCity.toLowerCase().includes(r.city.toLowerCase());
+          const stateMatch =
+            !r.state || rState.toLowerCase().includes(r.state.toLowerCase());
+          const ptMatch =
+            !r.productType ||
+            pType.toLowerCase().includes(r.productType.toLowerCase());
+          return cityMatch && stateMatch && ptMatch;
+        })
+        .sort((a, b) => score(b) - score(a));
+      if (matching.length === 0) return undefined;
+      const best = matching[0];
+      const d = new Date();
+      let days = best.deliveryDays;
+      while (days > 0) {
+        d.setDate(d.getDate() + 1);
+        if (d.getDay() !== 0) days--; // skip Sundays
+      }
+      return d.toISOString().split("T")[0];
+    };
+
+    const receiverCityVal =
+      courierForm.receiverAddress?.split(",")[0]?.trim() || "";
+    const receiverStateVal =
+      courierForm.receiverAddress?.split(",").pop()?.trim() || "";
+    const productTypeForEDD =
+      selectedCourierProduct?.productType || courierForm.productType || "";
+    const computedEDD = calculateEDD(
+      productTypeForEDD,
+      receiverCityVal,
+      receiverStateVal,
+    );
+
     const item: BillItem = {
       id: generateId(),
       productId: selectedBrand.id,
@@ -834,6 +891,9 @@ export function POSBillingPage({
       receiverPhone: courierForm.receiverPhone,
       receiverAddress: courierForm.receiverAddress,
       receiverPincode: courierForm.receiverPincode,
+      receiverCity: receiverCityVal,
+      receiverState: receiverStateVal,
+      eddDate: computedEDD,
       actualWeightKg: actualWtKg,
       volumetricWeightKg: volWtKg,
       chargeableWeightKg: chargeableWt,
@@ -3021,6 +3081,11 @@ export function POSBillingPage({
                           <Badge variant="secondary" className="text-xs">
                             {item.serviceMode}
                           </Badge>
+                        )}
+                        {item.eddDate && (
+                          <span className="text-xs text-muted-foreground font-medium">
+                            EDD: {item.eddDate}
+                          </span>
                         )}
                         {(() => {
                           // Show tier badge if a named tier is active

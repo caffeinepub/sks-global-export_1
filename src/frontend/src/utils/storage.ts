@@ -1822,3 +1822,76 @@ export const getBankReconciliations = (): BankReconciliation[] => {
 export const saveBankReconciliations = (recs: BankReconciliation[]): void => {
   localStorage.setItem(ACCOUNTING_RECONCILIATION_KEY, JSON.stringify(recs));
 };
+
+// ═══════════════════════════════════════════════════════════
+// EDD (Estimated Delivery Date) Rules
+// ═══════════════════════════════════════════════════════════
+const EDD_CONFIG_KEY = "sks_edd_config";
+
+export interface EDDRule {
+  id: string;
+  name: string;
+  productType: string;
+  city: string;
+  state: string;
+  zone: "metro" | "non_metro" | "all";
+  deliveryDays: number;
+  isActive: boolean;
+}
+
+const DEFAULT_EDD_RULES: EDDRule[] = [
+  {
+    id: "edd1",
+    name: "Metro Same Day",
+    productType: "",
+    city: "",
+    state: "",
+    zone: "metro",
+    deliveryDays: 1,
+    isActive: true,
+  },
+  {
+    id: "edd2",
+    name: "Metro Express",
+    productType: "Express",
+    city: "",
+    state: "",
+    zone: "metro",
+    deliveryDays: 2,
+    isActive: true,
+  },
+  {
+    id: "edd3",
+    name: "Non-Metro Standard",
+    productType: "",
+    city: "",
+    state: "",
+    zone: "non_metro",
+    deliveryDays: 5,
+    isActive: true,
+  },
+  {
+    id: "edd4",
+    name: "Delhi Priority",
+    productType: "Priority",
+    city: "Delhi",
+    state: "Delhi",
+    zone: "metro",
+    deliveryDays: 1,
+    isActive: true,
+  },
+];
+
+export const getEDDRules = (): EDDRule[] => {
+  const data = localStorage.getItem(EDD_CONFIG_KEY);
+  if (!data) return DEFAULT_EDD_RULES;
+  try {
+    return JSON.parse(data) as EDDRule[];
+  } catch {
+    return DEFAULT_EDD_RULES;
+  }
+};
+
+export const saveEDDRules = (rules: EDDRule[]): void => {
+  localStorage.setItem(EDD_CONFIG_KEY, JSON.stringify(rules));
+};

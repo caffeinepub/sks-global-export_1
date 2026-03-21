@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  Clock,
   FileText,
   Layers,
   LayoutDashboard,
@@ -69,6 +70,7 @@ const navItems: NavItem[] = [
       { label: "Tariff Rates", icon: Tag, path: "tariffs" },
       { label: "Customer Tariffs", icon: Tags, path: "customer-tariffs" },
       { label: "Cost Price", icon: TrendingDown, path: "cost-price" },
+      { label: "EDD Rules", icon: Clock, path: "edd-management" },
     ],
   },
   {
@@ -107,6 +109,7 @@ const navItems: NavItem[] = [
     children: [
       { label: "Expenses", icon: Wallet, path: "expenses" },
       { label: "Reports", icon: BarChart2, path: "reports" },
+      { label: "Accounting", icon: BookOpen, path: "accounting" },
     ],
   },
   {
