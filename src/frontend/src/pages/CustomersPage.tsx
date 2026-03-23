@@ -850,7 +850,6 @@ export function CustomersPage() {
           </Button>
         </div>
       </div>
-
       {/* Summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {[
@@ -889,7 +888,6 @@ export function CustomersPage() {
           );
         })}
       </div>
-
       {/* Filters */}
       <div className="flex gap-3 bg-white p-4 rounded-xl border border-border shadow-xs">
         <div className="relative flex-1">
@@ -913,7 +911,6 @@ export function CustomersPage() {
           </SelectContent>
         </Select>
       </div>
-
       {/* Table */}
       <div className="bg-white rounded-xl border border-border shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -1081,7 +1078,6 @@ export function CustomersPage() {
           </Table>
         </div>
       </div>
-
       {/* Add/Edit Dialog */}
       <Dialog
         open={showForm}
@@ -1467,6 +1463,185 @@ export function CustomersPage() {
                   );
                 })()}
 
+              {/* Account Statement */}
+              <div>
+                <h4 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                  <IndianRupee className="w-4 h-4 text-emerald-600" />
+                  Account Statement
+                </h4>
+                {(() => {
+                  const customerBills = getCustomerBills(viewCustomer.id);
+                  if (customerBills.length === 0) {
+                    return (
+                      <p
+                        className="text-sm text-muted-foreground text-center py-4"
+                        data-ocid="customers.account_statement.empty_state"
+                      >
+                        No transactions yet
+                      </p>
+                    );
+                  }
+                  // Build statement rows
+                  let runningBalance = 0;
+                  const rows: Array<{
+                    date: string;
+                    description: string;
+                    debit: number;
+                    credit: number;
+                    balance: number;
+                  }> = [];
+                  for (const bill of customerBills.sort((a, b) =>
+                    a.date.localeCompare(b.date),
+                  )) {
+                    // Bill total = Debit (customer owes)
+                    runningBalance += bill.total;
+                    rows.push({
+                      date: bill.date,
+                      description: `Bill ${bill.billNo}`,
+                      debit: bill.total,
+                      credit: 0,
+                      balance: runningBalance,
+                    });
+                    // Payment = Credit
+                    if (bill.amountPaid > 0) {
+                      runningBalance -= bill.amountPaid;
+                      rows.push({
+                        date: bill.date,
+                        description: `Payment - ${bill.billNo}`,
+                        debit: 0,
+                        credit: bill.amountPaid,
+                        balance: runningBalance,
+                      });
+                    }
+                  }
+                  const totalDebit = rows.reduce((s, r) => s + r.debit, 0);
+                  const totalCredit = rows.reduce((s, r) => s + r.credit, 0);
+                  return (
+                    <div>
+                      <div className="flex justify-end gap-2 mb-2">
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1 rounded border border-border hover:bg-muted flex items-center gap-1"
+                          data-ocid="customers.account_statement.export_csv_button"
+                          onClick={() => {
+                            const lines = [
+                              "Date,Description,Debit (₹),Credit (₹),Balance (₹)",
+                            ];
+                            for (const r of rows) {
+                              lines.push(
+                                `${r.date},${r.description},${r.debit || ""},${r.credit || ""},${r.balance.toFixed(2)}`,
+                              );
+                            }
+                            const blob = new Blob([lines.join("\n")], {
+                              type: "text/csv",
+                            });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement("a");
+                            a.href = url;
+                            a.download = `statement_${viewCustomer.name}.csv`;
+                            a.click();
+                            URL.revokeObjectURL(url);
+                          }}
+                        >
+                          ↓ Export CSV
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs px-2 py-1 rounded border border-border hover:bg-muted flex items-center gap-1"
+                          data-ocid="customers.account_statement.export_pdf_button"
+                          onClick={() => {
+                            const w = window.open(
+                              "",
+                              "_blank",
+                              "width=800,height=600",
+                            );
+                            if (!w) return;
+                            const lines = rows
+                              .map(
+                                (r) =>
+                                  `<tr><td>${r.date}</td><td>${r.description}</td><td style="text-align:right;color:#dc2626">${r.debit ? `₹${r.debit.toFixed(2)}` : ""}</td><td style="text-align:right;color:#16a34a">${r.credit ? `₹${r.credit.toFixed(2)}` : ""}</td><td style="text-align:right;font-weight:bold">${r.balance < 0 ? "-" : ""}₹${Math.abs(r.balance).toFixed(2)}</td></tr>`,
+                              )
+                              .join("");
+                            w.document.write(
+                              `<html><body style="font-family:sans-serif;padding:20px"><h2>Account Statement: ${viewCustomer.name}</h2><table border="1" cellpadding="6" cellspacing="0" style="width:100%;border-collapse:collapse"><thead><tr style="background:#f0f0f0"><th>Date</th><th>Description</th><th>Debit</th><th>Credit</th><th>Balance</th></tr></thead><tbody>${lines}<tr style="background:#f0f0f0;font-weight:bold"><td colspan="2">Total</td><td style="text-align:right">₹${totalDebit.toFixed(2)}</td><td style="text-align:right">₹${totalCredit.toFixed(2)}</td><td style="text-align:right">₹${runningBalance.toFixed(2)}</td></tr></tbody></table></body></html>`,
+                            );
+                            w.document.close();
+                            w.print();
+                          }}
+                        >
+                          ↓ Export PDF
+                        </button>
+                      </div>
+                      <div
+                        className="max-h-60 overflow-y-auto border rounded-lg"
+                        data-ocid="customers.account_statement.table"
+                      >
+                        <table className="w-full text-xs">
+                          <thead className="bg-muted sticky top-0">
+                            <tr>
+                              <th className="p-2 text-left">Date</th>
+                              <th className="p-2 text-left">Description</th>
+                              <th className="p-2 text-right text-red-700">
+                                Debit (₹)
+                              </th>
+                              <th className="p-2 text-right text-green-700">
+                                Credit (₹)
+                              </th>
+                              <th className="p-2 text-right">Balance (₹)</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((r) => (
+                              <tr
+                                key={`${r.date}-${r.description}`}
+                                className="border-t hover:bg-muted/30"
+                              >
+                                <td className="p-2 text-muted-foreground">
+                                  {formatDate(r.date)}
+                                </td>
+                                <td className="p-2">{r.description}</td>
+                                <td className="p-2 text-right text-red-600">
+                                  {r.debit > 0 ? formatCurrency(r.debit) : ""}
+                                </td>
+                                <td className="p-2 text-right text-green-600">
+                                  {r.credit > 0 ? formatCurrency(r.credit) : ""}
+                                </td>
+                                <td
+                                  className={`p-2 text-right font-semibold ${r.balance > 0 ? "text-red-700" : "text-green-700"}`}
+                                >
+                                  {formatCurrency(Math.abs(r.balance))}
+                                  {r.balance > 0
+                                    ? " Dr"
+                                    : r.balance < 0
+                                      ? " Cr"
+                                      : ""}
+                                </td>
+                              </tr>
+                            ))}
+                            <tr className="bg-muted font-semibold border-t-2">
+                              <td className="p-2" colSpan={2}>
+                                Total
+                              </td>
+                              <td className="p-2 text-right text-red-700">
+                                {formatCurrency(totalDebit)}
+                              </td>
+                              <td className="p-2 text-right text-green-700">
+                                {formatCurrency(totalCredit)}
+                              </td>
+                              <td
+                                className={`p-2 text-right ${runningBalance > 0 ? "text-red-700" : "text-green-700"}`}
+                              >
+                                {formatCurrency(Math.abs(runningBalance))}
+                                {runningBalance > 0 ? " Dr" : " Cr"}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
               <div>
                 <h4 className="text-sm font-semibold mb-2">Purchase History</h4>
                 <div className="space-y-2 max-h-48 overflow-y-auto">

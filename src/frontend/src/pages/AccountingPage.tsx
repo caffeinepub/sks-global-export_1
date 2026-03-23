@@ -1,3 +1,9 @@
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,8 +40,11 @@ import {
   CheckCircle2,
   Download,
   FileText,
+  GraduationCap,
+  HelpCircle,
   Plus,
   RefreshCw,
+  Search,
   Trash2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -1558,6 +1567,217 @@ function BankReconciliationTab() {
   );
 }
 
+// ─── Accounting Help & Education Tab ─────────────────────────────────────────
+function AccountingHelpTab() {
+  const [search, setSearch] = useState("");
+
+  const topics = [
+    {
+      level: "Beginner",
+      color: "bg-green-100 text-green-700",
+      items: [
+        {
+          title: "What is Accounting?",
+          content:
+            "Accounting is the systematic process of recording, classifying, summarizing, and interpreting financial transactions of a business. It provides information about the financial health of a business to owners, investors, and creditors.\n\n**Key Purpose:**\n• Track income and expenses\n• Prepare financial statements\n• Comply with tax obligations\n• Make informed business decisions",
+        },
+        {
+          title: "Basic Accounting Terminology",
+          content:
+            "**Asset:** Anything owned by the business that has economic value (cash, inventory, equipment, buildings).\n\n**Liability:** Amounts owed by the business to others (bank loans, creditors, outstanding bills).\n\n**Capital (Equity):** Owner's investment in the business. Capital = Assets − Liabilities.\n\n**Revenue (Income):** Money earned from selling goods or services.\n\n**Expense:** Cost incurred to run the business (rent, salaries, utilities).\n\n**Profit/Loss:** Revenue − Expenses = Net Profit (if positive) or Net Loss (if negative).",
+        },
+        {
+          title: "The Golden Rules of Accounting",
+          content:
+            "**1. Real Account (Assets):**\nDebit what comes in → Credit what goes out\n\n**2. Personal Account (Persons/Companies):**\nDebit the receiver → Credit the giver\n\n**3. Nominal Account (Income/Expenses):**\nDebit all expenses and losses → Credit all incomes and gains\n\n**Example:** When you receive cash from a customer:\n• Debit: Cash Account (Real — comes in) ₹1,000\n• Credit: Sales Account (Nominal — income) ₹1,000",
+        },
+        {
+          title: "What is Double Entry System?",
+          content:
+            "Every financial transaction affects at least two accounts. For every Debit, there is an equal and opposite Credit.\n\n**Basic Equation:** Assets = Liabilities + Capital\n\n**Why Double Entry?**\n• Maintains the accounting equation balance\n• Prevents errors and fraud\n• Provides complete picture of each transaction\n\n**Example:** Buy goods worth ₹5,000 on credit:\n• Debit: Purchases Account ₹5,000 (expense increases)\n• Credit: Supplier Account ₹5,000 (liability increases)",
+        },
+        {
+          title: "Debit vs Credit Explained",
+          content:
+            "| Account Type | Debit Effect | Credit Effect |\n|---|---|---|\n| Asset | Increase ↑ | Decrease ↓ |\n| Liability | Decrease ↓ | Increase ↑ |\n| Capital/Equity | Decrease ↓ | Increase ↑ |\n| Revenue/Income | Decrease ↓ | Increase ↑ |\n| Expense | Increase ↑ | Decrease ↓ |\n\n**Memory Tip:** DEAD CLIC\n• Debit: Expenses, Assets, Drawings\n• Credit: Liabilities, Income, Capital",
+        },
+      ],
+    },
+    {
+      level: "Intermediate",
+      color: "bg-blue-100 text-blue-700",
+      items: [
+        {
+          title: "Chart of Accounts — Structure and Purpose",
+          content:
+            "A Chart of Accounts (COA) is a list of all accounts in your accounting system organized by type.\n\n**Standard Structure:**\n• 1000s — Assets (Cash, Bank, Debtors, Inventory)\n• 2000s — Liabilities (Creditors, Bank Loan, GST Payable)\n• 3000s — Capital/Equity (Owner Capital, Retained Earnings)\n• 4000s — Revenue (Sales, Service Income)\n• 5000s — Expenses (Rent, Salaries, Utilities)\n\n**Tip:** Keep account codes consistent. Use sub-accounts for detailed tracking (e.g., 1001 Cash, 1002 Bank SBI, 1003 Bank HDFC).",
+        },
+        {
+          title: "Journal Entries — How to Record Transactions",
+          content:
+            "A Journal Entry records every business transaction in chronological order.\n\n**Format:**\nDate | Account Name | Debit (₹) | Credit (₹)\n\n**Examples:**\n\n1. Cash Sales ₹10,000:\n   DR Cash A/c ₹10,000\n   CR Sales A/c ₹10,000\n\n2. Pay rent ₹5,000 by cheque:\n   DR Rent Expense ₹5,000\n   CR Bank A/c ₹5,000\n\n3. Purchase goods on credit ₹20,000:\n   DR Purchases A/c ₹20,000\n   CR Creditor A/c ₹20,000\n\n**Rule:** Total Debits must always equal Total Credits.",
+        },
+        {
+          title: "Ledger — Posting Entries",
+          content:
+            "A Ledger is a collection of all accounts, each showing a running balance.\n\n**T-Account Format:**\nLeft side = Debit | Right side = Credit\n\n**Steps to Post:**\n1. Identify accounts from Journal Entry\n2. Post Debit amount on left side of Debit account\n3. Post Credit amount on right side of Credit account\n4. Calculate balance (Debit Total − Credit Total)\n\n**Types:**\n• Sales Ledger — all customer accounts\n• Purchase Ledger — all supplier accounts\n• General Ledger — all other accounts",
+        },
+        {
+          title: "Trial Balance — Preparation and Purpose",
+          content:
+            "A Trial Balance lists all accounts with their Debit or Credit balances. It verifies that total Debits = total Credits.\n\n**Purpose:**\n• Check arithmetical accuracy of accounting records\n• Basis for preparing financial statements\n• Identify errors early\n\n**Format:**\nAccount Name | Debit ₹ | Credit ₹\n\n**If Trial Balance doesn't tally:**\n• Check for missing entries\n• Check for wrong amounts\n• Check for wrong account debited/credited",
+        },
+        {
+          title: "Profit & Loss Account",
+          content:
+            "P&L shows the financial performance over a period (usually a year).\n\n**Format:**\n• Revenue (Sales, Service Income)\n• Less: Cost of Goods Sold (Opening Stock + Purchases − Closing Stock)\n• = Gross Profit\n• Less: Operating Expenses (Rent, Salaries, Utilities, etc.)\n• = Net Profit (or Net Loss)\n\n**Key Metrics:**\n• Gross Profit Margin = (Gross Profit / Revenue) × 100\n• Net Profit Margin = (Net Profit / Revenue) × 100",
+        },
+        {
+          title: "Balance Sheet",
+          content:
+            "Balance Sheet shows financial position at a specific date.\n\n**Format:**\n**Assets** = **Liabilities + Capital**\n\n**Assets Side:**\n• Fixed Assets (Land, Building, Equipment)\n• Current Assets (Stock, Debtors, Cash, Bank)\n\n**Liabilities + Capital Side:**\n• Capital (Owner Equity)\n• Long-term Liabilities (Bank Loans)\n• Current Liabilities (Creditors, Outstanding Expenses)\n\n**Rule:** Both sides must always be equal (Balance).",
+        },
+      ],
+    },
+    {
+      level: "Advanced",
+      color: "bg-purple-100 text-purple-700",
+      items: [
+        {
+          title: "GST Accounting — ITC, Output Tax, GST Payable",
+          content:
+            "**Input Tax Credit (ITC):** GST paid on purchases that can be offset against GST collected on sales.\n\n**Journal for Purchase (GST 18%):**\n   DR Purchases ₹1,00,000\n   DR Input GST (CGST 9%) ₹9,000\n   DR Input GST (SGST 9%) ₹9,000\n   CR Creditor ₹1,18,000\n\n**Journal for Sale (GST 18%):**\n   DR Debtor ₹1,18,000\n   CR Sales ₹1,00,000\n   CR Output GST (CGST 9%) ₹9,000\n   CR Output GST (SGST 9%) ₹9,000\n\n**GST Payable = Output GST − Input GST**\nIf Output > Input → pay the difference to government.\nIf Input > Output → carry forward as ITC.",
+        },
+        {
+          title: "Bank Reconciliation Statement (BRS)",
+          content:
+            "BRS reconciles the Bank Balance per Cash Book with Bank Balance per Bank Statement.\n\n**Why Differences Occur:**\n• Cheques issued but not yet cleared\n• Deposits in transit\n• Bank charges not recorded in books\n• Interest credited by bank\n\n**Format:**\nBalance as per Bank Statement ± Adjustments = Balance as per Cash Book\n\n**Prepare BRS Monthly** to detect errors, fraud, and timing differences.",
+        },
+        {
+          title: "Depreciation Methods",
+          content:
+            "Depreciation = systematic reduction in asset value over its useful life.\n\n**Straight Line Method (SLM):**\nDepreciation = (Cost − Salvage Value) / Useful Life\n\n**Written Down Value (WDV):**\nDepreciation = Book Value × Depreciation %\n(Higher depreciation in early years, reduces over time)\n\n**Example (SLM):**\nMachine: ₹1,00,000 | Life: 10 years | Salvage: ₹10,000\nAnnual Depreciation = (1,00,000 − 10,000) / 10 = ₹9,000\n\n**Journal:**\n   DR Depreciation Expense ₹9,000\n   CR Accumulated Depreciation ₹9,000",
+        },
+        {
+          title: "Outstanding & Prepaid Entries",
+          content:
+            "**Outstanding Expenses (Accruals):**\nExpenses incurred but not yet paid.\n   DR Expense Account\n   CR Outstanding Expense (Liability)\n\n**Prepaid Expenses:**\nExpenses paid in advance for future period.\n   DR Prepaid Expense (Asset)\n   CR Cash/Bank\n\n**Accrued Income:**\nIncome earned but not yet received.\n   DR Accrued Income (Asset)\n   CR Income Account\n\n**Unearned Income:**\nAdvance received for future service.\n   DR Cash/Bank\n   CR Unearned Income (Liability)",
+        },
+        {
+          title: "Closing Entries & Financial Year End",
+          content:
+            "At year end, temporary accounts (revenue/expenses) are closed to the P&L account.\n\n**Steps:**\n1. Close all Revenue accounts → CR P&L Account\n2. Close all Expense accounts → DR P&L Account\n3. Transfer Net Profit to Capital Account\n4. Prepare final Balance Sheet\n5. Open new books for next year\n\n**Indian Financial Year:** April 1 to March 31\n\n**Checklist:**\n• Bank Reconciliation complete\n• All outstanding entries posted\n• Depreciation calculated\n• Stock value updated\n• GST returns filed",
+        },
+      ],
+    },
+    {
+      level: "FAQ",
+      color: "bg-amber-100 text-amber-700",
+      items: [
+        {
+          title: "What is the difference between Cash and Accrual accounting?",
+          content:
+            "**Cash Basis:** Record transactions only when cash is received or paid.\n• Simple, good for small businesses\n• Does not show outstanding amounts\n\n**Accrual Basis:** Record transactions when they occur, regardless of cash flow.\n• More accurate picture of business\n• Required for GST and larger businesses",
+        },
+        {
+          title: "What is Balance Due vs Outstanding?",
+          content:
+            "**Balance Due:** Amount a customer still owes you = Total Billed − Amount Paid\n\n**Outstanding:** Amount you owe to others (suppliers, rent, etc.)\n\n**In SKS:** Balance Due = Bill Total − Amount Paid. If Balance Due > 0, status is Partial or Pending.",
+        },
+        {
+          title: "How is GST calculated?",
+          content:
+            "**GST Inclusive Price:** The price already includes GST.\n   GST Amount = Price × Rate / (100 + Rate)\n   Base Price = Price × 100 / (100 + Rate)\n\n**GST Exclusive Price:** GST is added on top.\n   GST Amount = Base Price × Rate / 100\n   Final Price = Base Price + GST Amount\n\n**Example (18% GST):**\n• Inclusive: ₹118 → Base ₹100, GST ₹18\n• Exclusive: ₹100 → GST ₹18, Final ₹118",
+        },
+        {
+          title: "What is GSTR-1, GSTR-2, GSTR-3B?",
+          content:
+            "**GSTR-1:** Details of outward supplies (sales). Filed monthly/quarterly.\n\n**GSTR-2A/2B:** Auto-populated details of inward supplies (purchases from GST-registered vendors).\n\n**GSTR-3B:** Summary return. Filed monthly. Shows output tax, input credit, and net tax payable.\n\n**GSTR-9:** Annual return summarizing all transactions for the financial year.",
+        },
+      ],
+    },
+  ];
+
+  const filtered = search.trim()
+    ? topics
+        .map((t) => ({
+          ...t,
+          items: t.items.filter(
+            (i) =>
+              i.title.toLowerCase().includes(search.toLowerCase()) ||
+              i.content.toLowerCase().includes(search.toLowerCase()),
+          ),
+        }))
+        .filter((t) => t.items.length > 0)
+    : topics;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3 bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-4">
+        <GraduationCap className="w-8 h-8 text-blue-600 flex-shrink-0" />
+        <div>
+          <h3 className="font-semibold text-blue-900">
+            Accounting Education Center
+          </h3>
+          <p className="text-sm text-blue-700">
+            From beginner basics to advanced GST accounting — learn everything
+            you need
+          </p>
+        </div>
+      </div>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search topics, concepts, examples..."
+          className="w-full pl-9 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          data-ocid="accounting.help.search_input"
+        />
+      </div>
+      {filtered.length === 0 && (
+        <div
+          className="text-center py-12 text-muted-foreground"
+          data-ocid="accounting.help.empty_state"
+        >
+          No topics found for "{search}"
+        </div>
+      )}
+      {filtered.map((section) => (
+        <div key={section.level}>
+          <div className="flex items-center gap-2 mb-3">
+            <Badge className={section.color}>{section.level}</Badge>
+            <span className="text-sm text-muted-foreground">
+              {section.items.length} topic
+              {section.items.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <Accordion type="multiple" className="space-y-2">
+            {section.items.map((item, idx) => (
+              <AccordionItem
+                key={item.title}
+                value={`${section.level}-${idx}`}
+                className="border rounded-lg px-4 bg-white"
+                data-ocid={`accounting.help.item.${idx + 1}`}
+              >
+                <AccordionTrigger className="text-sm font-medium hover:no-underline py-3">
+                  {item.title}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="pb-3 text-sm text-muted-foreground whitespace-pre-line leading-relaxed">
+                    {item.content.replace(/\*\*([^*]+)\*\*/g, "$1")}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Main AccountingPage ──────────────────────────────────────────────────────
 export function AccountingPage() {
   const [activeTab, setActiveTab] = useState("accounts");
@@ -1686,6 +1906,10 @@ export function AccountingPage() {
           <TabsTrigger value="reconcile" data-ocid="accounting.tab">
             Bank Reconciliation
           </TabsTrigger>
+          <TabsTrigger value="help" data-ocid="accounting.tab">
+            <HelpCircle className="w-4 h-4 mr-1.5" />
+            Help & Education
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="accounts" className="mt-4">
@@ -1708,6 +1932,9 @@ export function AccountingPage() {
         </TabsContent>
         <TabsContent value="reconcile" className="mt-4">
           <BankReconciliationTab />
+        </TabsContent>
+        <TabsContent value="help" className="mt-4">
+          <AccountingHelpTab />
         </TabsContent>
       </Tabs>
     </div>

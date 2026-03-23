@@ -3031,6 +3031,109 @@ ${html}
   );
 }
 
+// ─── Searchable Customer Select ─────────────────────────────────────────────
+
+interface SearchCustomerOption {
+  id: string;
+  name: string;
+}
+
+function CustomerSearchSelect({
+  value,
+  onChange,
+  customers,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  customers: SearchCustomerOption[];
+}) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const selectedName =
+    customers.find((c) => c.id === value)?.name ?? (value === "all" ? "" : "");
+  const filtered = customers.filter((c) =>
+    c.name.toLowerCase().includes(query.toLowerCase()),
+  );
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node))
+        setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  return (
+    <div ref={ref} className="relative w-full sm:w-48">
+      <div
+        className="flex items-center border rounded-md px-3 py-2 text-sm bg-background cursor-text gap-1"
+        onClick={() => setOpen(true)}
+        onKeyUp={() => setOpen(true)}
+      >
+        <input
+          className="flex-1 outline-none bg-transparent text-sm placeholder:text-muted-foreground min-w-0"
+          placeholder="All Customers"
+          value={open ? query : selectedName || ""}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+        />
+        {value !== "all" && (
+          <button
+            type="button"
+            className="text-muted-foreground hover:text-foreground ml-1"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange("all");
+              setQuery("");
+              setOpen(false);
+            }}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      {open && (
+        <div className="absolute z-50 w-full bg-white border border-border rounded-md shadow-lg mt-1 max-h-52 overflow-y-auto">
+          <div
+            className="px-3 py-2 text-sm hover:bg-muted cursor-pointer text-muted-foreground"
+            onMouseDown={() => {
+              onChange("all");
+              setQuery("");
+              setOpen(false);
+            }}
+          >
+            All Customers
+          </div>
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">
+              No customers found
+            </div>
+          ) : (
+            filtered.map((c) => (
+              <div
+                key={c.id}
+                className={`px-3 py-2 text-sm hover:bg-muted cursor-pointer ${value === c.id ? "bg-primary/10 font-medium" : ""}`}
+                onMouseDown={() => {
+                  onChange(c.id);
+                  setQuery("");
+                  setOpen(false);
+                }}
+              >
+                {c.name}
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ──────────────────────────────────────────────
 // Billed Products Tab
 // ──────────────────────────────────────────────
@@ -3149,11 +3252,16 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
   };
 
   const toggleAll = () => {
-    const allKeys = filteredItems.map(rowKey);
-    if (selectedKeys.length === allKeys.length && allKeys.length > 0) {
+    const selectableKeys = filteredItems
+      .filter((i) => !i.isInvoiced)
+      .map(rowKey);
+    if (
+      selectableKeys.every((k) => selectedKeys.includes(k)) &&
+      selectableKeys.length > 0
+    ) {
       setSelectedKeys([]);
     } else {
-      setSelectedKeys(allKeys);
+      setSelectedKeys(selectableKeys);
     }
   };
 
@@ -3289,19 +3397,11 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
       {/* Filters */}
       <div className="bg-white p-4 rounded-xl border border-border shadow-xs">
         <div className="flex flex-wrap gap-3">
-          <Select value={filterCustomer} onValueChange={setFilterCustomer}>
-            <SelectTrigger className="text-sm w-full sm:w-48">
-              <SelectValue placeholder="All Customers" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Customers</SelectItem>
-              {uniqueCustomers.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <CustomerSearchSelect
+            value={filterCustomer}
+            onChange={setFilterCustomer}
+            customers={uniqueCustomers}
+          />
           <div className="flex items-center gap-2">
             <Input
               type="date"
@@ -3368,8 +3468,10 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                 <TableHead className="w-10">
                   <Checkbox
                     checked={
-                      filteredItems.length > 0 &&
-                      selectedKeys.length === filteredItems.length
+                      filteredItems.filter((i) => !i.isInvoiced).length > 0 &&
+                      filteredItems
+                        .filter((i) => !i.isInvoiced)
+                        .every((i) => selectedKeys.includes(rowKey(i)))
                     }
                     onCheckedChange={toggleAll}
                   />
@@ -3407,7 +3509,15 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
                       <TableCell>
                         <Checkbox
                           checked={selectedKeys.includes(key)}
-                          onCheckedChange={() => toggleSelect(key)}
+                          onCheckedChange={() =>
+                            !item.isInvoiced && toggleSelect(key)
+                          }
+                          disabled={item.isInvoiced}
+                          title={
+                            item.isInvoiced
+                              ? "Invoice generated — delete invoice first to re-select"
+                              : undefined
+                          }
                         />
                       </TableCell>
                       <TableCell className="text-xs min-w-[120px]">
@@ -3672,8 +3782,14 @@ function BilledProductsTab({ onInvoiceGenerated }: BilledProductsTabProps) {
 // ──────────────────────────────────────────────
 
 function InvoiceHistoryTab() {
-  const { invoices, activeCompany, updateInvoice, deleteInvoice } =
-    useAppStore();
+  const {
+    invoices,
+    bills,
+    activeCompany,
+    updateInvoice,
+    updateBill,
+    deleteInvoice,
+  } = useAppStore();
 
   const [search, setSearch] = useState("");
   const [filterDate, setFilterDate] = useState("");
@@ -3798,7 +3914,7 @@ function InvoiceHistoryTab() {
       disc,
       editInvoice.invoiceType,
     );
-    updateInvoice({
+    const updatedInvoice = {
       ...editInvoice,
       date: editDate,
       invoiceNo: editInvoiceNo,
@@ -3816,7 +3932,35 @@ function InvoiceHistoryTab() {
       cgst,
       sgst,
       total,
-    });
+    };
+    updateInvoice(updatedInvoice);
+    // Sync payment info to linked bills
+    if (updatedInvoice.billIds && updatedInvoice.billIds.length > 0) {
+      for (const billId of updatedInvoice.billIds) {
+        const bill = bills.find((b) => b.id === billId);
+        if (bill) {
+          updateBill({
+            ...bill,
+            paymentStatus: updatedInvoice.paymentStatus as
+              | "paid"
+              | "partial"
+              | "pending",
+            paymentMethod: (updatedInvoice.paymentMethod ||
+              bill.paymentMethod) as
+              | "cash"
+              | "upi"
+              | "card"
+              | "credit"
+              | "mixed",
+            amountPaid: updatedInvoice.amountPaid ?? bill.amountPaid,
+            balanceDue: Math.max(
+              0,
+              bill.total - (updatedInvoice.amountPaid ?? bill.amountPaid ?? 0),
+            ),
+          });
+        }
+      }
+    }
     toast.success("Invoice updated");
     setEditInvoice(null);
   };

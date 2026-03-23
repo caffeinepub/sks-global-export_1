@@ -29,8 +29,9 @@ import {
 import { Clock, Edit2, Plus, Search, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import type { CourierBrand, CourierProduct } from "../types";
 import type { EDDRule } from "../utils/storage";
-import { getEDDRules, saveEDDRules } from "../utils/storage";
+import { getCourierBrands, getEDDRules, saveEDDRules } from "../utils/storage";
 
 const ZONE_LABELS: Record<EDDRule["zone"], string> = {
   metro: "Metro",
@@ -53,6 +54,10 @@ export function EDDManagementPage() {
   const [search, setSearch] = useState("");
   const [zoneFilter, setZoneFilter] = useState<string>("all_filter");
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [courierBrands] = useState<CourierBrand[]>(() =>
+    getCourierBrands("shared"),
+  );
+  const [selectedBrandForEDD, setSelectedBrandForEDD] = useState("");
   const [editingRule, setEditingRule] = useState<EDDRule | null>(null);
   const [form, setForm] = useState<Omit<EDDRule, "id">>(emptyRule());
 
@@ -305,14 +310,66 @@ export function EDDManagementPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
+                <Label>Brand (optional)</Label>
+                <Select
+                  value={selectedBrandForEDD}
+                  onValueChange={(v) => {
+                    setSelectedBrandForEDD(v);
+                    setForm((p) => ({ ...p, productType: "" }));
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Brands" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="">All Brands</SelectItem>
+                    {courierBrands.map((b) => (
+                      <SelectItem key={b.id} value={b.id}>
+                        {b.brandName}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
                 <Label>Product Type</Label>
-                <Input
-                  value={form.productType}
-                  onChange={(e) =>
-                    setForm((p) => ({ ...p, productType: e.target.value }))
+                {(() => {
+                  const brand = courierBrands.find(
+                    (b) => b.id === selectedBrandForEDD,
+                  );
+                  const products = brand?.courierProducts || [];
+                  if (products.length > 0) {
+                    return (
+                      <Select
+                        value={form.productType}
+                        onValueChange={(v) =>
+                          setForm((p) => ({ ...p, productType: v }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="All Types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">All Types</SelectItem>
+                          {products.map((pt) => (
+                            <SelectItem key={pt.id} value={pt.productType}>
+                              {pt.productType}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    );
                   }
-                  placeholder="e.g. Express, Priority (blank = all)"
-                />
+                  return (
+                    <Input
+                      value={form.productType}
+                      onChange={(e) =>
+                        setForm((p) => ({ ...p, productType: e.target.value }))
+                      }
+                      placeholder="e.g. Express, Priority (blank = all)"
+                    />
+                  );
+                })()}
               </div>
               <div>
                 <Label>Zone</Label>

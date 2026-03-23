@@ -122,6 +122,9 @@ function CourierProductDialog({
   );
   const [gstRate, setGstRate] = useState(String(product?.gstRate ?? "18"));
   const [isActive, setIsActive] = useState(product?.isActive ?? true);
+  const [awbType, setAwbType] = useState<"digital" | "sticker" | "physical">(
+    product?.awbType ?? "physical",
+  );
 
   const handleSave = () => {
     if (!productType.trim()) {
@@ -148,6 +151,7 @@ function CourierProductDialog({
       sellingPrice: Number(sellingPrice),
       gstRate: Number(gstRate),
       isActive,
+      awbType,
     });
   };
 
@@ -331,6 +335,25 @@ function CourierProductDialog({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs mb-1.5 block">AWB Bill Type</Label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {(["digital", "sticker", "physical"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setAwbType(t)}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded border transition-colors ${awbType === t ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted"}`}
+                >
+                  {t === "digital"
+                    ? "🌐 Digital (Virtual)"
+                    : t === "sticker"
+                      ? "🏷️ Sticker (Label)"
+                      : "📋 Physical (Triplicate)"}
+                </button>
+              ))}
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -542,6 +565,14 @@ export function ProductsPage() {
   const [priceIncludesGST, setPriceIncludesGST] = useState(true);
   // Courier brand fields
   const [brandName, setBrandName] = useState("");
+  const [brandLogo, setBrandLogo] = useState("");
+  const [brandOfficeAddress, setBrandOfficeAddress] = useState("");
+  const [brandEmail, setBrandEmail] = useState("");
+  const [brandWebsite, setBrandWebsite] = useState("");
+  const [brandCustomerCare, setBrandCustomerCare] = useState("");
+  const [brandBranches, setBrandBranches] = useState<
+    Array<{ id: string; name: string; address: string; contactNumber: string }>
+  >([]);
   const [brandCategory, setBrandCategory] = useState<
     "Courier" | "Cargo" | "Both"
   >("Both");
@@ -642,6 +673,12 @@ export function ProductsPage() {
     setIsActive(true);
     setPriceIncludesGST(true);
     setBrandName("");
+    setBrandLogo("");
+    setBrandOfficeAddress("");
+    setBrandEmail("");
+    setBrandWebsite("");
+    setBrandCustomerCare("");
+    setBrandBranches([]);
     setBrandCategory("Both");
     setProductType("Courier");
     setServiceModes("Air,Surface,GEC");
@@ -763,6 +800,12 @@ export function ProductsPage() {
     } else if (product.type === "courier_awb") {
       const p = product as CourierBrand;
       setBrandName(p.brandName);
+      setBrandLogo(p.logo || "");
+      setBrandOfficeAddress(p.registeredOfficeAddress || "");
+      setBrandEmail(p.email || "");
+      setBrandWebsite(p.website || "");
+      setBrandCustomerCare(p.customerCareNo || "");
+      setBrandBranches(p.franchiseBranches || []);
       setBrandCategory(p.category ?? "Both");
       setProductType(p.productType);
       setServiceModes(p.serviceModes.join(","));
@@ -937,6 +980,12 @@ export function ProductsPage() {
         gstRate: Number(gstRate),
         isActive,
         courierProducts: existingCourierProducts,
+        logo: brandLogo || undefined,
+        registeredOfficeAddress: brandOfficeAddress || undefined,
+        email: brandEmail || undefined,
+        website: brandWebsite || undefined,
+        customerCareNo: brandCustomerCare || undefined,
+        franchiseBranches: brandBranches.length > 0 ? brandBranches : undefined,
       } as CourierBrand;
     } else if (formType === "xerox") {
       if (!name) {
@@ -1516,12 +1565,26 @@ export function ProductsPage() {
                                   {cp.gstRate}%
                                 </TableCell>
                                 <TableCell>
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-xs ${cp.isActive ? "status-paid" : "status-cancelled"}`}
-                                  >
-                                    {cp.isActive ? "Active" : "Inactive"}
-                                  </Badge>
+                                  <div className="flex flex-col gap-0.5">
+                                    <Badge
+                                      variant="outline"
+                                      className={`text-xs ${cp.isActive ? "status-paid" : "status-cancelled"}`}
+                                    >
+                                      {cp.isActive ? "Active" : "Inactive"}
+                                    </Badge>
+                                    {cp.awbType && (
+                                      <Badge
+                                        variant="secondary"
+                                        className="text-xs"
+                                      >
+                                        {cp.awbType === "digital"
+                                          ? "🌐 Digital"
+                                          : cp.awbType === "sticker"
+                                            ? "🏷️ Sticker"
+                                            : "📋 Physical"}
+                                      </Badge>
+                                    )}
+                                  </div>
                                 </TableCell>
                                 <TableCell>
                                   <div className="flex gap-1">
@@ -3058,6 +3121,172 @@ export function ProductsPage() {
                       <strong>"Add Product"</strong> button to add each product
                       type with its own AWB prefix, serial logic, and pricing.
                     </span>
+                  </div>
+                </div>
+                {/* Brand Enhanced Details */}
+                <div className="space-y-3 border-t pt-3">
+                  <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    Brand Details (Optional)
+                  </Label>
+                  <div>
+                    <Label className="text-xs">Logo (Upload Image)</Label>
+                    <div className="mt-1 flex items-center gap-3">
+                      {brandLogo && (
+                        <img
+                          src={brandLogo}
+                          alt="Brand Logo"
+                          className="h-12 w-20 object-contain border rounded bg-white"
+                        />
+                      )}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="text-xs"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          const reader = new FileReader();
+                          reader.onloadend = () =>
+                            setBrandLogo(reader.result as string);
+                          reader.readAsDataURL(file);
+                        }}
+                      />
+                      {brandLogo && (
+                        <button
+                          type="button"
+                          onClick={() => setBrandLogo("")}
+                          className="text-xs text-destructive hover:underline"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Registered Office Address</Label>
+                    <Textarea
+                      value={brandOfficeAddress}
+                      onChange={(e) => setBrandOfficeAddress(e.target.value)}
+                      className="mt-1 text-xs"
+                      rows={2}
+                      placeholder="Full registered office address"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-xs">Email</Label>
+                      <Input
+                        value={brandEmail}
+                        onChange={(e) => setBrandEmail(e.target.value)}
+                        className="mt-1 text-xs"
+                        placeholder="support@brand.com"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Website</Label>
+                      <Input
+                        value={brandWebsite}
+                        onChange={(e) => setBrandWebsite(e.target.value)}
+                        className="mt-1 text-xs"
+                        placeholder="https://brand.com"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Customer Care No</Label>
+                      <Input
+                        value={brandCustomerCare}
+                        onChange={(e) => setBrandCustomerCare(e.target.value)}
+                        className="mt-1 text-xs"
+                        placeholder="1800-xxx-xxxx"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <Label className="text-xs">
+                        Franchise / Branch Offices
+                      </Label>
+                      <button
+                        type="button"
+                        className="text-xs text-primary hover:underline"
+                        onClick={() =>
+                          setBrandBranches((prev) => [
+                            ...prev,
+                            {
+                              id: Date.now().toString(),
+                              name: "",
+                              address: "",
+                              contactNumber: "",
+                            },
+                          ])
+                        }
+                      >
+                        + Add Branch
+                      </button>
+                    </div>
+                    {brandBranches.map((br, bi) => (
+                      <div
+                        key={br.id}
+                        className="border rounded p-2 space-y-1.5 mb-2 bg-muted/30"
+                      >
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-medium text-muted-foreground">
+                            Branch {bi + 1}
+                          </span>
+                          <button
+                            type="button"
+                            className="text-xs text-destructive hover:underline"
+                            onClick={() =>
+                              setBrandBranches((prev) =>
+                                prev.filter((_, i) => i !== bi),
+                              )
+                            }
+                          >
+                            Remove
+                          </button>
+                        </div>
+                        <Input
+                          className="text-xs"
+                          placeholder="Branch Name"
+                          value={br.name}
+                          onChange={(e) =>
+                            setBrandBranches((prev) =>
+                              prev.map((b, i) =>
+                                i === bi ? { ...b, name: e.target.value } : b,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          className="text-xs"
+                          placeholder="Address"
+                          value={br.address}
+                          onChange={(e) =>
+                            setBrandBranches((prev) =>
+                              prev.map((b, i) =>
+                                i === bi
+                                  ? { ...b, address: e.target.value }
+                                  : b,
+                              ),
+                            )
+                          }
+                        />
+                        <Input
+                          className="text-xs"
+                          placeholder="Contact Number"
+                          value={br.contactNumber}
+                          onChange={(e) =>
+                            setBrandBranches((prev) =>
+                              prev.map((b, i) =>
+                                i === bi
+                                  ? { ...b, contactNumber: e.target.value }
+                                  : b,
+                              ),
+                            )
+                          }
+                        />
+                      </div>
+                    ))}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">

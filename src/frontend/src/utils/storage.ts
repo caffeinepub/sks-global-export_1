@@ -18,6 +18,7 @@ import type {
   Invoice,
   ProductUnit,
   PurchaseInvoice,
+  TrackingStatus,
   Vendor,
 } from "../types";
 import { emitSaved, emitSaving } from "./saveEvents";
@@ -111,6 +112,43 @@ export const getCustomers = (cid: string): Customer[] =>
   get<Customer[]>(KEYS.customers(cid), []);
 export const setCustomers = (cid: string, d: Customer[]): void =>
   set(KEYS.customers(cid), d);
+
+// ─── Saved Receiver Details (per customer) ───────────────────────────────────
+export interface ReceiverDetail {
+  id: string;
+  name: string;
+  companyName?: string;
+  phone: string;
+  address: string;
+  pincode: string;
+  area: string;
+  city: string;
+  state: string;
+  savedAt: string;
+}
+
+export const getSavedReceivers = (customerId: string): ReceiverDetail[] =>
+  get<ReceiverDetail[]>(`savedReceivers_${customerId}`, []);
+
+export const saveReceiver = (
+  customerId: string,
+  receiver: ReceiverDetail,
+): void => {
+  const existing = getSavedReceivers(customerId);
+  const idx = existing.findIndex(
+    (r) => r.phone === receiver.phone && r.pincode === receiver.pincode,
+  );
+  if (idx >= 0) {
+    existing[idx] = { ...receiver, id: existing[idx].id };
+  } else {
+    existing.unshift(receiver);
+    if (existing.length > 15) existing.pop();
+  }
+  localStorage.setItem(
+    `savedReceivers_${customerId}`,
+    JSON.stringify(existing),
+  );
+};
 
 export const getVendors = (cid: string): Vendor[] =>
   get<Vendor[]>(KEYS.vendors(cid), []);
@@ -1894,4 +1932,138 @@ export const getEDDRules = (): EDDRule[] => {
 
 export const saveEDDRules = (rules: EDDRule[]): void => {
   localStorage.setItem(EDD_CONFIG_KEY, JSON.stringify(rules));
+};
+
+// ─── Tracking Statuses CRUD ────────────────────────────────────────────────────
+const TRACKING_STATUSES_KEY = "sks_tracking_statuses";
+
+const DEFAULT_TRACKING_STATUSES: TrackingStatus[] = [
+  {
+    id: "ts_booked",
+    name: "Booked",
+    description: "Shipment has been booked and AWB generated",
+    color: "blue",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 1,
+  },
+  {
+    id: "ts_pickup_scheduled",
+    name: "Pickup Scheduled",
+    description: "Pickup has been scheduled from sender",
+    color: "purple",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 2,
+  },
+  {
+    id: "ts_picked_up",
+    name: "Picked Up",
+    description: "Shipment collected from sender",
+    color: "indigo",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 3,
+  },
+  {
+    id: "ts_in_transit",
+    name: "In Transit",
+    description: "Shipment is on the way to destination",
+    color: "amber",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 4,
+  },
+  {
+    id: "ts_out_for_delivery",
+    name: "Out for Delivery",
+    description: "With delivery agent, expected today",
+    color: "orange",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 5,
+  },
+  {
+    id: "ts_delivered",
+    name: "Delivered",
+    description: "Successfully delivered to recipient",
+    color: "green",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 6,
+  },
+  {
+    id: "ts_rto_initiated",
+    name: "RTO Initiated",
+    description: "Return to origin process started",
+    color: "red",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 7,
+  },
+  {
+    id: "ts_rto_delivered",
+    name: "RTO Delivered",
+    description: "Shipment returned to sender",
+    color: "pink",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 8,
+  },
+  {
+    id: "ts_exception",
+    name: "Exception",
+    description: "Shipment has an exception or issue",
+    color: "yellow",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 9,
+  },
+  {
+    id: "ts_lost",
+    name: "Lost",
+    description: "Shipment reported as lost",
+    color: "gray",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 10,
+  },
+  {
+    id: "ts_cancelled",
+    name: "Cancelled",
+    description: "Shipment has been cancelled",
+    color: "slate",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 11,
+  },
+  {
+    id: "ts_hold",
+    name: "On Hold",
+    description: "Shipment is on hold pending action",
+    color: "cyan",
+    isDefault: true,
+    isActive: true,
+    sortOrder: 12,
+  },
+];
+
+export const getTrackingStatuses = (): TrackingStatus[] => {
+  const data = localStorage.getItem(TRACKING_STATUSES_KEY);
+  if (!data) return DEFAULT_TRACKING_STATUSES;
+  try {
+    const stored = JSON.parse(data) as TrackingStatus[];
+    // Merge defaults for any missing default statuses
+    const storedIds = new Set(stored.map((s) => s.id));
+    const missing = DEFAULT_TRACKING_STATUSES.filter(
+      (d) => !storedIds.has(d.id),
+    );
+    return [...stored, ...missing];
+  } catch {
+    return DEFAULT_TRACKING_STATUSES;
+  }
+};
+
+export const saveTrackingStatuses = (statuses: TrackingStatus[]): void => {
+  localStorage.setItem(TRACKING_STATUSES_KEY, JSON.stringify(statuses));
 };

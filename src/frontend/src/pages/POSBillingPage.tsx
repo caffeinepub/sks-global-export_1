@@ -62,11 +62,14 @@ import {
   formatPincodeAddress,
 } from "../utils/pincodeApi";
 import {
+  type ReceiverDetail,
   SHARED_DATA_ID,
   getCustomerTariffMap,
   getEDDRules,
+  getSavedReceivers,
   getTariffs,
   incrementSKSDailyCounter,
+  saveReceiver,
   setSettings,
 } from "../utils/storage";
 
@@ -246,11 +249,19 @@ const getBrandStyle = (brandName: string) => {
 
 interface CourierFormState {
   senderName: string;
+  senderCompany: string;
   senderPhone: string;
   senderAddress: string;
+  senderArea: string;
+  senderCity: string;
+  senderState: string;
   receiverName: string;
+  receiverCompany: string;
   receiverPhone: string;
   receiverAddress: string;
+  receiverArea: string;
+  receiverCity: string;
+  receiverState: string;
   senderPincode: string;
   receiverPincode: string;
   weight: string;
@@ -307,8 +318,17 @@ export function POSBillingPage({
   const editBillData = editBillId
     ? bills.find((b) => b.id === editBillId)
     : undefined;
+  // If this bill is invoiced and the invoice still exists, lock items
+  const editBillIsInvoiced =
+    editMode &&
+    editBillData?.isInvoiced &&
+    !!(
+      editBillData?.invoiceId &&
+      invoices.find((inv) => inv.id === editBillData?.invoiceId)
+    );
   const [billNoOverride, setBillNoOverride] = useState("");
   const [editLinkedInvoiceDialog, setEditLinkedInvoiceDialog] = useState(false);
+  const [customerNameDialog, setCustomerNameDialog] = useState(false);
 
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
     null,
@@ -386,9 +406,16 @@ export function POSBillingPage({
     return assignment ? assignment.customPrice : null;
   };
 
-  // Pincode lookup state
+  // Pincode lookup state (receiver)
   const [pincodeData, setPincodeData] = useState<PincodeData | null>(null);
   const [pincodeLoading, setPincodeLoading] = useState(false);
+  // Pincode lookup state (sender)
+  const [senderPincodeData, setSenderPincodeData] =
+    useState<PincodeData | null>(null);
+  const [senderPincodeLoading, setSenderPincodeLoading] = useState(false);
+  // Saved receivers
+  const [savedReceivers, setSavedReceivers] = useState<ReceiverDetail[]>([]);
+  const [showSavedReceivers, setShowSavedReceivers] = useState(false);
 
   // Courier brand selection and detail form
   const [selectedBrand, setSelectedBrand] = useState<CourierBrand | null>(null);
@@ -400,11 +427,19 @@ export function POSBillingPage({
     useState<string>("");
   const [courierForm, setCourierForm] = useState<CourierFormState>({
     senderName: "",
+    senderCompany: "",
     senderPhone: "",
     senderAddress: "",
+    senderArea: "",
+    senderCity: "",
+    senderState: "",
     receiverName: "",
+    receiverCompany: "",
     receiverPhone: "",
     receiverAddress: "",
+    receiverArea: "",
+    receiverCity: "",
+    receiverState: "",
     senderPincode: "",
     receiverPincode: "",
     weight: "",
@@ -452,6 +487,8 @@ export function POSBillingPage({
           .address ||
         (selectedCustomer as { addressLine1?: string }).addressLine1 ||
         "";
+      // Load saved receivers for this customer
+      setSavedReceivers(getSavedReceivers(selectedCustomer.id));
       setCourierForm((prev) => ({
         ...prev,
         senderName: prev.senderName || selectedCustomer.name,
@@ -459,6 +496,9 @@ export function POSBillingPage({
         senderAddress: prev.senderAddress || addr,
       }));
     } else if (walkingName) {
+      // Load saved receivers for walking customer
+      const walkId = `walking_${walkingName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+      setSavedReceivers(getSavedReceivers(walkId));
       setCourierForm((prev) => ({
         ...prev,
         senderName: prev.senderName || walkingName,
@@ -857,9 +897,13 @@ export function POSBillingPage({
     };
 
     const receiverCityVal =
-      courierForm.receiverAddress?.split(",")[0]?.trim() || "";
+      courierForm.receiverCity ||
+      courierForm.receiverAddress?.split(",")[0]?.trim() ||
+      "";
     const receiverStateVal =
-      courierForm.receiverAddress?.split(",").pop()?.trim() || "";
+      courierForm.receiverState ||
+      courierForm.receiverAddress?.split(",").pop()?.trim() ||
+      "";
     const productTypeForEDD =
       selectedCourierProduct?.productType || courierForm.productType || "";
     const computedEDD = calculateEDD(
@@ -899,6 +943,25 @@ export function POSBillingPage({
       chargeableWeightKg: chargeableWt,
     };
 
+    // Save receiver details for future auto-fill
+    if (courierForm.receiverName && courierForm.receiverPincode) {
+      const customerId = selectedCustomer
+        ? selectedCustomer.id
+        : `walking_${(walkingName || "guest").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+      saveReceiver(customerId, {
+        id: generateId(),
+        name: courierForm.receiverName,
+        companyName: courierForm.receiverCompany || "",
+        phone: courierForm.receiverPhone,
+        address: courierForm.receiverAddress,
+        pincode: courierForm.receiverPincode,
+        area: courierForm.receiverArea,
+        city: courierForm.receiverCity,
+        state: courierForm.receiverState,
+        savedAt: new Date().toISOString(),
+      });
+    }
+
     // Consume AWB from inventory for partner brands if in stock
     if (!isOwnBrand) {
       if (awbStatus === "in_stock") {
@@ -921,6 +984,9 @@ export function POSBillingPage({
     setSelectedCourierProductId("");
     setPincodeData(null);
     setPincodeLoading(false);
+    setSenderPincodeData(null);
+    setSenderPincodeLoading(false);
+    setShowSavedReceivers(false);
     setSksIsInternational(false);
     setManualAWBInput("");
     setAWBStatus("idle");
@@ -928,11 +994,19 @@ export function POSBillingPage({
     setDuplicateAWBWarning(null);
     setCourierForm({
       senderName: "",
+      senderCompany: "",
       senderPhone: "",
       senderAddress: "",
+      senderArea: "",
+      senderCity: "",
+      senderState: "",
       receiverName: "",
+      receiverCompany: "",
       receiverPhone: "",
       receiverAddress: "",
+      receiverArea: "",
+      receiverCity: "",
+      receiverState: "",
       senderPincode: "",
       receiverPincode: "",
       weight: "",
@@ -1211,7 +1285,7 @@ export function POSBillingPage({
 
   // ─── Bill totals ────────────────────────────────────────────────────────────
   const subtotalBeforeDiscounts = billItems.reduce(
-    (sum, i) => sum + i.totalPrice,
+    (sum, i) => sum + i.quantity * i.unitPrice,
     0,
   );
   const totalItemDiscounts = billItems.reduce(
@@ -1236,7 +1310,7 @@ export function POSBillingPage({
 
   const handleSaveBill = () => {
     if (!selectedCustomer && !walkingName) {
-      toast.error("Please select a customer or enter walking customer name");
+      setCustomerNameDialog(true);
       return;
     }
     if (billItems.length === 0) {
@@ -2166,23 +2240,113 @@ export function POSBillingPage({
                                   <span className="text-destructive">*</span>
                                 )}
                               </label>
-                              <input
-                                id="courier-sender-pincode"
-                                className={`border rounded px-2 py-1.5 text-sm w-full ${walkingPincodeError && !courierForm.senderPincode ? "border-red-500" : "border-border"}`}
-                                placeholder="Sender pincode"
-                                maxLength={6}
-                                value={courierForm.senderPincode}
-                                onChange={(e) =>
-                                  setCourierForm((p) => ({
-                                    ...p,
-                                    senderPincode: e.target.value.replace(
+                              <div className="relative">
+                                <input
+                                  id="courier-sender-pincode"
+                                  className={`border rounded px-2 py-1.5 text-sm w-full ${walkingPincodeError && !courierForm.senderPincode ? "border-red-500" : "border-border"}`}
+                                  placeholder="Sender pincode"
+                                  maxLength={6}
+                                  value={courierForm.senderPincode}
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(
                                       /\D/g,
                                       "",
-                                    ),
-                                  }))
-                                }
-                                data-ocid="courier.sender_pincode.input"
-                              />
+                                    );
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      senderPincode: val,
+                                    }));
+                                    if (val.length === 6) {
+                                      setSenderPincodeLoading(true);
+                                      fetchPincodeData(val).then((data) => {
+                                        setSenderPincodeData(data);
+                                        setSenderPincodeLoading(false);
+                                        if (data) {
+                                          setCourierForm((prev) => ({
+                                            ...prev,
+                                            senderArea:
+                                              prev.senderArea ||
+                                              (data.postOffices.length === 1
+                                                ? data.area
+                                                : ""),
+                                            senderCity:
+                                              prev.senderCity || data.city,
+                                            senderState:
+                                              prev.senderState || data.state,
+                                          }));
+                                        }
+                                      });
+                                    } else {
+                                      setSenderPincodeData(null);
+                                    }
+                                  }}
+                                  data-ocid="courier.sender_pincode.input"
+                                />
+                                {senderPincodeLoading && (
+                                  <span className="absolute right-2 top-1/2 -translate-y-1/2">
+                                    <svg
+                                      className="animate-spin w-3 h-3 text-muted-foreground"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      aria-label="Loading"
+                                      role="img"
+                                    >
+                                      <circle
+                                        className="opacity-25"
+                                        cx="12"
+                                        cy="12"
+                                        r="10"
+                                        stroke="currentColor"
+                                        strokeWidth="4"
+                                      />
+                                      <path
+                                        className="opacity-75"
+                                        fill="currentColor"
+                                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                      />
+                                    </svg>
+                                  </span>
+                                )}
+                              </div>
+                              {senderPincodeData && !senderPincodeLoading && (
+                                <div className="text-xs bg-blue-50 border border-blue-200 rounded px-2 py-1 mt-1 text-blue-700">
+                                  {senderPincodeData.postOffices.length > 1 ? (
+                                    <select
+                                      className="w-full text-xs bg-transparent border-none outline-none"
+                                      value={courierForm.senderArea}
+                                      onChange={(e) => {
+                                        const po =
+                                          senderPincodeData.postOffices.find(
+                                            (p) => p.name === e.target.value,
+                                          );
+                                        setCourierForm((prev) => ({
+                                          ...prev,
+                                          senderArea: e.target.value,
+                                          senderCity:
+                                            po?.district || prev.senderCity,
+                                          senderState:
+                                            po?.state || prev.senderState,
+                                        }));
+                                      }}
+                                    >
+                                      <option value="">Select Area...</option>
+                                      {senderPincodeData.postOffices.map(
+                                        (po) => (
+                                          <option key={po.name} value={po.name}>
+                                            {po.name}
+                                          </option>
+                                        ),
+                                      )}
+                                    </select>
+                                  ) : (
+                                    <span>
+                                      {senderPincodeData.area},{" "}
+                                      {senderPincodeData.city},{" "}
+                                      {senderPincodeData.state}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                             <div>
                               <label
@@ -2218,6 +2382,15 @@ export function POSBillingPage({
                                         if (data) {
                                           setCourierForm((prev) => ({
                                             ...prev,
+                                            receiverArea:
+                                              prev.receiverArea ||
+                                              (data.postOffices.length === 1
+                                                ? data.area
+                                                : ""),
+                                            receiverCity:
+                                              prev.receiverCity || data.city,
+                                            receiverState:
+                                              prev.receiverState || data.state,
                                             receiverAddress:
                                               prev.receiverAddress ||
                                               formatPincodeAddress(data),
@@ -2231,54 +2404,124 @@ export function POSBillingPage({
                                   data-ocid="courier.receiver_pincode.input"
                                 />
                               </div>
-                            </div>
-                          </div>
-                          {/* Pincode lookup result */}
-                          {pincodeLoading && (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                              <svg
-                                className="animate-spin w-3 h-3"
-                                viewBox="0 0 24 24"
-                                fill="none"
-                                aria-label="Loading"
-                                role="img"
-                              >
-                                <circle
-                                  className="opacity-25"
-                                  cx="12"
-                                  cy="12"
-                                  r="10"
-                                  stroke="currentColor"
-                                  strokeWidth="4"
-                                />
-                                <path
-                                  className="opacity-75"
-                                  fill="currentColor"
-                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                                />
-                              </svg>
-                              Looking up pincode...
-                            </div>
-                          )}
-                          {pincodeData && !pincodeLoading && (
-                            <div className="text-xs bg-green-50 border border-green-200 rounded-lg px-2 py-1.5 flex items-center gap-2 flex-wrap">
-                              <span className="text-green-800 font-medium">
-                                {pincodeData.area}
-                              </span>
-                              <span className="text-green-700">
-                                {pincodeData.city}, {pincodeData.state}
-                              </span>
-                              {pincodeData.isMetro ? (
-                                <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                                  Metro
-                                </span>
-                              ) : (
-                                <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
-                                  Non-Metro
-                                </span>
+                              {/* Receiver pincode lookup result — placed inside receiver column */}
+                              {pincodeLoading && (
+                                <div className="flex items-center gap-1.5 text-xs text-muted-foreground mt-1">
+                                  <svg
+                                    className="animate-spin w-3 h-3"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    aria-label="Loading"
+                                    role="img"
+                                  >
+                                    <circle
+                                      className="opacity-25"
+                                      cx="12"
+                                      cy="12"
+                                      r="10"
+                                      stroke="currentColor"
+                                      strokeWidth="4"
+                                    />
+                                    <path
+                                      className="opacity-75"
+                                      fill="currentColor"
+                                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                                    />
+                                  </svg>
+                                  Looking up pincode...
+                                </div>
+                              )}
+                              {pincodeData && !pincodeLoading && (
+                                <div className="text-xs bg-green-50 border border-green-200 rounded px-2 py-1 mt-1 text-green-700">
+                                  {pincodeData.postOffices.length > 1 ? (
+                                    <div>
+                                      <select
+                                        className="w-full text-xs bg-transparent border-none outline-none"
+                                        value={courierForm.receiverArea}
+                                        onChange={(e) => {
+                                          const po =
+                                            pincodeData.postOffices.find(
+                                              (p) => p.name === e.target.value,
+                                            );
+                                          setCourierForm((prev) => ({
+                                            ...prev,
+                                            receiverArea: e.target.value,
+                                            receiverCity:
+                                              po?.district || prev.receiverCity,
+                                            receiverState:
+                                              po?.state || prev.receiverState,
+                                          }));
+                                        }}
+                                      >
+                                        <option value="">Select Area...</option>
+                                        {pincodeData.postOffices.map((po) => (
+                                          <option key={po.name} value={po.name}>
+                                            {po.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <span className="text-green-600 text-[10px]">
+                                        {pincodeData.city}, {pincodeData.state}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <span>
+                                      {pincodeData.area}, {pincodeData.city},{" "}
+                                      {pincodeData.state}
+                                    </span>
+                                  )}
+                                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                                    {pincodeData.isMetro ? (
+                                      <span className="bg-green-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                        Metro
+                                      </span>
+                                    ) : (
+                                      <span className="bg-amber-500 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                        Non-Metro
+                                      </span>
+                                    )}
+                                    {(() => {
+                                      const s = pincodeData.state.toLowerCase();
+                                      let zone: string | null = null;
+                                      if (
+                                        s.includes("himachal") ||
+                                        s.includes("jammu") ||
+                                        s.includes("kashmir")
+                                      )
+                                        zone = "North Zone";
+                                      else if (
+                                        s.includes("andaman") ||
+                                        s.includes("arunachal") ||
+                                        s.includes("assam") ||
+                                        s.includes("meghalaya") ||
+                                        s.includes("manipur") ||
+                                        s.includes("mizoram") ||
+                                        s.includes("nagaland") ||
+                                        s.includes("tripura")
+                                      )
+                                        zone = "East Zone";
+                                      else if (
+                                        s.includes("kerala") ||
+                                        s.includes("goa")
+                                      )
+                                        zone = "South Zone";
+                                      else if (
+                                        s.includes("chhattisgarh") ||
+                                        s.includes("madhya pradesh") ||
+                                        s.includes("vidarbha")
+                                      )
+                                        zone = "West Zone";
+                                      return zone ? (
+                                        <span className="bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded font-semibold">
+                                          Special: {zone}
+                                        </span>
+                                      ) : null;
+                                    })()}
+                                  </div>
+                                </div>
                               )}
                             </div>
-                          )}
+                          </div>
                           {/* Show Full Details toggle */}
                           <div className="flex items-center justify-between pt-1">
                             <button
@@ -2324,7 +2567,7 @@ export function POSBillingPage({
                           {/* Full Sender & Receiver details — shown when expanded */}
                           {showCourierFullDetails && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 border border-border/50 rounded-lg p-3 bg-muted/10">
-                              <div className="space-y-2">
+                              <div className="space-y-1.5">
                                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
                                   Sender Details
                                 </p>
@@ -2336,7 +2579,7 @@ export function POSBillingPage({
                                       senderName: e.target.value,
                                     }))
                                   }
-                                  placeholder="Sender Name*"
+                                  placeholder="Name / Company Name*"
                                   className="text-xs h-8"
                                 />
                                 <Input
@@ -2347,7 +2590,7 @@ export function POSBillingPage({
                                       senderPhone: e.target.value,
                                     }))
                                   }
-                                  placeholder="Phone"
+                                  placeholder="Mobile No"
                                   className="text-xs h-8"
                                 />
                                 <Input
@@ -2361,12 +2604,95 @@ export function POSBillingPage({
                                   placeholder="Address"
                                   className="text-xs h-8"
                                 />
+                                <Input
+                                  value={courierForm.senderArea}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      senderArea: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Area"
+                                  className="text-xs h-8"
+                                />
+                                <div className="grid grid-cols-2 gap-1">
+                                  <Input
+                                    value={courierForm.senderCity}
+                                    onChange={(e) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        senderCity: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="City"
+                                    className="text-xs h-8"
+                                  />
+                                  <Input
+                                    value={courierForm.senderState}
+                                    onChange={(e) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        senderState: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="State"
+                                    className="text-xs h-8"
+                                  />
+                                </div>
                               </div>
-                              <div className="space-y-2">
-                                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
-                                  <ArrowRight className="w-3 h-3" /> Receiver
-                                  Details
-                                </p>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+                                    <ArrowRight className="w-3 h-3" /> Receiver
+                                    Details
+                                  </p>
+                                  {savedReceivers.length > 0 && (
+                                    <div className="relative">
+                                      <button
+                                        type="button"
+                                        className="text-xs text-primary border border-primary/30 rounded px-2 py-0.5 hover:bg-primary/5"
+                                        onClick={() =>
+                                          setShowSavedReceivers((v) => !v)
+                                        }
+                                      >
+                                        📋 Saved ({savedReceivers.length})
+                                      </button>
+                                      {showSavedReceivers && (
+                                        <div className="absolute right-0 top-7 z-50 bg-white border border-border rounded-lg shadow-lg w-56 max-h-48 overflow-y-auto">
+                                          {savedReceivers.map((r) => (
+                                            <button
+                                              key={r.id}
+                                              type="button"
+                                              className="w-full text-left px-3 py-2 text-xs hover:bg-muted/50 border-b border-border/30 last:border-0"
+                                              onClick={() => {
+                                                setCourierForm((prev) => ({
+                                                  ...prev,
+                                                  receiverName: r.name,
+                                                  receiverCompany:
+                                                    r.companyName || "",
+                                                  receiverPhone: r.phone,
+                                                  receiverAddress: r.address,
+                                                  receiverPincode: r.pincode,
+                                                  receiverArea: r.area,
+                                                  receiverCity: r.city,
+                                                  receiverState: r.state,
+                                                }));
+                                                setShowSavedReceivers(false);
+                                              }}
+                                            >
+                                              <div className="font-medium truncate">
+                                                {r.name}
+                                              </div>
+                                              <div className="text-muted-foreground truncate">
+                                                {r.city} - {r.pincode}
+                                              </div>
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                                 <Input
                                   value={courierForm.receiverName}
                                   onChange={(e) =>
@@ -2375,7 +2701,7 @@ export function POSBillingPage({
                                       receiverName: e.target.value,
                                     }))
                                   }
-                                  placeholder="Receiver Name*"
+                                  placeholder="Name / Company Name*"
                                   className="text-xs h-8"
                                 />
                                 <Input
@@ -2386,7 +2712,7 @@ export function POSBillingPage({
                                       receiverPhone: e.target.value,
                                     }))
                                   }
-                                  placeholder="Phone"
+                                  placeholder="Mobile No"
                                   className="text-xs h-8"
                                 />
                                 <Input
@@ -2400,6 +2726,41 @@ export function POSBillingPage({
                                   placeholder="Address"
                                   className="text-xs h-8"
                                 />
+                                <Input
+                                  value={courierForm.receiverArea}
+                                  onChange={(e) =>
+                                    setCourierForm((p) => ({
+                                      ...p,
+                                      receiverArea: e.target.value,
+                                    }))
+                                  }
+                                  placeholder="Area"
+                                  className="text-xs h-8"
+                                />
+                                <div className="grid grid-cols-2 gap-1">
+                                  <Input
+                                    value={courierForm.receiverCity}
+                                    onChange={(e) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        receiverCity: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="City"
+                                    className="text-xs h-8"
+                                  />
+                                  <Input
+                                    value={courierForm.receiverState}
+                                    onChange={(e) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        receiverState: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="State"
+                                    className="text-xs h-8"
+                                  />
+                                </div>
                               </div>
                             </div>
                           )}
@@ -3440,6 +3801,12 @@ export function POSBillingPage({
               ✏️ Editing Bill: {editBillData.billNo}
             </div>
           )}
+          {editBillIsInvoiced && (
+            <div className="bg-yellow-50 border border-yellow-400 rounded-lg px-3 py-2 text-xs text-yellow-900 font-medium flex items-center gap-2">
+              🔒 Invoice generated — product items are locked. You can only
+              update payment details, date, and notes.
+            </div>
+          )}
           <div>
             <Label className="text-xs mb-1 block">Bill Number</Label>
             <Input
@@ -3877,6 +4244,7 @@ export function POSBillingPage({
           companyAddress={activeCompany?.address}
           companyPhone={activeCompany?.phone}
           companyLogoUrl={activeCompany?.logoUrl}
+          brandLogoUrl={selectedBrand?.logo}
         />
       )}
 
@@ -3936,6 +4304,66 @@ export function POSBillingPage({
             </div>
           );
         })()}
+
+      {/* Customer Name Required Dialog */}
+      {customerNameDialog && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="font-semibold text-lg mb-2">
+              Customer Name Required
+            </h3>
+            <p className="text-sm text-muted-foreground mb-5">
+              No customer name entered. How would you like to proceed?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                onClick={() => {
+                  setCustomerNameDialog(false);
+                  // Set bill number as walking name and save
+                  const billNum =
+                    billNoOverride ||
+                    (settings
+                      ? `${settings.billPrefix}${String(settings.billSeq).padStart(4, "0")}`
+                      : "BILL");
+                  setWalkingName(billNum);
+                  setTimeout(() => handleSaveBill(), 50);
+                }}
+                data-ocid="pos.customer_name.use_bill_no_button"
+              >
+                Use Bill No as Name
+              </button>
+              <button
+                type="button"
+                className="w-full py-2 rounded-lg border border-border text-sm hover:bg-muted"
+                onClick={() => {
+                  setCustomerNameDialog(false);
+                  // Focus the customer name input
+                  const el = document.querySelector(
+                    '[data-ocid="pos.walking_name.input"]',
+                  ) as HTMLInputElement | null;
+                  if (el) {
+                    el.focus();
+                    el.scrollIntoView({ behavior: "smooth", block: "center" });
+                  }
+                }}
+                data-ocid="pos.customer_name.enter_name_button"
+              >
+                Enter Customer Name
+              </button>
+              <button
+                type="button"
+                className="w-full py-2 rounded-lg border border-border text-sm hover:bg-muted"
+                onClick={() => setCustomerNameDialog(false)}
+                data-ocid="pos.customer_name.cancel_button"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

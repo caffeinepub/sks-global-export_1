@@ -53,7 +53,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CourierSlipPrintDialog } from "../components/CourierSlipPrintDialog";
 import { PaymentQRCode } from "../components/PaymentQRCode";
@@ -101,6 +101,7 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
   const {
     bills,
     customers,
+    invoices,
     addInvoice,
     updateBill,
     deleteBill,
@@ -109,6 +110,16 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
     activeCompanyId,
     activeCompany,
   } = useAppStore();
+
+  // Load courier brands for logo lookup in slip
+  const [courierBrands, setCourierBrandsLocal] = useState<
+    import("../types").CourierBrand[]
+  >([]);
+  useEffect(() => {
+    import("../utils/storage").then((m) => {
+      setCourierBrandsLocal(m.getCourierBrands(m.SHARED_DATA_ID));
+    });
+  }, []);
 
   const [search, setSearch] = useState("");
   const [filterDate, setFilterDate] = useState("");
@@ -193,7 +204,9 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
   const openPaymentDialog = (bill: Bill) => {
     setPaymentBill(bill);
     setPaymentAmount(String(bill.balanceDue));
-    setPaymentMethod("cash");
+    setPaymentMethod(
+      (bill.paymentMethod as "cash" | "upi" | "card" | "credit") || "cash",
+    );
     setPaymentDate(new Date().toISOString().split("T")[0]);
     setPaymentNotes("");
   };
@@ -799,11 +812,35 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
                     data-ocid={`bills.item.${idx + 1}`}
                   >
                     <TableCell>
-                      <Checkbox
-                        checked={selectedIds.includes(bill.id)}
-                        onCheckedChange={() => toggleSelect(bill.id)}
-                        data-ocid={`bills.checkbox.${idx + 1}`}
-                      />
+                      {(() => {
+                        const billHasActiveInvoice =
+                          bill.isInvoiced &&
+                          !!bill.invoiceId &&
+                          invoices.some((inv) => inv.id === bill.invoiceId);
+                        return (
+                          <div
+                            title={
+                              billHasActiveInvoice
+                                ? "Invoice generated — delete invoice first to re-select"
+                                : undefined
+                            }
+                          >
+                            <Checkbox
+                              checked={selectedIds.includes(bill.id)}
+                              onCheckedChange={() =>
+                                !billHasActiveInvoice && toggleSelect(bill.id)
+                              }
+                              disabled={billHasActiveInvoice}
+                              className={
+                                billHasActiveInvoice
+                                  ? "opacity-40 cursor-not-allowed"
+                                  : ""
+                              }
+                              data-ocid={`bills.checkbox.${idx + 1}`}
+                            />
+                          </div>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell className="text-xs font-mono font-semibold">
                       {bill.billNo}
@@ -906,16 +943,32 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
                         >
                           <Pencil className="w-3.5 h-3.5" />
                         </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive hover:text-destructive"
-                          title="Delete"
-                          onClick={() => setDeleteBillId(bill.id)}
-                          data-ocid={`bills.delete_button.${idx + 1}`}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                        {(() => {
+                          const hasActiveInvoice =
+                            bill.isInvoiced &&
+                            bill.invoiceId &&
+                            invoices.some((inv) => inv.id === bill.invoiceId);
+                          return hasActiveInvoice ? (
+                            <span
+                              className="text-xs px-1.5 py-0.5 bg-blue-100 text-blue-700 rounded font-medium"
+                              title="Invoice generated — delete disabled"
+                              data-ocid={`bills.invoice_badge.${idx + 1}`}
+                            >
+                              Invoiced
+                            </span>
+                          ) : (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-destructive hover:text-destructive"
+                              title="Delete"
+                              onClick={() => setDeleteBillId(bill.id)}
+                              data-ocid={`bills.delete_button.${idx + 1}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          );
+                        })()}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -1476,6 +1529,10 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
           companyAddress={activeCompany?.address}
           companyPhone={activeCompany?.phone}
           companyLogoUrl={activeCompany?.logoUrl}
+          brandLogoUrl={
+            courierBrands.find((b) => b.brandName === slipItem.item.brandName)
+              ?.logo
+          }
         />
       )}
 

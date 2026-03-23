@@ -1,5 +1,10 @@
-// Indian Pincode lookup via India Post API (api.postalpincode.in)
-// Returns area, city (district), state, and metro/non-metro classification
+// Indian Pincode lookup via India Post API
+
+export interface PostOfficeEntry {
+  name: string;
+  district: string;
+  state: string;
+}
 
 export interface PincodeData {
   area: string;
@@ -7,9 +12,9 @@ export interface PincodeData {
   state: string;
   isMetro: boolean;
   metroLabel: string;
+  postOffices: PostOfficeEntry[];
 }
 
-// Major Indian metro cities (used for Metro vs Non-Metro classification)
 const METRO_CITIES = new Set([
   "mumbai",
   "delhi",
@@ -83,29 +88,40 @@ export async function fetchPincodeData(
   pincode: string,
 ): Promise<PincodeData | null> {
   if (!/^\d{6}$/.test(pincode)) return null;
-
   try {
     const res = await fetch(`https://api.postalpincode.in/pincode/${pincode}`);
     if (!res.ok) return null;
     const json = await res.json();
-
     if (!Array.isArray(json) || json[0]?.Status !== "Success") return null;
-
     const postOffices = json[0]?.PostOffice;
     if (!Array.isArray(postOffices) || postOffices.length === 0) return null;
+
+    const allPOs: PostOfficeEntry[] = postOffices.map(
+      (po: {
+        Name: string;
+        District: string;
+        Block: string;
+        Division: string;
+        State: string;
+      }) => ({
+        name: po.Name || "",
+        district: po.District || po.Block || po.Division || "",
+        state: po.State || "",
+      }),
+    );
 
     const po = postOffices[0];
     const area = po.Name || "";
     const city = po.District || po.Block || po.Division || "";
     const state = po.State || "";
     const metro = isMetroCity(city);
-
     return {
       area,
       city,
       state,
       isMetro: metro,
       metroLabel: metro ? "Metro" : "Non-Metro",
+      postOffices: allPOs,
     };
   } catch {
     return null;

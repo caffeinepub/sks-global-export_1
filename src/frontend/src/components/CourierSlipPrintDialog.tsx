@@ -15,6 +15,7 @@ interface CourierSlipPrintDialogProps {
   companyLogoUrl?: string;
   companyGstin?: string;
   companyEmail?: string;
+  brandLogoUrl?: string;
 }
 
 const BRAND_INFO: Record<
@@ -98,6 +99,7 @@ interface CourierSlipCopyProps {
   companyAddress?: string;
   companyPhone?: string;
   companyLogoUrl?: string;
+  brandLogoUrl?: string;
   copyLabel: string;
 }
 
@@ -108,6 +110,7 @@ function CourierSlipCopy({
   companyName,
   companyAddress,
   companyPhone,
+  brandLogoUrl,
   copyLabel,
 }: CourierSlipCopyProps) {
   const brandName = item.brandName || "Courier";
@@ -157,26 +160,32 @@ function CourierSlipCopy({
         {/* ROW 1 */}
         <tbody>
           <tr>
-            {/* Col 1: Brand logo + name */}
+            {/* Col 1: Brand logo only */}
             <td style={{ ...cellStyle, width: "20%", textAlign: "center" }}>
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: "50%",
-                  backgroundColor: "#0d9488",
-                  color: "#fff",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontWeight: 700,
-                  fontSize: 12,
-                  margin: "0 auto 2px",
-                }}
-              >
-                {brandName.slice(0, 3).toUpperCase()}
-              </div>
-              <div style={{ fontWeight: 700, fontSize: 9 }}>{brandName}</div>
+              {brandLogoUrl ? (
+                <img
+                  src={brandLogoUrl}
+                  alt=""
+                  style={{
+                    maxHeight: 60,
+                    maxWidth: 110,
+                    objectFit: "contain",
+                    display: "block",
+                    margin: "0 auto",
+                  }}
+                />
+              ) : (
+                <div
+                  style={{
+                    width: 60,
+                    height: 60,
+                    backgroundColor: "#e5e7eb",
+                    borderRadius: 4,
+                    display: "block",
+                    margin: "0 auto",
+                  }}
+                />
+              )}
             </td>
 
             {/* Col 2: Brand address */}
@@ -502,6 +511,7 @@ export function CourierSlipPrintDialog({
   companyAddress,
   companyPhone,
   companyLogoUrl,
+  brandLogoUrl,
 }: CourierSlipPrintDialogProps) {
   const [selectedCopies, setSelectedCopies] = useState<Set<CopyKey>>(
     new Set(["sender", "account", "pod"]),
@@ -706,6 +716,7 @@ export function CourierSlipPrintDialog({
                 companyAddress={companyAddress}
                 companyPhone={companyPhone}
                 companyLogoUrl={companyLogoUrl}
+                brandLogoUrl={brandLogoUrl}
                 copyLabel={COPY_LABELS[key]}
               />
             </div>

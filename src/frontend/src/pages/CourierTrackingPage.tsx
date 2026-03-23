@@ -31,12 +31,16 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  Edit2,
   ExternalLink,
   History,
   MapPin,
   Package,
+  Plus,
   RefreshCw,
   Search,
+  Settings,
+  Trash2,
   Truck,
   Upload,
   Zap,
@@ -44,8 +48,9 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAppStore } from "../hooks/useAppStore";
-import type { Bill, BillItem } from "../types";
+import type { Bill, BillItem, TrackingStatus } from "../types";
 import { formatDate } from "../utils/helpers";
+import { getTrackingStatuses, saveTrackingStatuses } from "../utils/storage";
 
 // ─── Courier tracking URL map ────────────────────────────────────────────────
 const COURIER_TRACKING = [
@@ -386,6 +391,282 @@ function UpdateStatusDialog({
 }
 
 // ─── Main Component ───────────────────────────────────────────────────────────
+
+// ─── Tracking Statuses CRUD Tab ──────────────────────────────────────────────
+function TrackingStatusesTab() {
+  const [statuses, setStatuses] =
+    useState<TrackingStatus[]>(getTrackingStatuses);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingStatus, setEditingStatus] = useState<TrackingStatus | null>(
+    null,
+  );
+  const [form, setForm] = useState({
+    name: "",
+    description: "",
+    color: "blue",
+  });
+
+  const COLORS = [
+    "blue",
+    "amber",
+    "green",
+    "red",
+    "purple",
+    "orange",
+    "cyan",
+    "pink",
+    "gray",
+    "indigo",
+    "yellow",
+    "slate",
+  ];
+  const COLOR_MAP: Record<string, string> = {
+    blue: "bg-blue-100 text-blue-700",
+    amber: "bg-amber-100 text-amber-700",
+    green: "bg-green-100 text-green-700",
+    red: "bg-red-100 text-red-700",
+    purple: "bg-purple-100 text-purple-700",
+    orange: "bg-orange-100 text-orange-700",
+    cyan: "bg-cyan-100 text-cyan-700",
+    pink: "bg-pink-100 text-pink-700",
+    gray: "bg-gray-100 text-gray-700",
+    indigo: "bg-indigo-100 text-indigo-700",
+    yellow: "bg-yellow-100 text-yellow-700",
+    slate: "bg-slate-100 text-slate-700",
+  };
+
+  const openAdd = () => {
+    setEditingStatus(null);
+    setForm({ name: "", description: "", color: "blue" });
+    setDialogOpen(true);
+  };
+  const openEdit = (s: TrackingStatus) => {
+    setEditingStatus(s);
+    setForm({ name: s.name, description: s.description, color: s.color });
+    setDialogOpen(true);
+  };
+  const handleSave = () => {
+    if (!form.name.trim()) {
+      toast.error("Status name is required");
+      return;
+    }
+    let updated: TrackingStatus[];
+    if (editingStatus) {
+      updated = statuses.map((s) =>
+        s.id === editingStatus.id
+          ? { ...s, ...form, name: form.name.trim() }
+          : s,
+      );
+      toast.success("Status updated");
+    } else {
+      const newStatus: TrackingStatus = {
+        id: `ts_custom_${Date.now()}`,
+        name: form.name.trim(),
+        description: form.description,
+        color: form.color,
+        isDefault: false,
+        isActive: true,
+        sortOrder: statuses.length + 1,
+      };
+      updated = [...statuses, newStatus];
+      toast.success("Status added");
+    }
+    setStatuses(updated);
+    saveTrackingStatuses(updated);
+    setDialogOpen(false);
+  };
+  const handleDelete = (id: string) => {
+    const s = statuses.find((x) => x.id === id);
+    if (s?.isDefault) {
+      toast.error("Default statuses cannot be deleted");
+      return;
+    }
+    const updated = statuses.filter((x) => x.id !== id);
+    setStatuses(updated);
+    saveTrackingStatuses(updated);
+    toast.success("Status deleted");
+  };
+  const toggleActive = (id: string) => {
+    const updated = statuses.map((s) =>
+      s.id === id ? { ...s, isActive: !s.isActive } : s,
+    );
+    setStatuses(updated);
+    saveTrackingStatuses(updated);
+  };
+
+  return (
+    <TabsContent value="tracking_statuses" className="mt-4 space-y-4">
+      <div className="flex justify-between items-center">
+        <div>
+          <h3 className="font-semibold">Tracking Statuses</h3>
+          <p className="text-sm text-muted-foreground">
+            Manage statuses used for courier tracking updates
+          </p>
+        </div>
+        <Button
+          onClick={openAdd}
+          size="sm"
+          data-ocid="tracking.statuses.add_button"
+        >
+          <Plus className="w-4 h-4 mr-1.5" /> Add Status
+        </Button>
+      </div>
+      <div className="border rounded-lg overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Status Name</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Color</TableHead>
+              <TableHead className="text-center">Default</TableHead>
+              <TableHead className="text-center">Active</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {statuses.map((s, idx) => (
+              <TableRow
+                key={s.id}
+                data-ocid={`tracking.status.item.${idx + 1}`}
+              >
+                <TableCell className="font-medium">
+                  <Badge
+                    className={`${COLOR_MAP[s.color] || "bg-gray-100 text-gray-700"} text-xs`}
+                  >
+                    {s.name}
+                  </Badge>
+                </TableCell>
+                <TableCell className="text-sm text-muted-foreground">
+                  {s.description || "-"}
+                </TableCell>
+                <TableCell>
+                  <span
+                    className={`text-xs px-2 py-0.5 rounded ${COLOR_MAP[s.color] || ""}`}
+                  >
+                    {s.color}
+                  </span>
+                </TableCell>
+                <TableCell className="text-center">
+                  {s.isDefault ? (
+                    <Badge variant="secondary" className="text-xs">
+                      Default
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground text-xs">
+                      Custom
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell className="text-center">
+                  <button
+                    type="button"
+                    onClick={() => toggleActive(s.id)}
+                    className={`text-xs px-2 py-0.5 rounded border ${s.isActive ? "bg-green-100 text-green-700 border-green-300" : "bg-gray-100 text-gray-500 border-gray-300"}`}
+                    data-ocid={`tracking.status.toggle.${idx + 1}`}
+                  >
+                    {s.isActive ? "Active" : "Hidden"}
+                  </button>
+                </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex justify-end gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7"
+                      onClick={() => openEdit(s)}
+                      data-ocid={`tracking.status.edit_button.${idx + 1}`}
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </Button>
+                    {!s.isDefault && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive hover:text-destructive"
+                        onClick={() => handleDelete(s.id)}
+                        data-ocid={`tracking.status.delete_button.${idx + 1}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent
+          className="max-w-md max-h-[90vh] overflow-y-auto"
+          data-ocid="tracking.status.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {editingStatus ? "Edit" : "Add"} Tracking Status
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div>
+              <Label>Status Name *</Label>
+              <Input
+                value={form.name}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, name: e.target.value }))
+                }
+                placeholder="e.g. Customs Clearance"
+                data-ocid="tracking.status.input"
+              />
+            </div>
+            <div>
+              <Label>Description</Label>
+              <Textarea
+                value={form.description}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, description: e.target.value }))
+                }
+                rows={2}
+                placeholder="Brief description of this status"
+              />
+            </div>
+            <div>
+              <Label className="mb-2 block">Badge Color</Label>
+              <div className="flex flex-wrap gap-2">
+                {COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setForm((p) => ({ ...p, color: c }))}
+                    className={`text-xs px-3 py-1.5 rounded border-2 transition-colors ${COLOR_MAP[c] || "bg-gray-100"} ${form.color === c ? "border-primary ring-1 ring-primary" : "border-transparent"}`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDialogOpen(false)}
+              data-ocid="tracking.status.cancel_button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              data-ocid="tracking.status.save_button"
+            >
+              {editingStatus ? "Update" : "Add"} Status
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </TabsContent>
+  );
+}
+
 export function CourierTrackingPage() {
   const { bills, updateBill } = useAppStore();
 
@@ -736,6 +1017,13 @@ export function CourierTrackingPage() {
           >
             <Zap className="w-4 h-4 mr-2" />
             Status Update
+          </TabsTrigger>
+          <TabsTrigger
+            value="tracking_statuses"
+            data-ocid="tracking.statuses.tab"
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Manage Statuses
           </TabsTrigger>
         </TabsList>
 
@@ -1465,6 +1753,9 @@ export function CourierTrackingPage() {
             </Table>
           </div>
         </TabsContent>
+
+        {/* ── Tab: Tracking Statuses CRUD ──────────────────────────────── */}
+        <TrackingStatusesTab />
       </Tabs>
 
       {/* Update Status Dialog */}

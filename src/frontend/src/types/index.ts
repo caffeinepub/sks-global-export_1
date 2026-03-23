@@ -124,6 +124,7 @@ export interface CourierProduct {
   isActive: boolean;
   usePricingSlabs?: boolean;
   pricingSlabs?: PricingSlab[];
+  awbType?: "digital" | "sticker" | "physical"; // Digital (Virtual), Sticker (Label), Physical (Triplicate)
 }
 
 export interface CourierBrand {
@@ -152,6 +153,29 @@ export interface CourierBrand {
   isActive: boolean;
   // New: per-brand product list (each product has its own type, serial logic, prefix, etc.)
   courierProducts?: CourierProduct[];
+  // Enhanced brand details
+  logo?: string; // base64 encoded logo image
+  registeredOfficeAddress?: string;
+  email?: string;
+  website?: string;
+  customerCareNo?: string;
+  franchiseBranches?: Array<{
+    id: string;
+    name: string;
+    address: string;
+    contactNumber: string;
+  }>;
+}
+
+// ─── Tracking Status ──────────────────────────────────────────────────────────
+export interface TrackingStatus {
+  id: string;
+  name: string;
+  description: string;
+  color: string; // tailwind color class like "blue" | "amber" | "green" etc.
+  isDefault: boolean; // default statuses cannot be deleted
+  isActive: boolean;
+  sortOrder: number;
 }
 
 export interface AWBSerialRange {

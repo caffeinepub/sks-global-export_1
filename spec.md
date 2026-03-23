@@ -1,35 +1,33 @@
 # SKS Global Export
 
 ## Current State
-- Accounting page exists (AccountingPage.tsx) and is routed in App.tsx (case 'accounting')
-- Sidebar Finance section only has Expenses and Reports — Accounting link is missing
-- No EDD (Estimated Delivery Date) concept exists in the system
-- Dashboard shows stats, pickups, low stock alerts
+Version 79 deployed. Courier booking has pincode/area dropdowns but the receiver area dropdown appears below both sender+receiver columns (outside the grid). Billed Products checkboxes for invoiced items are not disabled. Search fields show full dropdown lists without text filtering. Payment method doesn't pre-fill from bill when opening confirm dialog. Discount double-counting: subtotalBeforeDiscounts uses `i.totalPrice` (already post-discount) then subtracts discounts again.
 
 ## Requested Changes (Diff)
 
 ### Add
-- EDD (Estimated Delivery Date) configuration: per Product Type, City, State, and Metro zone
-- EDD storage in localStorage (getEDDConfig/saveEDDConfig)
-- EDD field on BillItem for courier AWB items — set at billing time
-- EDD Management page/tab in Courier section (or Settings > Courier)
-- Dashboard EDD Follow List: top-right panel showing overdue (EDD failed) and due-soon (within 12-24 hrs) courier shipments
-- Toast/warning notifications for EDD approaching and EDD failures
+- Special Zone detection in courier booking: function mapping state → zone (North Zone: HP, J&K; East Zone: A&N Islands, NE states; South Zone: parts of Kerala & Goa; West Zone: parts of CG, MP, Vidarbha). Show zone badge after Metro/Non-Metro badge for receiver pincode.
+- Dashboard Pay In / Pay Out quick-entry buttons (short window for unpaid invoice payment with customer name, payment method, amount, invoice list with auto-match and advance payment logic)
 
 ### Modify
-- Sidebar: Add `{ label: 'Accounting', icon: BookOpen, path: 'accounting' }` to Finance children
-- BillItem type: add optional `eddDate?: string` field
-- POSBillingPage: auto-calculate EDD when courier AWB item is added (lookup by product type/city/state/metro)
-- DashboardPage: add EDD Follow List panel on the right side at the top
-- CourierTrackingPage or new EDDPage: manage EDD rules
+- **POSBillingPage.tsx** (courier pincode layout): Move receiver area dropdown INSIDE the receiver pincode column div, same structure as sender (area dropdown appears immediately below receiver pincode field, same width). Add Special Zone badge after Metro/Non-Metro.
+- **POSBillingPage.tsx** (discount fix): Fix `subtotalBeforeDiscounts` to use `i.quantity * i.unitPrice` (pre-discount gross) not `i.totalPrice`. This eliminates double-discount. Summary: Gross Subtotal - Item Discounts = Net Items Total - Bill Discount = Grand Total.
+- **BillsPage.tsx** (payment method): In `openPaymentDialog`, pre-fill `setPaymentMethod(bill.paymentMethod || 'cash')` instead of hardcoding 'cash'.
+- **InvoicesPage.tsx** (billed products disable): Add `disabled={item.isInvoiced}` to each row Checkbox in the billed products table. Also make `toggleAll` skip invoiced items.
+- **InvoicesPage.tsx** (invoice payment sync): When invoice is marked paid/partially paid, propagate paymentStatus and paymentMethod back to related bills.
+- All major Select/dropdown fields (customer select in InvoicesPage, product select, etc.): Convert to searchable combobox with text input filter + scrollable dropdown. Minimum: customer field in invoice generation and bill search must have text-type search.
+- **Backup**: Include all new data in export/import/Google Drive.
 
 ### Remove
 - Nothing removed
 
 ## Implementation Plan
-1. Add `eddDate` to BillItem type in types/index.ts
-2. Add EDD config storage types and helpers in storage.ts
-3. Add Accounting to Sidebar Finance children
-4. Add EDD management tab in SettingsPage or a dedicated EDDConfigPage component
-5. Update POSBillingPage to auto-set eddDate on courier items based on EDD rules
-6. Update DashboardPage to add top-right EDD Follow List panel with overdue and warning states
+1. Fix `subtotalBeforeDiscounts` in POSBillingPage to use pre-discount gross (quantity * unitPrice)
+2. Fix receiver area dropdown layout — move inside receiver column
+3. Add Special Zone detection function and badge display after Metro/Non-Metro
+4. Fix `openPaymentDialog` in BillsPage to pre-fill payment method from bill
+5. Disable invoiced item checkboxes in InvoicesPage billed products table
+6. Add text-search filter to customer combobox in InvoicesPage and BillsPage
+7. Propagate invoice payment info to related bills
+8. Add Pay In / Pay Out buttons on dashboard
+9. Ensure backup covers all data
