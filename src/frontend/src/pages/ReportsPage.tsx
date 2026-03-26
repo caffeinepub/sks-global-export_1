@@ -29,6 +29,7 @@ import {
   FileText,
   TrendingUp,
 } from "lucide-react";
+import React from "react";
 import { useMemo, useState } from "react";
 import {
   Bar,
@@ -3257,6 +3258,13 @@ export function ReportsPage() {
           >
             Outstanding Dues
           </TabsTrigger>
+          <TabsTrigger
+            value="payment-history"
+            className="text-xs"
+            data-ocid="reports.payment_history.tab"
+          >
+            Payment History
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="account-statement">
@@ -3280,7 +3288,241 @@ export function ReportsPage() {
         <TabsContent value="outstanding-dues">
           <OutstandingDuesTab />
         </TabsContent>
+        <TabsContent value="payment-history">
+          <PaymentHistoryTab />
+        </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+// ── Payment History Tab ────────────────────────────────────────────────────
+function PaymentHistoryTab() {
+  const [records, setRecords] = React.useState<
+    Array<{
+      id: string;
+      date: string;
+      type: string;
+      entityId: string;
+      entityName: string;
+      amount: number;
+      method: string;
+      matchedInvoices: string[];
+      advance: number;
+    }>
+  >([]);
+  const [dateFrom, setDateFrom] = React.useState("");
+  const [dateTo, setDateTo] = React.useState("");
+  const [search, setSearch] = React.useState("");
+
+  React.useEffect(() => {
+    try {
+      const h = JSON.parse(localStorage.getItem("sks_payment_history") || "[]");
+      setRecords(h);
+    } catch (_) {}
+  }, []);
+
+  const filtered = React.useMemo(() => {
+    return records
+      .filter((r) => {
+        const d = r.date.split("T")[0];
+        if (dateFrom && d < dateFrom) return false;
+        if (dateTo && d > dateTo) return false;
+        if (
+          search &&
+          !r.entityName.toLowerCase().includes(search.toLowerCase())
+        )
+          return false;
+        return true;
+      })
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [records, dateFrom, dateTo, search]);
+
+  const totalPayIn = filtered
+    .filter((r) => r.type === "pay_in")
+    .reduce((s, r) => s + r.amount, 0);
+  const totalPayOut = filtered
+    .filter((r) => r.type === "pay_out")
+    .reduce((s, r) => s + r.amount, 0);
+  const netFlow = totalPayIn - totalPayOut;
+
+  const exportCSV = () => {
+    const rows = [
+      [
+        "Date",
+        "Type",
+        "Customer/Vendor",
+        "Amount",
+        "Method",
+        "Invoice(s) Cleared",
+        "Advance",
+      ],
+      ...filtered.map((r) => [
+        new Date(r.date).toLocaleString("en-IN"),
+        r.type === "pay_in" ? "Pay In" : "Pay Out",
+        r.entityName,
+        r.amount.toFixed(2),
+        r.method,
+        (r.matchedInvoices || []).join(", "),
+        r.advance > 0 ? r.advance.toFixed(2) : "—",
+      ]),
+    ];
+    const csv = rows.map((row) => row.map(String).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "payment_history.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-3 items-end">
+        <div>
+          <label
+            htmlFor="ph-from"
+            className="text-xs font-medium text-muted-foreground block mb-1"
+          >
+            From
+          </label>
+          <input
+            id="ph-from"
+            type="date"
+            value={dateFrom}
+            onChange={(e) => setDateFrom(e.target.value)}
+            className="text-xs border rounded px-2 py-1 bg-background"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="ph-to2"
+            className="text-xs font-medium text-muted-foreground block mb-1"
+          >
+            To
+          </label>
+          <input
+            id="ph-to2"
+            type="date"
+            value={dateTo}
+            onChange={(e) => setDateTo(e.target.value)}
+            className="text-xs border rounded px-2 py-1 bg-background"
+          />
+        </div>
+        <div>
+          <label
+            htmlFor="ph-search"
+            className="text-xs font-medium text-muted-foreground block mb-1"
+          >
+            Search
+          </label>
+          <input
+            id="ph-search"
+            type="text"
+            placeholder="Customer/Vendor name..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="text-xs border rounded px-2 py-1 bg-background w-48"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={exportCSV}
+          className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:bg-primary/90 ml-auto"
+          data-ocid="reports.payment_history.export_button"
+        >
+          Export CSV
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+          <p className="text-xs text-muted-foreground">Total Pay In</p>
+          <p className="text-lg font-bold text-emerald-700">
+            ₹{totalPayIn.toFixed(2)}
+          </p>
+        </div>
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <p className="text-xs text-muted-foreground">Total Pay Out</p>
+          <p className="text-lg font-bold text-blue-700">
+            ₹{totalPayOut.toFixed(2)}
+          </p>
+        </div>
+        <div
+          className={`rounded-lg p-3 ${netFlow >= 0 ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"}`}
+        >
+          <p className="text-xs text-muted-foreground">Net Cash Flow</p>
+          <p
+            className={`text-lg font-bold ${netFlow >= 0 ? "text-emerald-700" : "text-red-700"}`}
+          >
+            ₹{netFlow.toFixed(2)}
+          </p>
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <div
+          className="text-center py-12 text-muted-foreground"
+          data-ocid="reports.payment_history.empty_state"
+        >
+          <p className="text-sm">No payment history found.</p>
+          <p className="text-xs mt-1">
+            Use Pay In / Pay Out on the Dashboard to record payments.
+          </p>
+        </div>
+      ) : (
+        <div className="border rounded-lg overflow-auto max-h-[500px]">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/50 sticky top-0">
+              <tr>
+                <th className="text-left p-2 font-semibold">Date</th>
+                <th className="text-left p-2 font-semibold">Type</th>
+                <th className="text-left p-2 font-semibold">Customer/Vendor</th>
+                <th className="text-right p-2 font-semibold">Amount</th>
+                <th className="text-left p-2 font-semibold">Method</th>
+                <th className="text-left p-2 font-semibold">
+                  Invoice(s) Cleared
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, idx) => (
+                <tr
+                  key={r.id}
+                  className={idx % 2 === 0 ? "bg-background" : "bg-muted/20"}
+                  data-ocid={`reports.payment_history.item.${idx + 1}`}
+                >
+                  <td className="p-2 whitespace-nowrap">
+                    {new Date(r.date).toLocaleString("en-IN", {
+                      day: "2-digit",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </td>
+                  <td className="p-2">
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.type === "pay_in" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}
+                    >
+                      {r.type === "pay_in" ? "Pay In" : "Pay Out"}
+                    </span>
+                  </td>
+                  <td className="p-2 font-medium">{r.entityName}</td>
+                  <td className="p-2 text-right tabular-nums font-semibold">
+                    ₹{r.amount.toFixed(2)}
+                  </td>
+                  <td className="p-2 capitalize">{r.method}</td>
+                  <td className="p-2 text-muted-foreground">
+                    {(r.matchedInvoices || []).join(", ") || "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

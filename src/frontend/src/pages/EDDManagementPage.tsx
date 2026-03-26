@@ -50,13 +50,17 @@ const emptyRule = (): Omit<EDDRule, "id"> => ({
 });
 
 export function EDDManagementPage() {
-  const [rules, setRules] = useState<EDDRule[]>(getEDDRules);
+  const [rules, setRules] = useState<EDDRule[]>(() => getEDDRules() || []);
   const [search, setSearch] = useState("");
   const [zoneFilter, setZoneFilter] = useState<string>("all_filter");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [courierBrands] = useState<CourierBrand[]>(() =>
-    getCourierBrands("shared"),
-  );
+  const [courierBrands] = useState<CourierBrand[]>(() => {
+    try {
+      return getCourierBrands("shared") || [];
+    } catch {
+      return [];
+    }
+  });
   const [selectedBrandForEDD, setSelectedBrandForEDD] = useState("");
   const [editingRule, setEditingRule] = useState<EDDRule | null>(null);
   const [form, setForm] = useState<Omit<EDDRule, "id">>(emptyRule());

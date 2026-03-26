@@ -289,7 +289,14 @@ function HRModule() {
 
   return (
     <div className="space-y-4">
-      <Tabs value={subTab} onValueChange={setSubTab}>
+      <Tabs
+        value={subTab}
+        onValueChange={(v) => {
+          setSubTab(v);
+          setEmpState(getEmployees(SHARED));
+          setAttState(getAttendance(SHARED));
+        }}
+      >
         <TabsList>
           <TabsTrigger value="employees" data-ocid="erp.hr.employees.tab">
             Employees
@@ -307,7 +314,10 @@ function HRModule() {
 
         <TabsContent value="employees">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold">Employees ({employees.length})</h3>
+            <h3 className="font-semibold">
+              Employees ({employees.length} total,{" "}
+              {employees.filter((e) => e.status === "Active").length} active)
+            </h3>
             <Button onClick={openAddEmp} data-ocid="erp.add_employee.button">
               + Add Employee
             </Button>

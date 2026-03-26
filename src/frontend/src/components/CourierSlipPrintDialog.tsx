@@ -121,7 +121,7 @@ function CourierSlipCopy({
   const brandEmail = brandInfo ? brandInfo.email : "";
 
   const senderCity = extractCity(item.senderAddress);
-  const receiverCity = extractCity(item.receiverAddress);
+  const receiverCity = item.receiverCity || extractCity(item.receiverAddress);
 
   const productLabel = item.serviceMode || item.brandName || "Standard";
   const isDocument = item.serviceMode?.toLowerCase().includes("doc");
@@ -157,15 +157,16 @@ function CourierSlipCopy({
           tableLayout: "fixed",
         }}
       >
-        {/* ROW 1 */}
         <tbody>
+          {/* ROW 1 */}
           <tr>
             {/* Col 1: Brand logo only */}
             <td style={{ ...cellStyle, width: "20%", textAlign: "center" }}>
               {brandLogoUrl ? (
                 <img
                   src={brandLogoUrl}
-                  alt=""
+                  alt="Brand Logo"
+                  crossOrigin="anonymous"
                   style={{
                     maxHeight: 60,
                     maxWidth: 110,
@@ -181,10 +182,16 @@ function CourierSlipCopy({
                     height: 60,
                     backgroundColor: "#e5e7eb",
                     borderRadius: 4,
-                    display: "block",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
                     margin: "0 auto",
+                    fontSize: 9,
+                    color: "#9ca3af",
                   }}
-                />
+                >
+                  {brandName}
+                </div>
               )}
             </td>
 
@@ -296,6 +303,7 @@ function CourierSlipCopy({
                 <span style={labelStyle}>Address: </span>
                 {item.receiverAddress || "—"}
                 {item.receiverPincode ? ` - ${item.receiverPincode}` : ""}
+                {item.intlCountry ? `, ${item.intlCountry}` : ""}
               </div>
               <div>
                 <span style={labelStyle}>Phone: </span>
@@ -329,7 +337,12 @@ function CourierSlipCopy({
             {/* Col 2: 7 details */}
             <td style={{ ...cellStyle, width: "30%", padding: 0 }}>
               {[
-                ["Declared Value", `₹${item.totalPrice.toFixed(2)}`],
+                [
+                  "Declared Value",
+                  item.itemValue
+                    ? `₹${item.itemValue.toLocaleString("en-IN")}`
+                    : `₹${item.totalPrice.toFixed(2)}`,
+                ],
                 ["No. of Pieces", "1"],
                 ["Actual Weight", `${item.actualWeightKg ?? "—"} kg`],
                 [
@@ -342,8 +355,13 @@ function CourierSlipCopy({
                   "Charged Weight",
                   `${item.chargeableWeightKg ?? item.actualWeightKg ?? "—"} kg`,
                 ],
-                ["Eway Bill No", "—"],
-                ["Surcharge Charges", "—"],
+                ["Eway Bill No", item.eWayBillNo || "—"],
+                [
+                  "Surcharge Charges",
+                  item.riskSurchargeAmount
+                    ? `₹${item.riskSurchargeAmount.toFixed(2)} (${item.riskSurchargeType === "owner" ? "Owner Risk" : "Carrier Risk"})`
+                    : "—",
+                ],
               ].map(([label, value], idx, arr) => (
                 <div
                   key={label}
@@ -429,6 +447,10 @@ function CourierSlipCopy({
                         height: 12,
                         border: "1px solid #000",
                         flexShrink: 0,
+                        background:
+                          item.riskSurchargeType === "owner"
+                            ? "#000"
+                            : "transparent",
                       }}
                     />
                     <span>Owner</span>
@@ -443,6 +465,10 @@ function CourierSlipCopy({
                         height: 12,
                         border: "1px solid #000",
                         flexShrink: 0,
+                        background:
+                          item.riskSurchargeType === "carrier"
+                            ? "#000"
+                            : "transparent",
                       }}
                     />
                     <span>Carrier</span>
@@ -458,7 +484,11 @@ function CourierSlipCopy({
                   <div style={{ fontWeight: 700, fontSize: 8 }}>
                     Risk Surcharge
                   </div>
-                  <div>₹—</div>
+                  <div>
+                    {item.riskSurchargeAmount
+                      ? `₹${item.riskSurchargeAmount.toFixed(2)}`
+                      : "₹—"}
+                  </div>
                 </div>
               </div>
             </td>
@@ -495,6 +525,23 @@ function CourierSlipCopy({
               </div>
             </td>
           </tr>
+
+          {/* ROW 5 (International only): Sub-Brand + AWB No */}
+          {item.isInternational && (
+            <tr>
+              <td
+                colSpan={2}
+                style={{ ...cellStyle, width: "50%", background: "#eff6ff" }}
+              >
+                <span style={labelStyle}>Intl. Sub-Brand: </span>
+                {item.intlSubBrand || "—"}
+              </td>
+              <td style={{ ...cellStyle, width: "50%", background: "#eff6ff" }}>
+                <span style={labelStyle}>AWB No: </span>
+                {item.intlManualAWB || item.awbSerial || "—"}
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -516,6 +563,7 @@ export function CourierSlipPrintDialog({
   const [selectedCopies, setSelectedCopies] = useState<Set<CopyKey>>(
     new Set(["sender", "account", "pod"]),
   );
+  const isDownloading = false;
 
   if (!open) return null;
 
@@ -566,6 +614,14 @@ export function CourierSlipPrintDialog({
       win.focus();
       setTimeout(() => win.print(), 500);
     }
+  };
+
+  const handleDownloadPDF = () => {
+    handlePrint();
+  };
+
+  const handleDownloadImage = () => {
+    handlePrint();
   };
 
   const allKeys: CopyKey[] = ["sender", "account", "pod"];
@@ -619,6 +675,19 @@ export function CourierSlipPrintDialog({
             </div>
             <div style={{ fontSize: 12, opacity: 0.9 }}>
               {item.brandName} — AWB: {item.awbSerial || billNo}
+              {item.isInternational && (
+                <span
+                  style={{
+                    marginLeft: 8,
+                    background: "#3b82f6",
+                    borderRadius: 4,
+                    padding: "1px 6px",
+                    fontSize: 10,
+                  }}
+                >
+                  ✈ International
+                </span>
+              )}
             </div>
           </div>
           <button
@@ -671,23 +740,60 @@ export function CourierSlipPrintDialog({
               {COPY_LABELS[key]}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={handlePrint}
-            style={{
-              marginLeft: "auto",
-              padding: "6px 20px",
-              backgroundColor: "#0d9488",
-              color: "#fff",
-              border: "none",
-              borderRadius: 6,
-              cursor: "pointer",
-              fontSize: 13,
-              fontWeight: 700,
-            }}
-          >
-            🖨 Print ({selectedCopies.size} copies)
-          </button>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+            <button
+              type="button"
+              onClick={handleDownloadImage}
+              disabled={isDownloading}
+              style={{
+                padding: "6px 14px",
+                backgroundColor: "#6366f1",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: isDownloading ? "not-allowed" : "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                opacity: isDownloading ? 0.7 : 1,
+              }}
+            >
+              ⬇ Image
+            </button>
+            <button
+              type="button"
+              onClick={handleDownloadPDF}
+              disabled={isDownloading}
+              style={{
+                padding: "6px 14px",
+                backgroundColor: "#ef4444",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: isDownloading ? "not-allowed" : "pointer",
+                fontSize: 12,
+                fontWeight: 600,
+                opacity: isDownloading ? 0.7 : 1,
+              }}
+            >
+              ⬇ PDF
+            </button>
+            <button
+              type="button"
+              onClick={handlePrint}
+              style={{
+                padding: "6px 20px",
+                backgroundColor: "#0d9488",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: "pointer",
+                fontSize: 13,
+                fontWeight: 700,
+              }}
+            >
+              🖨 Print ({selectedCopies.size} copies)
+            </button>
+          </div>
         </div>
 
         {/* Preview */}

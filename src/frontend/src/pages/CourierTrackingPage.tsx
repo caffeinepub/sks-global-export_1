@@ -690,6 +690,47 @@ export function CourierTrackingPage() {
     trackingNotes: Array<{ date: string; note: string; status: string }>;
   } | null>(null);
 
+  // ── Managed statuses (from Manage Statuses tab) ──────────────────────────
+  const [managedStatuses] = useState<TrackingStatus[]>(getTrackingStatuses);
+
+  // Build dynamic status options from managed statuses
+  const dynamicStatusOptions = managedStatuses
+    .filter((s) => s.isActive)
+    .map((s) => ({
+      value: s.id,
+      label: s.name,
+      color: `bg-${s.color}-100 text-${s.color}-700`,
+    }));
+  // Also include static STATUS_OPTIONS for backward compat values not in managed
+  const allStatusOptions = [
+    ...dynamicStatusOptions,
+    ...STATUS_OPTIONS.filter(
+      (so) =>
+        !dynamicStatusOptions.find(
+          (d) =>
+            d.value === so.value ||
+            d.label.toLowerCase() === so.label.toLowerCase(),
+        ),
+    ),
+  ];
+
+  const getLabel = (val: string) => {
+    const s = managedStatuses.find(
+      (x) => x.id === val || x.name.toLowerCase().replace(/\s+/g, "_") === val,
+    );
+    return s?.name || STATUS_OPTIONS.find((x) => x.value === val)?.label || val;
+  };
+  const getColor = (val: string) => {
+    const s = managedStatuses.find(
+      (x) => x.id === val || x.name.toLowerCase().replace(/\s+/g, "_") === val,
+    );
+    if (s) return `bg-${s.color}-100 text-${s.color}-700`;
+    return (
+      STATUS_OPTIONS.find((x) => x.value === val)?.color ||
+      "bg-gray-100 text-gray-700"
+    );
+  };
+
   // ── Status Update tab state ──────────────────────────────────────────────
   const [suFilterBrand, setSuFilterBrand] = useState("all");
   const [suFilterStatus, setSuFilterStatus] = useState("all");
@@ -1659,7 +1700,7 @@ export function CourierTrackingPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Status</SelectItem>
-                    {STATUS_OPTIONS.map((s) => (
+                    {allStatusOptions.map((s) => (
                       <SelectItem key={s.value} value={s.value}>
                         {s.label}
                       </SelectItem>
@@ -1714,9 +1755,9 @@ export function CourierTrackingPage() {
                         </TableCell>
                         <TableCell>
                           <span
-                            className={`text-xs px-1.5 py-0.5 rounded font-medium ${getStatusColor(extItem.trackingStatus || "booked")}`}
+                            className={`text-xs px-1.5 py-0.5 rounded font-medium ${getColor(extItem.trackingStatus || "booked")}`}
                           >
-                            {getStatusLabel(extItem.trackingStatus || "booked")}
+                            {getLabel(extItem.trackingStatus || "booked")}
                           </span>
                         </TableCell>
                         <TableCell>
@@ -1733,7 +1774,7 @@ export function CourierTrackingPage() {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {STATUS_OPTIONS.map((s) => (
+                              {allStatusOptions.map((s) => (
                                 <SelectItem key={s.value} value={s.value}>
                                   <span
                                     className={`text-xs px-1.5 py-0.5 rounded ${s.color}`}

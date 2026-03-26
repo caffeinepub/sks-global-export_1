@@ -312,6 +312,16 @@ export interface BillItem {
   actualWeightKg?: number;
   volumetricWeightKg?: number;
   chargeableWeightKg?: number;
+  // International courier fields
+  isInternational?: boolean;
+  intlCountry?: string;
+  intlSubBrand?: string;
+  intlManualAWB?: string;
+  // Eway Bill & Risk Surcharge
+  itemValue?: number;
+  eWayBillNo?: string;
+  riskSurchargeType?: "owner" | "carrier";
+  riskSurchargeAmount?: number;
 }
 
 export interface Bill {
@@ -491,6 +501,7 @@ export interface CourierTariff {
   tariffName?: string; // e.g. "SPL Rate", "SPL1 Rate", "Standard"
   showInBilling?: boolean; // if false, hidden from POS billing
   billingCategory?: string; // e.g. "Common", "Special Rates", "Customer Specific"
+  specialDesignationPrice?: number; // optional price for special designation zones
 }
 
 // ─── Design Studio ────────────────────────────────────────────────────────────

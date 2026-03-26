@@ -75,9 +75,9 @@ function set<T>(key: string, value: T): void {
 export const getCompanies = (): Company[] => get<Company[]>(KEYS.COMPANIES, []);
 export const setCompanies = (c: Company[]): void => set(KEYS.COMPANIES, c);
 export const getActiveCompanyId = (): string =>
-  get<string>(KEYS.ACTIVE_COMPANY, "");
+  sessionStorage.getItem(KEYS.ACTIVE_COMPANY) ?? "";
 export const setActiveCompanyId = (id: string): void =>
-  set(KEYS.ACTIVE_COMPANY, id);
+  sessionStorage.setItem(KEYS.ACTIVE_COMPANY, id);
 export const getActiveCompany = (): Company | null => {
   const id = getActiveCompanyId();
   if (!id) return null;
@@ -87,10 +87,18 @@ export const getActiveCompany = (): Company | null => {
 // Users
 export const getUsers = (): AppUser[] => get<AppUser[]>(KEYS.USERS, []);
 export const setUsers = (u: AppUser[]): void => set(KEYS.USERS, u);
-export const getActiveUser = (): AppUser | null =>
-  get<AppUser | null>(KEYS.ACTIVE_USER, null);
-export const setActiveUser = (u: AppUser | null): void =>
-  set(KEYS.ACTIVE_USER, u);
+export const getActiveUser = (): AppUser | null => {
+  try {
+    const v = sessionStorage.getItem(KEYS.ACTIVE_USER);
+    return v ? (JSON.parse(v) as AppUser) : null;
+  } catch {
+    return null;
+  }
+};
+export const setActiveUser = (u: AppUser | null): void => {
+  if (u === null) sessionStorage.removeItem(KEYS.ACTIVE_USER);
+  else sessionStorage.setItem(KEYS.ACTIVE_USER, JSON.stringify(u));
+};
 
 // Per-company data
 export const getBills = (cid: string): Bill[] =>
@@ -469,6 +477,9 @@ export const exportAllData = (): string => {
     // Manual contacts (global)
     manualContacts: getManualContacts(),
     manualPickupContacts: getManualPickupContacts(),
+    intl_sub_brands: JSON.parse(
+      localStorage.getItem("intl_sub_brands") || "[]",
+    ),
   };
 
   // Export shared data (the actual data store used by the app)
@@ -1152,6 +1163,12 @@ export const importAllData = (jsonString: string): void => {
     localStorage.setItem(
       "sks_manual_contacts",
       JSON.stringify(data.manualContacts),
+    );
+  }
+  if (Array.isArray(data.intl_sub_brands) && data.intl_sub_brands.length > 0) {
+    localStorage.setItem(
+      "intl_sub_brands",
+      JSON.stringify(data.intl_sub_brands),
     );
   }
   if (Array.isArray(data.manualPickupContacts)) {

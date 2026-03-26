@@ -247,6 +247,32 @@ const getBrandStyle = (brandName: string) => {
       };
 };
 
+function calcRiskSurcharge(
+  itemValue: number,
+  type: "owner" | "carrier",
+): number {
+  let rate: number;
+  if (type === "owner") {
+    if (itemValue <= 100000) rate = 0.001;
+    else if (itemValue <= 500000) rate = 0.002;
+    else rate = 0.003;
+  } else {
+    if (itemValue <= 100000) rate = 0.01;
+    else if (itemValue <= 500000) rate = 0.02;
+    else rate = 0.03;
+  }
+  const baseAmount = itemValue * rate;
+  const gstAmount = baseAmount * 0.18;
+  return Math.round((baseAmount + gstAmount) * 100) / 100;
+}
+
+function needsEwayBill(itemValue: number, receiverState: string): boolean {
+  const isTamilnadu =
+    receiverState.toLowerCase().includes("tamil") ||
+    receiverState.toLowerCase() === "tn";
+  return isTamilnadu ? itemValue > 99999 : itemValue > 49999;
+}
+
 interface CourierFormState {
   senderName: string;
   senderCompany: string;
@@ -273,6 +299,9 @@ interface CourierFormState {
   tariffZone: string;
   tariffProductType: string;
   useTariff: boolean;
+  itemValue: string;
+  eWayBillNo: string;
+  riskSurchargeType: "owner" | "carrier" | "";
 }
 
 // AWB check status for manual entry
@@ -361,6 +390,20 @@ export function POSBillingPage({
 
   // SKS own-brand: Domestic (D) or International (W)
   const [sksIsInternational, setSksIsInternational] = useState(false);
+
+  // Global Domestic / International toggle
+  const [isInternational, setIsInternational] = useState(false);
+  const [intlCountry, setIntlCountry] = useState("");
+  const [intlSubBrand, setIntlSubBrand] = useState("");
+  const [intlManualAWB, setIntlManualAWB] = useState("");
+  const [intlSubBrands, setIntlSubBrands] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("intl_sub_brands");
+      return stored ? JSON.parse(stored) : ["DHL", "FedEx", "UPS", "Aramex"];
+    } catch {
+      return ["DHL", "FedEx", "UPS", "Aramex"];
+    }
+  });
 
   // Manual AWB entry for partner brands
   const [manualAWBInput, setManualAWBInput] = useState("");
@@ -451,6 +494,9 @@ export function POSBillingPage({
     tariffZone: "Within City",
     tariffProductType: "Express",
     useTariff: false,
+    itemValue: "",
+    eWayBillNo: "",
+    riskSurchargeType: "",
   });
 
   // Pre-populate fields when editing an existing bill
@@ -772,12 +818,15 @@ export function POSBillingPage({
           t.isActive,
       );
       const gstRate = selectedBrand.gstRate || 0;
-      if (matchedTariff?.isGSTInclusive && gstRate > 0) {
+      const isOverrideInclusive = matchedTariff
+        ? matchedTariff.isGSTInclusive !== false
+        : false;
+      if (isOverrideInclusive && gstRate > 0) {
         // tariff price already includes GST
         unitPrice = customerOverride; // GST-inclusive unit price
         totalPrice = customerOverride; // GST-inclusive total
       } else if (gstRate > 0) {
-        // tariff price excludes GST — add GST; unitPrice = totalPrice so editable shows all-in amount
+        // tariff price explicitly excludes GST — add GST
         totalPrice =
           Math.round(customerOverride * (1 + gstRate / 100) * 100) / 100;
         unitPrice = totalPrice;
@@ -804,12 +853,15 @@ export function POSBillingPage({
             t.isActive,
         );
         const gstRate = selectedBrand.gstRate || 0;
-        if (matchedTariff?.isGSTInclusive && gstRate > 0) {
+        const isTariffInclusive = matchedTariff
+          ? matchedTariff.isGSTInclusive !== false
+          : false;
+        if (isTariffInclusive && gstRate > 0) {
           // tariff price already includes GST
           unitPrice = tariffResult.price; // GST-inclusive unit price
           totalPrice = tariffResult.price; // GST-inclusive total
         } else if (gstRate > 0) {
-          // tariff price excludes GST — add GST; unitPrice = totalPrice so editable shows all-in amount
+          // tariff explicitly excludes GST — add GST
           totalPrice =
             Math.round(tariffResult.price * (1 + gstRate / 100) * 100) / 100;
           unitPrice = totalPrice;
@@ -843,11 +895,30 @@ export function POSBillingPage({
       }
     })();
 
+    const itemValForDesc = Number(courierForm.itemValue) || 0;
+    const needsEwayBillForItem =
+      itemValForDesc > 0 &&
+      needsEwayBill(itemValForDesc, courierForm.receiverState);
+    let riskSurcharge = 0;
+    if (needsEwayBillForItem && courierForm.riskSurchargeType) {
+      riskSurcharge = calcRiskSurcharge(
+        itemValForDesc,
+        courierForm.riskSurchargeType as "owner" | "carrier",
+      );
+    }
+    const riskDesc =
+      needsEwayBillForItem && courierForm.riskSurchargeType
+        ? " ✓ Risk Surcharge applied"
+        : "";
     const description = [
       courierForm.receiverName,
       courierForm.receiverPincode || "",
       weightLabel,
+      itemValForDesc > 0
+        ? `Value: ₹${itemValForDesc.toLocaleString("en-IN")}`
+        : "",
       bookingDateFormatted,
+      riskDesc,
     ]
       .filter(Boolean)
       .join(" - ");
@@ -912,6 +983,11 @@ export function POSBillingPage({
       receiverStateVal,
     );
 
+    if (riskSurcharge > 0) {
+      totalPrice = Math.round((totalPrice + riskSurcharge) * 100) / 100;
+      unitPrice = totalPrice;
+    }
+
     const item: BillItem = {
       id: generateId(),
       productId: selectedBrand.id,
@@ -941,6 +1017,15 @@ export function POSBillingPage({
       actualWeightKg: actualWtKg,
       volumetricWeightKg: volWtKg,
       chargeableWeightKg: chargeableWt,
+      isInternational: isInternational || undefined,
+      intlCountry: isInternational ? intlCountry : undefined,
+      intlSubBrand: isInternational ? intlSubBrand : undefined,
+      intlManualAWB: isInternational ? intlManualAWB : undefined,
+      itemValue: itemValForDesc || undefined,
+      eWayBillNo: courierForm.eWayBillNo || undefined,
+      riskSurchargeType:
+        (courierForm.riskSurchargeType as "owner" | "carrier") || undefined,
+      riskSurchargeAmount: riskSurcharge > 0 ? riskSurcharge : undefined,
     };
 
     // Save receiver details for future auto-fill
@@ -1018,6 +1103,9 @@ export function POSBillingPage({
       tariffZone: "Within City",
       tariffProductType: "Express",
       useTariff: false,
+      itemValue: "",
+      eWayBillNo: "",
+      riskSurchargeType: "",
     });
   };
 
@@ -1350,7 +1438,14 @@ export function POSBillingPage({
     }, 0);
     const visibleCharges = additionalCharges.filter((c) => c.showInBill);
     const visibleTotal = visibleCharges.reduce((sum, c) => sum + c.amount, 0);
-    const finalTotal = Math.max(0, finalSubtotal + visibleTotal - billDiscount);
+    const gstInclusiveTotal = finalItems.reduce(
+      (sum, i) => sum + i.totalPrice,
+      0,
+    );
+    const finalTotal = Math.max(
+      0,
+      gstInclusiveTotal + visibleTotal - billDiscount,
+    );
 
     const billNo =
       editMode && billNoOverride
@@ -2227,6 +2322,133 @@ export function POSBillingPage({
                           </div>
                         )}
 
+                        {/* Domestic / International Toggle */}
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-2">
+                          <p className="text-xs font-semibold text-slate-700 uppercase tracking-wide">
+                            Shipment Mode
+                          </p>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsInternational(false)}
+                              className={cn(
+                                "flex-1 h-9 rounded-lg border-2 text-xs font-semibold transition-all",
+                                !isInternational
+                                  ? "border-green-500 bg-green-500 text-white"
+                                  : "border-border bg-white text-muted-foreground hover:border-green-300",
+                              )}
+                              data-ocid="courier.domestic.toggle"
+                            >
+                              🏠 Domestic
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setIsInternational(true)}
+                              className={cn(
+                                "flex-1 h-9 rounded-lg border-2 text-xs font-semibold transition-all",
+                                isInternational
+                                  ? "border-blue-500 bg-blue-500 text-white"
+                                  : "border-border bg-white text-muted-foreground hover:border-blue-300",
+                              )}
+                              data-ocid="courier.international.toggle"
+                            >
+                              ✈ International
+                            </button>
+                          </div>
+                          {isInternational && (
+                            <div className="space-y-2 pt-1">
+                              <div>
+                                <label
+                                  htmlFor="intl-country-input"
+                                  className="text-xs font-medium text-muted-foreground block mb-1"
+                                >
+                                  Country{" "}
+                                  <span className="text-destructive">*</span>
+                                </label>
+                                <input
+                                  id="intl-country-input"
+                                  className="border rounded px-2 py-1.5 text-sm w-full"
+                                  placeholder="e.g. USA, UK, UAE..."
+                                  value={intlCountry}
+                                  onChange={(e) =>
+                                    setIntlCountry(e.target.value)
+                                  }
+                                  data-ocid="courier.intl_country.input"
+                                />
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  International Sub-Brand
+                                </p>
+                                <div className="flex gap-1">
+                                  <select
+                                    className="border rounded px-2 py-1.5 text-sm flex-1"
+                                    value={intlSubBrand}
+                                    onChange={(e) =>
+                                      setIntlSubBrand(e.target.value)
+                                    }
+                                    data-ocid="courier.intl_sub_brand.select"
+                                  >
+                                    <option value="">
+                                      Select sub-brand...
+                                    </option>
+                                    {intlSubBrands.map((b) => (
+                                      <option key={b} value={b}>
+                                        {b}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    className="border rounded px-2 py-1.5 text-sm w-28"
+                                    placeholder="Add new..."
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") {
+                                        const val = (
+                                          e.target as HTMLInputElement
+                                        ).value.trim();
+                                        if (
+                                          val &&
+                                          !intlSubBrands.includes(val)
+                                        ) {
+                                          const updated = [
+                                            ...intlSubBrands,
+                                            val,
+                                          ];
+                                          setIntlSubBrands(updated);
+                                          localStorage.setItem(
+                                            "intl_sub_brands",
+                                            JSON.stringify(updated),
+                                          );
+                                          setIntlSubBrand(val);
+                                          (e.target as HTMLInputElement).value =
+                                            "";
+                                        }
+                                      }
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs font-medium text-muted-foreground mb-1">
+                                  AWB No (Manual Entry){" "}
+                                  <span className="text-xs text-amber-600">
+                                    — can be added later next day
+                                  </span>
+                                </p>
+                                <input
+                                  className="border rounded px-2 py-1.5 text-sm w-full"
+                                  placeholder="Enter AWB No if available..."
+                                  value={intlManualAWB}
+                                  onChange={(e) =>
+                                    setIntlManualAWB(e.target.value)
+                                  }
+                                  data-ocid="courier.intl_awb.input"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
                         {/* Pincode Row — always visible */}
                         <div className="space-y-2">
                           <div className="grid grid-cols-2 gap-2">
@@ -2874,6 +3096,118 @@ export function POSBillingPage({
                           )}
                         </div>
 
+                        {/* Item Value & Eway Bill */}
+                        <div className="space-y-2">
+                          <div>
+                            <Label className="text-xs text-muted-foreground">
+                              Item Value (₹)
+                            </Label>
+                            <Input
+                              type="number"
+                              className="text-xs h-8 mt-0.5"
+                              placeholder="Declared value of items"
+                              value={courierForm.itemValue}
+                              onChange={(e) =>
+                                setCourierForm((p) => ({
+                                  ...p,
+                                  itemValue: e.target.value,
+                                }))
+                              }
+                              min="0"
+                            />
+                          </div>
+                          {Number(courierForm.itemValue) > 0 &&
+                            needsEwayBill(
+                              Number(courierForm.itemValue),
+                              courierForm.receiverState,
+                            ) && (
+                              <div className="border border-amber-300 bg-amber-50 dark:bg-amber-950/20 rounded p-2 space-y-2">
+                                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+                                  ⚠️ E-Way Bill Required (Value &gt; ₹
+                                  {courierForm.receiverState
+                                    .toLowerCase()
+                                    .includes("tamil")
+                                    ? "99,999"
+                                    : "49,999"}
+                                  )
+                                </p>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">
+                                    E-Way Bill No
+                                  </Label>
+                                  <Input
+                                    type="text"
+                                    className="text-xs h-8 mt-0.5"
+                                    placeholder="Enter E-Way Bill Number"
+                                    value={courierForm.eWayBillNo}
+                                    onChange={(e) =>
+                                      setCourierForm((p) => ({
+                                        ...p,
+                                        eWayBillNo: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                                <div>
+                                  <Label className="text-xs text-muted-foreground">
+                                    Risk Surcharge
+                                  </Label>
+                                  <div className="flex gap-4 mt-1">
+                                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                                      <input
+                                        type="radio"
+                                        name="riskSurcharge"
+                                        value="owner"
+                                        checked={
+                                          courierForm.riskSurchargeType ===
+                                          "owner"
+                                        }
+                                        onChange={() =>
+                                          setCourierForm((p) => ({
+                                            ...p,
+                                            riskSurchargeType: "owner",
+                                          }))
+                                        }
+                                      />
+                                      Owner Risk
+                                    </label>
+                                    <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                                      <input
+                                        type="radio"
+                                        name="riskSurcharge"
+                                        value="carrier"
+                                        checked={
+                                          courierForm.riskSurchargeType ===
+                                          "carrier"
+                                        }
+                                        onChange={() =>
+                                          setCourierForm((p) => ({
+                                            ...p,
+                                            riskSurchargeType: "carrier",
+                                          }))
+                                        }
+                                      />
+                                      Carrier Risk
+                                    </label>
+                                  </div>
+                                  {courierForm.riskSurchargeType &&
+                                    Number(courierForm.itemValue) > 0 && (
+                                      <p className="text-xs text-green-700 dark:text-green-400 mt-1">
+                                        Risk Surcharge: ₹
+                                        {calcRiskSurcharge(
+                                          Number(courierForm.itemValue),
+                                          courierForm.riskSurchargeType as
+                                            | "owner"
+                                            | "carrier",
+                                        ).toFixed(2)}{" "}
+                                        (incl. 18% GST)
+                                      </p>
+                                    )}
+                                </div>
+                              </div>
+                            )}
+                        </div>
+
                         {/* Product Type & Mode */}
                         <div className="grid grid-cols-2 gap-3">
                           <div className="space-y-1.5">
@@ -3147,8 +3481,9 @@ export function POSBillingPage({
                               )
                             : null;
 
-                          const isGSTInclusive =
-                            matchedTariff?.isGSTInclusive ?? false;
+                          const isGSTInclusive = matchedTariff
+                            ? matchedTariff.isGSTInclusive !== false
+                            : false;
 
                           const custOverride = hasTariff
                             ? getCustomerTariffOverride(

@@ -44,6 +44,7 @@ import {
   FileDown,
   FileImage,
   FileSpreadsheet,
+  IndianRupee,
   Pencil,
   Plus,
   Printer,
@@ -716,6 +717,9 @@ export function PurchaseInvoicesPage() {
   const [editInvoice, setEditInvoice] = useState<PurchaseInvoice | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [quickPayInv, setQuickPayInv] = useState<PurchaseInvoice | null>(null);
+  const [quickPayAmount, setQuickPayAmount] = useState("");
+  const [quickPayMethod, setQuickPayMethod] = useState("cash");
 
   // ── Form state ────────────────────────────────────────────────────────────
   const [fVendorId, setFVendorId] = useState("");
@@ -729,6 +733,7 @@ export function PurchaseInvoicesPage() {
 
   // New-item form
   const [newProductId, setNewProductId] = useState("");
+  const [productSearch, setProductSearch] = useState("");
   const [newQty, setNewQty] = useState("1");
   const [newPrice, setNewPrice] = useState("");
   const [newGst, setNewGst] = useState("18");
@@ -1384,6 +1389,28 @@ export function PurchaseInvoicesPage() {
                           >
                             <FileSpreadsheet className="w-3.5 h-3.5" />
                           </Button>
+                          {inv.paymentStatus !== "paid" && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                              title="Quick Pay"
+                              onClick={() => {
+                                setQuickPayInv(inv);
+                                setQuickPayAmount(
+                                  String(
+                                    (inv.total - (inv.amountPaid || 0)).toFixed(
+                                      2,
+                                    ),
+                                  ),
+                                );
+                                setQuickPayMethod("cash");
+                              }}
+                              data-ocid={`purchase_invoices.pay.button.${rowNum}`}
+                            >
+                              <IndianRupee className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1555,33 +1582,88 @@ export function PurchaseInvoicesPage() {
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                   <div className="md:col-span-1">
                     <Label className="text-xs">Product</Label>
-                    <Select
-                      value={newProductId}
-                      onValueChange={handleProductSelect}
-                    >
-                      <SelectTrigger
-                        className="mt-1 text-sm"
-                        data-ocid="purchase_invoices.product.select"
-                      >
-                        <SelectValue placeholder="Select product" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {products.map((p) => (
-                          <SelectItem key={p.id} value={p.id}>
-                            {p.type === "general"
-                              ? (p as GeneralProduct).name
+                    <div className="relative mt-1">
+                      <input
+                        type="text"
+                        className="border rounded px-2 py-1.5 text-sm w-full"
+                        placeholder="Search product..."
+                        value={
+                          productSearch ||
+                          (products.find((p) => p.id === newProductId)
+                            ? products.find((p) => p.id === newProductId)!
+                                .type === "general"
+                              ? (
+                                  products.find(
+                                    (p) => p.id === newProductId,
+                                  ) as GeneralProduct
+                                ).name
                               : (
-                                  p as {
-                                    brandName?: string;
-                                    name?: string;
-                                  }
-                                ).brandName ||
-                                (p as { name?: string }).name ||
-                                "Unknown"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                                  products.find(
+                                    (p) => p.id === newProductId,
+                                  ) as { brandName?: string }
+                                ).brandName || "Unknown"
+                            : "")
+                        }
+                        onChange={(e) => {
+                          setProductSearch(e.target.value);
+                          setNewProductId("");
+                        }}
+                        data-ocid="purchase_invoices.product.search_input"
+                      />
+                      {productSearch && (
+                        <div className="absolute z-10 w-full mt-1 max-h-48 overflow-y-auto border rounded bg-white shadow-lg">
+                          {products
+                            .filter((p) => {
+                              const name =
+                                p.type === "general"
+                                  ? (p as GeneralProduct).name
+                                  : (p as { brandName?: string }).brandName ||
+                                    "";
+                              return name
+                                .toLowerCase()
+                                .includes(productSearch.toLowerCase());
+                            })
+                            .map((p) => {
+                              const name =
+                                p.type === "general"
+                                  ? (p as GeneralProduct).name
+                                  : (p as { brandName?: string }).brandName ||
+                                    "Unknown";
+                              return (
+                                <div
+                                  key={p.id}
+                                  className="px-3 py-2 text-sm cursor-pointer hover:bg-primary/10"
+                                  onClick={() => {
+                                    handleProductSelect(p.id);
+                                    setProductSearch("");
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter" || e.key === " ") {
+                                      handleProductSelect(p.id);
+                                      setProductSearch("");
+                                    }
+                                  }}
+                                >
+                                  {name}
+                                </div>
+                              );
+                            })}
+                          {products.filter((p) => {
+                            const name =
+                              p.type === "general"
+                                ? (p as GeneralProduct).name
+                                : (p as { brandName?: string }).brandName || "";
+                            return name
+                              .toLowerCase()
+                              .includes(productSearch.toLowerCase());
+                          }).length === 0 && (
+                            <div className="px-3 py-2 text-sm text-muted-foreground">
+                              No products found
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
                   <div>
                     <Label className="text-xs">Qty</Label>
@@ -1783,6 +1865,144 @@ export function PurchaseInvoicesPage() {
               data-ocid="purchase_invoices.save.button"
             >
               {editInvoice ? "Update Invoice" : "Save Invoice"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Quick Pay Dialog ──────────────────────────────────────────────────── */}
+      <Dialog
+        open={!!quickPayInv}
+        onOpenChange={(o) => !o && setQuickPayInv(null)}
+      >
+        <DialogContent
+          className="max-w-sm"
+          data-ocid="purchase_invoices.quick_pay.dialog"
+        >
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <IndianRupee className="w-4 h-4 text-emerald-600" />
+              Quick Pay Out
+            </DialogTitle>
+          </DialogHeader>
+          {quickPayInv && (
+            <div className="space-y-4">
+              <div className="bg-muted/40 rounded-lg p-3 text-sm">
+                <p>
+                  <span className="text-muted-foreground">Invoice:</span>{" "}
+                  <span className="font-semibold">{quickPayInv.invoiceNo}</span>
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Vendor:</span>{" "}
+                  {quickPayInv.vendorName}
+                </p>
+                <p>
+                  <span className="text-muted-foreground">Balance Due:</span>{" "}
+                  <span className="font-bold text-amber-600">
+                    ₹
+                    {(
+                      quickPayInv.total - (quickPayInv.amountPaid || 0)
+                    ).toFixed(2)}
+                  </span>
+                </p>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <Label className="text-xs" htmlFor="qp-amount">
+                    Payment Amount
+                  </Label>
+                  <Input
+                    id="qp-amount"
+                    type="number"
+                    min="0"
+                    value={quickPayAmount}
+                    onChange={(e) => setQuickPayAmount(e.target.value)}
+                    className="mt-1"
+                    data-ocid="purchase_invoices.quick_pay.input"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs" htmlFor="qp-method">
+                    Payment Method
+                  </Label>
+                  <Select
+                    value={quickPayMethod}
+                    onValueChange={setQuickPayMethod}
+                  >
+                    <SelectTrigger
+                      id="qp-method"
+                      className="mt-1 text-xs"
+                      data-ocid="purchase_invoices.quick_pay.method.select"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="upi">UPI</SelectItem>
+                      <SelectItem value="bank_transfer">
+                        Bank Transfer
+                      </SelectItem>
+                      <SelectItem value="cheque">Cheque</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setQuickPayInv(null)}
+              data-ocid="purchase_invoices.quick_pay.cancel.button"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => {
+                if (!quickPayInv) return;
+                const amt = Number.parseFloat(quickPayAmount) || 0;
+                if (amt <= 0) {
+                  toast.error("Enter a valid amount");
+                  return;
+                }
+                const balance =
+                  quickPayInv.total - (quickPayInv.amountPaid || 0);
+                const payAmt = Math.min(amt, balance);
+                const newPaid = (quickPayInv.amountPaid || 0) + payAmt;
+                const newStatus: PurchaseInvoice["paymentStatus"] =
+                  newPaid >= quickPayInv.total ? "paid" : "partial";
+                updatePurchaseInvoice({
+                  ...quickPayInv,
+                  amountPaid: newPaid,
+                  paymentStatus: newStatus,
+                });
+                try {
+                  const history = JSON.parse(
+                    localStorage.getItem("sks_payment_history") || "[]",
+                  );
+                  history.push({
+                    id: `pay_${Date.now()}`,
+                    date: new Date().toISOString(),
+                    type: "pay_out",
+                    entityId: quickPayInv.vendorId,
+                    entityName: quickPayInv.vendorName,
+                    amount: payAmt,
+                    method: quickPayMethod,
+                    matchedInvoices: [quickPayInv.invoiceNo],
+                    advance: 0,
+                  });
+                  localStorage.setItem(
+                    "sks_payment_history",
+                    JSON.stringify(history),
+                  );
+                } catch (_e) {}
+                toast.success(`Payment of ₹${payAmt.toFixed(2)} recorded`);
+                setQuickPayInv(null);
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              data-ocid="purchase_invoices.quick_pay.confirm.button"
+            >
+              Confirm Pay Out
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -68,7 +68,12 @@ import {
   generateBillNo,
   generateId,
 } from "../utils/helpers";
-import { nextGSTInvoiceSeq, nextNonGSTInvoiceSeq } from "../utils/storage";
+import {
+  SHARED_DATA_ID as STORAGE_SHARED_ID,
+  getProducts,
+  nextGSTInvoiceSeq,
+  nextNonGSTInvoiceSeq,
+} from "../utils/storage";
 
 interface BillsPageProps {
   onNavigate: (page: string) => void;
@@ -111,16 +116,6 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
     activeCompany,
   } = useAppStore();
 
-  // Load courier brands for logo lookup in slip
-  const [courierBrands, setCourierBrandsLocal] = useState<
-    import("../types").CourierBrand[]
-  >([]);
-  useEffect(() => {
-    import("../utils/storage").then((m) => {
-      setCourierBrandsLocal(m.getCourierBrands(m.SHARED_DATA_ID));
-    });
-  }, []);
-
   const [search, setSearch] = useState("");
   const [filterDate, setFilterDate] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
@@ -132,6 +127,15 @@ export function BillsPage({ onNavigate }: BillsPageProps) {
     item: BillItem;
     bill: Bill;
   } | null>(null);
+  // Load courier brands synchronously for logo lookup in slip
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-reads storage when slip opens
+  const courierBrands = useMemo(
+    () =>
+      getProducts(STORAGE_SHARED_ID).filter(
+        (p) => p.type === "courier_awb",
+      ) as import("../types").CourierBrand[],
+    [slipItem],
+  );
   const [invoiceType, setInvoiceType] = useState<"gst" | "non_gst">("gst");
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
 

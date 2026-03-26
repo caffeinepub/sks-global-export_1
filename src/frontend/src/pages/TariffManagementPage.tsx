@@ -105,6 +105,7 @@ interface TariffFormState {
   // Common
   isGSTInclusive: boolean;
   isActive: boolean;
+  specialDesignationPrice: string;
 }
 
 const emptyForm = (): TariffFormState => ({
@@ -131,6 +132,7 @@ const emptyForm = (): TariffFormState => ({
   ratePerKg: "0",
   isGSTInclusive: true,
   isActive: true,
+  specialDesignationPrice: "",
 });
 
 // ── Helper: describe a tariff for display ──────────────────────────────────────
@@ -291,6 +293,10 @@ export function TariffManagementPage() {
       ratePerKg: String(tariff.ratePerKg ?? 0),
       isGSTInclusive: tariff.isGSTInclusive,
       isActive: tariff.isActive,
+      specialDesignationPrice:
+        tariff.specialDesignationPrice != null
+          ? String(tariff.specialDesignationPrice)
+          : "",
     });
     setDialogOpen(true);
   };
@@ -356,6 +362,9 @@ export function TariffManagementPage() {
       maxWeightKg: form.maxWeightKg ? Number(form.maxWeightKg) : undefined,
       isGSTInclusive: form.isGSTInclusive,
       isActive: form.isActive,
+      specialDesignationPrice: form.specialDesignationPrice
+        ? Number(form.specialDesignationPrice)
+        : undefined,
     };
 
     if (editingTariff) {
@@ -1315,6 +1324,32 @@ export function TariffManagementPage() {
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Special Designation Price */}
+          <div className="space-y-1">
+            <Label className="text-sm">
+              Special Designation Price (₹){" "}
+              <span className="text-muted-foreground font-normal">
+                (optional)
+              </span>
+            </Label>
+            <input
+              type="number"
+              className="border rounded px-2 py-1.5 text-sm w-full"
+              placeholder="e.g. 120 — applies to North/East/South/West zones"
+              value={form.specialDesignationPrice}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  specialDesignationPrice: e.target.value,
+                }))
+              }
+              data-ocid="tariff.special_designation_price.input"
+            />
+            <p className="text-xs text-muted-foreground">
+              Leave blank to use standard tariff price for special zones
+            </p>
           </div>
 
           <DialogFooter>
